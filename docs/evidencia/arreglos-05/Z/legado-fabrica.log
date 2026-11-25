@@ -1,0 +1,3225 @@
+FFFFFFFFFFFF............................................................ [ 50%]
+....................FF.FFFF.FFFF..F.......F.FFFFFFFF.....FFFF.F..F.FF... [100%]
+================================== FAILURES ===================================
+___ test_sello_durable_visible_desde_segunda_conexion_antes_del_primer_post ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B54DEF60>
+
+    @_skip_db
+    def test_sello_durable_visible_desde_segunda_conexion_antes_del_primer_post(monkeypatch):
+        """En el primer POST de hermana, otra conexion YA ve: keyword confirmada
+        (`verify_ok`), cola `applied`, fase `hermanas_negadas` y roster
+        congelado. Regla 9: sin el sello previo al POST, la segunda conexion
+        veria el job todavia en `exact_created` y sin roster."""
+        with db_f2("orbit_hna_sello") as conn:
+            setup = _grupo_listo(conn)
+            hermanas_ag = {
+                setup["roles"][r]["ag_ext"] for r in ROLES_DISCOVERY if r != setup["origen_rol"]
+            }
+            visto: dict = {}
+    
+            from app.ads.write import AdsWriteClient
+    
+            original = AdsWriteClient.crear_negative_exacto
+    
+            def _espia(self, ad_group_id, campaign_id, keyword_text):
+                if str(ad_group_id) in hermanas_ag and "sello" not in visto:
+                    otra = psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+                    try:
+                        ver = otra.execute(
+                            "SELECT verify_ok FROM decision_application WHERE decision_id = %s",
+                            (visto["dec"],),
+                        ).fetchone()
+                        cola = otra.execute(
+                            "SELECT estado FROM apply_queue WHERE id = %s", (visto["qid"],)
+                        ).fetchone()
+                        job = otra.execute(
+                            "SELECT fase, external_ids FROM harvest_job WHERE decision_id = %s",
+                            (visto["dec"],),
+                        ).fetchone()
+                        visto["sello"] = {"verify": ver, "cola": cola, "job": job}
+                    finally:
+                        otra.close()
+                return original(self, ad_group_id, campaign_id, keyword_text)
+    
+            monkeypatch.setattr(AdsWriteClient, "crear_negative_exacto", _espia)
+            exacta = setup["roles"]["category_exact"]
+            dec = _decision_harvest_grupo(
+                conn,
+                setup["ciclo_dec"],
+                setup["config"],
+                setup["origen"]["ag"],
+                grupo_id=setup["grupo_id"],
+                exacta_camp_ext=exacta["camp_ext"],
+                exacta_ag_ext=exacta["ag_ext"],
+            )
+            qid = _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_F2)
+            visto["dec"], visto["qid"] = dec, qid
+            handler, _vistos = _handler_harvest()
+>           libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador(conn, handler, setup["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_hermanas.py:199: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b552ea50>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+______________ test_sello_no_se_repite_en_reintentos_de_higiene _______________
+
+    @_skip_db
+    def test_sello_no_se_repite_en_reintentos_de_higiene():
+        """Tras el flujo completo (una hermana falla, se reintenta y cierra),
+        `applied_count` es 1 y `confirmed_at` no se movio: la higiene posterior
+        jamas re-sella el evento de valor. Regla 9: sin el sello unico, el
+        reintento sumaria otro applied."""
+        with db_f2("orbit_hna_sello1") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:232: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55c73b0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+________ test_roster_tres_hermanas_por_cada_rol_origen[auto_discovery] ________
+
+origen_rol = 'auto_discovery'
+
+    @_skip_db
+    @pytest.mark.parametrize("origen_rol", list(ROLES_DISCOVERY))
+    def test_roster_tres_hermanas_por_cada_rol_origen(origen_rol):
+        """Cada uno de los cuatro roles discovery como origen deja exactamente
+        las otras tres identidades objetivo, en orden canonico, derivadas del
+        grupo (jamas por nombre). Regla 9: un roster vivo o por nombre no
+        coincidiria con los externos del grupo."""
+        with db_f2(f"orbit_hna_ros_{origen_rol[:4]}") as conn:
+            setup = _grupo_listo(conn, origen_rol=origen_rol)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:273: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b565c230>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_______ test_roster_tres_hermanas_por_cada_rol_origen[category_phrase] ________
+
+origen_rol = 'category_phrase'
+
+    @_skip_db
+    @pytest.mark.parametrize("origen_rol", list(ROLES_DISCOVERY))
+    def test_roster_tres_hermanas_por_cada_rol_origen(origen_rol):
+        """Cada uno de los cuatro roles discovery como origen deja exactamente
+        las otras tres identidades objetivo, en orden canonico, derivadas del
+        grupo (jamas por nombre). Regla 9: un roster vivo o por nombre no
+        coincidiria con los externos del grupo."""
+        with db_f2(f"orbit_hna_ros_{origen_rol[:4]}") as conn:
+            setup = _grupo_listo(conn, origen_rol=origen_rol)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:273: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5642450>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+________ test_roster_tres_hermanas_por_cada_rol_origen[category_broad] ________
+
+origen_rol = 'category_broad'
+
+    @_skip_db
+    @pytest.mark.parametrize("origen_rol", list(ROLES_DISCOVERY))
+    def test_roster_tres_hermanas_por_cada_rol_origen(origen_rol):
+        """Cada uno de los cuatro roles discovery como origen deja exactamente
+        las otras tres identidades objetivo, en orden canonico, derivadas del
+        grupo (jamas por nombre). Regla 9: un roster vivo o por nombre no
+        coincidiria con los externos del grupo."""
+        with db_f2(f"orbit_hna_ros_{origen_rol[:4]}") as conn:
+            setup = _grupo_listo(conn, origen_rol=origen_rol)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:273: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5641670>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+______ test_roster_tres_hermanas_por_cada_rol_origen[product_targeting] _______
+
+origen_rol = 'product_targeting'
+
+    @_skip_db
+    @pytest.mark.parametrize("origen_rol", list(ROLES_DISCOVERY))
+    def test_roster_tres_hermanas_por_cada_rol_origen(origen_rol):
+        """Cada uno de los cuatro roles discovery como origen deja exactamente
+        las otras tres identidades objetivo, en orden canonico, derivadas del
+        grupo (jamas por nombre). Regla 9: un roster vivo o por nombre no
+        coincidiria con los externos del grupo."""
+        with db_f2(f"orbit_hna_ros_{origen_rol[:4]}") as conn:
+            setup = _grupo_listo(conn, origen_rol=origen_rol)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:273: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55d5bb0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+____________________ test_terna_sin_grupo_cierra_como_hoy _____________________
+
+    @_skip_db
+    def test_terna_sin_grupo_cierra_como_hoy():
+        """Harvest sin grupo (terna de plataforma) cierra `exact_created ->
+        done` como hoy: sin consulta de grupo, sin ledger de hermana y sin
+        alerta de hermanas. Regla 9: si la fase nueva atrapara este camino, el
+        job quedaria en `hermanas_negadas` y habria POSTs de mas."""
+        with db_f2("orbit_hna_terna") as conn:
+            ids = _semilla(conn)
+            dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+            qid = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+            _termino_calificado(conn, ids["ag"], term=TERMINO)
+            handler, vistos = _handler_harvest()
+>           res = libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_hermanas.py:306: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:736: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5636750>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________________ test_previo_truncado_cero_post_y_pendientes _________________
+
+    @_skip_db
+    def test_previo_truncado_cero_post_y_pendientes():
+        """LIST previo con `nextToken` vivo al tope -> fail-closed: cero POST de
+        hermanas y pendientes `list_truncado`, el job sigue en la fase con
+        ciclos nutrido. Regla 9: sin el corte, el flujo POSTearia a ciegas
+        contra un LIST incompleto (un negativo existente mas alla del tope se
+        duplicaria)."""
+        with db_f2("orbit_hna_trunc") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            sembrados = []
+            for i, rol in enumerate(hermanas):
+                for j in range(7):
+                    sembrados.append(
+                        _neg_hermana(
+                            setup["roles"][rol]["ag_ext"],
+                            setup["roles"][rol]["camp_ext"],
+                            f"n-t-{i}-{j}",
+                        )
+                    )
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"negatives": sembrados, "page_size_filtrado": 1}
+            )
+
+tests\test_fabrica_f2_hermanas.py:366: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55d5f40>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________ test_list_fila_sin_keyword_id_cero_post_nunca_none ______________
+
+    @_skip_db
+    def test_list_fila_sin_keyword_id_cero_post_nunca_none():
+        """Fila LIST con identidad (adGroup/texto/match/state) pero sin
+        keywordId: unknown. Cero POST de hermanas y nunca persiste
+        negative_id=None (la clave existiria y la hermana dejaria de ser
+        pendiente). Regla 9: `_valida_pagina_list` solo pedia dict y
+        `_paso_hermanas` adoptaba halladas[0].get('keywordId')."""
+        with db_f2("orbit_hna_nokid") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            h1 = hermanas[0]
+            incompleta = {
+                "adGroupId": setup["roles"][h1]["ag_ext"],
+                "campaignId": setup["roles"][h1]["camp_ext"],
+                "keywordText": TERMINO_F2,
+                "matchType": "NEGATIVE_EXACT",
+                "state": "ENABLED",
+            }
+            corrido = _corre_harvest_grupo(conn, setup, handler_kw={"negatives": [incompleta]})
+            job = _job_de(conn, corrido["dec"])
+            muts = [
+                r
+                for r in corrido["vistos"]
+                if r.method == "POST" and r.url.path == "/sp/negativeKeywords"
+            ]
+            hermanas_muts = [
+                r
+                for r in muts
+                if json.loads(r.content)["negativeKeywords"][0]["adGroupId"]
+                != setup["origen"]["ag_ext"]
+            ]
+            assert hermanas_muts == [], "LIST incompleto: cero POST de hermanas"
+            for rol in hermanas:
+>               reg = job["ext"]["hermanas"][rol]
+                      ^^^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'hermanas'
+
+tests\test_fabrica_f2_hermanas.py:421: KeyError
+_____________ test_list_fila_matchtype_roto_cero_post_nunca_none ______________
+
+    @_skip_db
+    def test_list_fila_matchtype_roto_cero_post_nunca_none():
+        """Fila LIST completa (con keywordId) pero matchType=ROTO: unknown.
+        Cero POST de hermanas y nunca persiste negative_id=None. Regla 9:
+        `_coincidencias` no hallaba exacta y `_paso_hermanas` POSTeaba
+        duplicado."""
+        with db_f2("orbit_hna_mtroto") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            h1 = hermanas[0]
+            rota = {
+                "adGroupId": setup["roles"][h1]["ag_ext"],
+                "campaignId": setup["roles"][h1]["camp_ext"],
+                "keywordId": "n-roto",
+                "keywordText": TERMINO_F2,
+                "matchType": "ROTO",
+                "state": "ENABLED",
+            }
+            corrido = _corre_harvest_grupo(conn, setup, handler_kw={"negatives": [rota]})
+            job = _job_de(conn, corrido["dec"])
+            muts = [
+                r
+                for r in corrido["vistos"]
+                if r.method == "POST" and r.url.path == "/sp/negativeKeywords"
+            ]
+            hermanas_muts = [
+                r
+                for r in muts
+                if json.loads(r.content)["negativeKeywords"][0]["adGroupId"]
+                != setup["origen"]["ag_ext"]
+            ]
+            assert hermanas_muts == [], "LIST enum desconocido: cero POST de hermanas"
+            for rol in hermanas:
+>               reg = job["ext"]["hermanas"][rol]
+                      ^^^^^^^^^^^^^^^^^^^^^^
+E               KeyError: 'hermanas'
+
+tests\test_fabrica_f2_hermanas.py:460: KeyError
+_______ test_identidad_adopta_enabled_exact_e_ignora_archived_y_phrase ________
+
+    @_skip_db
+    def test_identidad_adopta_enabled_exact_e_ignora_archived_y_phrase():
+        """Previo con ENABLED+NEGATIVE_EXACT en h1 (adoptada, cero POST),
+        ARCHIVED en h2 (ignorado: POST) y NEGATIVE_PHRASE en h3 (nunca se
+        adopta: POST). Regla 9: adoptar ARCHIVED duplicaria un negativo
+        archivado; adoptar PHRASE bloquearia con otro match."""
+        with db_f2("orbit_hna_ident") as conn:
+            setup = _grupo_listo(conn)
+            h1, h2, h3 = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            p1, p2, p3 = (setup["roles"][r] for r in (h1, h2, h3))
+            sembrados = [
+                _neg_hermana(p1["ag_ext"], p1["camp_ext"], "n-viva"),
+                _neg_hermana(p2["ag_ext"], p2["camp_ext"], "n-vieja", state="ARCHIVED"),
+                _neg_hermana(p3["ag_ext"], p3["camp_ext"], "n-frase", match="NEGATIVE_PHRASE"),
+            ]
+            exacta = setup["roles"]["category_exact"]
+            dec = _decision_harvest_grupo(
+                conn,
+                setup["ciclo_dec"],
+                setup["config"],
+                setup["origen"]["ag"],
+                grupo_id=setup["grupo_id"],
+                exacta_camp_ext=exacta["camp_ext"],
+                exacta_ag_ext=exacta["ag_ext"],
+            )
+            _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_F2)
+            handler, vistos = _handler_harvest(negatives=sembrados)
+>           libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador(conn, handler, setup["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_hermanas.py:493: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b56373b0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________ test_dos_barridos_batched_con_filtro_en_cada_pagina _____________
+
+    @_skip_db
+    def test_dos_barridos_batched_con_filtro_en_cada_pagina():
+        """Un ciclo usa como maximo dos barridos logicos (previo + posterior),
+        ambos con `adGroupIdFilter` en cada pagina: prohibido un LIST por
+        hermana. Regla 9: sin batch, el flujo emitiria un LIST por hermana."""
+        import json as _json
+    
+        with db_f2("orbit_hna_batch") as conn:
+            setup = _grupo_listo(conn)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:525: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55d7200>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+____________________ test_crash_sin_ack_nunca_marca_propio ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B55BB920>
+
+    @_skip_db
+    def test_crash_sin_ack_nunca_marca_propio(monkeypatch):
+        """Respuesta perdida sin ack (crash entre POST y sello): aunque el
+        siguiente previo encuentre la identidad, sin id de ack duradera que la
+        pruebe queda pendiente `red_ambigua` con la fila abierta — jamas
+        `creada = true`. Al tope cierra done con la pendiente (fuga visible,
+        nunca borrado ajeno). Regla 9 (r2): sin esta guarda, el cruce
+        marcaría propia una id que Orbit pudo no crear y la reversa la
+        borraría."""
+        from app.ads.client import AdsApiError as _AdsApiError
+    
+        with db_f2("orbit_hna_crash") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+    
+            from app.ads.write import AdsWriteClient
+    
+            original = AdsWriteClient.crear_negative_exacto
+            hermanas_ag = {setup["roles"][r]["ag_ext"] for r in hermanas}
+            llamadas: list[str] = []
+    
+            def _corta_despues_del_post(self, ad_group_id, campaign_id, keyword_text):
+                # Call-through: el POST LLEGA al almacen; la respuesta se pierde
+                # SOLO en la primera hermana (el origen va primero y no se toca).
+                resp = original(self, ad_group_id, campaign_id, keyword_text)
+                if str(ad_group_id) in hermanas_ag and not llamadas:
+                    llamadas.append(str(ad_group_id))
+                    raise _AdsApiError("respuesta perdida tras el POST")
+                return resp
+    
+            monkeypatch.setattr(AdsWriteClient, "crear_negative_exacto", _corta_despues_del_post)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:1225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55b9940>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+____________ test_recupera_dos_abiertas_sin_atribuir_ajena_intacta ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B55BB740>
+
+    @_skip_db
+    def test_recupera_dos_abiertas_sin_atribuir_ajena_intacta(monkeypatch):
+        """Dos hermanas con respuesta perdida (doble crash, sin ack): quedan
+        pendientes sin atribuir y la tercera (sellada ok en su ciclo) no se
+        re-sella. Regla 9 (r2): atribuir a ciegas marcaria propias ids sin
+        procedencia; un `_sella_pendientes` marcaria intentos ajenos."""
+        from app.ads.client import AdsApiError as _AdsApiError2
+    
+        with db_f2("orbit_hna_crash2") as conn:
+            setup = _grupo_listo(conn)
+            roles = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+    
+            from app.ads.write import AdsWriteClient
+    
+            original = AdsWriteClient.crear_negative_exacto
+            hermanas_ag = {setup["roles"][r]["ag_ext"] for r in roles}
+            llamadas: list[str] = []
+    
+            def _corta_dos(self, ad_group_id, campaign_id, keyword_text):
+                resp = original(self, ad_group_id, campaign_id, keyword_text)
+                if str(ad_group_id) in hermanas_ag and len(llamadas) < 2:
+                    llamadas.append(str(ad_group_id))
+                    raise _AdsApiError2("respuesta perdida tras el POST")
+                return resp
+    
+            monkeypatch.setattr(AdsWriteClient, "crear_negative_exacto", _corta_dos)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:1323: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55b8470>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_______________ test_seq_global_monotonica_en_flujo_de_hermanas _______________
+
+    @_skip_db
+    def test_seq_global_monotonica_en_flujo_de_hermanas():
+        """Flujo completo de grupo: seq 1..5 sin repetir y tipos
+        [normal, normal, hermana x3] (una unidad de quota). Fija el DoD-5 a
+        nivel de flujo."""
+        with db_f2("orbit_hna_seq") as conn:
+            setup = _grupo_listo(conn)
+>           corrido = _corre_harvest_grupo(conn, setup)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:1450: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5db9eb0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________ test_fallo_400_deja_pendiente_y_reintenta_sin_quota _____________
+
+    @_skip_db
+    def test_fallo_400_deja_pendiente_y_reintenta_sin_quota():
+        """400 en una hermana: pendiente `http_400`, el job sigue, el ciclo
+        siguiente la reintenta sin cobrar quota y resuelve. Regla 9: sin
+        pendiente con motivo, el fallo tumbaria el harvest o se perderia."""
+        with db_f2("orbit_hna_400") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1497: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5d70770>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________ test_pt_rechazada_queda_pendiente_con_motivo_propio _____________
+
+    @_skip_db
+    def test_pt_rechazada_queda_pendiente_con_motivo_propio():
+        """PT rechazada en vivo (400): pendiente `pt_no_acepta_negative_keyword`
+        (no `http_400`), el job sigue y la reconciliacion la reintenta con la
+        misma semantica que cualquier hermana. Regla 9: un skip aparte
+        esconderia el reintento."""
+        with db_f2("orbit_hna_pt") as conn:
+            setup = _grupo_listo(conn, origen_rol="category_phrase")
+            assert "product_targeting" in [r for r in ROLES_DISCOVERY if r != "category_phrase"]
+            ag_pt = setup["roles"]["product_targeting"]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_pt: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1529: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b558af30>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________ test_5xx_y_ack_sin_id_quedan_pendientes_con_motivo ______________
+
+    @_skip_db
+    def test_5xx_y_ack_sin_id_quedan_pendientes_con_motivo():
+        """503 en una hermana -> `http_5xx`; ack 207 sin id -> `ack_sin_id`.
+        Ambos pendientes sin tumbar el job. Regla 9: sin motivo distinto, un
+        5xx ambiguo se trataria como rechazo definitivo o como exito."""
+        with db_f2("orbit_hna_5xx") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 503}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1554: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55887a0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________________ test_merge_conserva_exitos_previos ______________________
+
+    @_skip_db
+    def test_merge_conserva_exitos_previos():
+        """Ciclo 1 resuelve h1 y h3, falla h2; ciclo 2 resuelve h2: los ids de
+        h1/h3 no cambian (merge superficial con el dict completo, sin
+        reemplazos). Regla 9: un reemplazo del dict perderia los exitos."""
+        with db_f2("orbit_hna_merge") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[1]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1597: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b558be30>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+________________ test_gate_origen_pausado_no_falla_el_harvest _________________
+
+    @_skip_db
+    def test_gate_origen_pausado_no_falla_el_harvest():
+        """Origen pausado durante la higiene: hermanas pendientes con
+        `ancestro_no_enabled`, cero POST, el job sigue; al tope cierra `done`
+        con alerta (jamas failed, jamas reversa de la keyword). Regla 9: sin la
+        exencion post-sello, el gate fallaria un harvest ya aplicado."""
+        with db_f2("orbit_hna_gate") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1621: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b559bb30>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+___________ test_ciclo_3_cierra_done_con_pendientes_y_alerta_veraz ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B5595DC0>
+
+    @_skip_db
+    def test_ciclo_3_cierra_done_con_pendientes_y_alerta_veraz(monkeypatch):
+        """400 persistente en una hermana: al tercer ciclo el job cierra `done`
+        con `hermanas_pendientes` y una AlertaHarvest que NO dice "failed" (el
+        evento de valor quedo aplicado). Regla 9: sin el tope, la higiene seria
+        eterna; sin la alerta, la pendiente seria invisible."""
+        from app import notifica as _notifica
+    
+        with db_f2("orbit_hna_topec") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+            enviados: list[str] = []
+            monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
+            monkeypatch.setattr(
+                _notifica, "_envia_texto", lambda texto, transport=None: enviados.append(texto) or True
+            )
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1669: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55992b0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________ test_posterior_truncado_en_ciclo_3_cierra_por_tope ______________
+
+    @_skip_db
+    def test_posterior_truncado_en_ciclo_3_cierra_por_tope():
+        """Posterior truncado en el ciclo 3: cierra done por tope con pendientes
+        y alerta (no existe cuarto ciclo). Regla 9: sin pasar por el cierre, el
+        job quedaria en `hermanas_negadas` para siempre esperando un ciclo 4."""
+        import httpx as _httpx2
+    
+        with db_f2("orbit_hna_postrunc") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1711: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55ce4e0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+______________ test_quota_no_se_recobra_en_reintentos_de_higiene ______________
+
+    @_skip_db
+    def test_quota_no_se_recobra_en_reintentos_de_higiene():
+        """Tres ciclos con una hermana fallando: `used` sigue en 1 (la unidad
+        la cobro el apply; la higiene y la reconciliacion jamas recobran)."""
+        with db_f2("orbit_hna_quota") as conn:
+            setup = _grupo_listo(conn)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           _corre_harvest_grupo(
+                conn, setup, handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}}
+            )
+
+tests\test_fabrica_f2_hermanas.py:1896: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b560c7d0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+___________ test_harvest_grupo_impulso_done_sin_hermanas_ni_reversa ___________
+
+    @_skip_db
+    def test_harvest_grupo_impulso_done_sin_hermanas_ni_reversa():
+        """I.1: un harvest desde la auto de un grupo impulso termina done, deja
+        la keyword en la exact, guarda hermanas_objetivo == {} y no manda POST
+        de negative de hermana ni a /sp/keywords/delete."""
+        with db_f2("orbit_hna_impulso") as conn:
+            setup = _grupo_impulso_listo(conn)
+>           sal = _corre_harvest_grupo(conn, setup)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_hermanas.py:2502: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b362b5f0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________________ test_harvest_grupo_aprende_keyword_en_sello _________________
+
+    @_skip_db
+    def test_harvest_grupo_aprende_keyword_en_sello():
+        """Harvest de grupo hasta `done`: UNA fila con `tipo_producto` del
+        grupo, texto normalizado, `origen` exacto grupo/campana/job y dinero
+        NULL; rastro `external_ids["biblioteca"]` con `escrita: true` e `id`.
+        Regla 9: sin la escritura en el sello, la fila no existe."""
+        with db_f2("orbit_bib_kw1") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+>           corrido = _corre_harvest_grupo(conn, setup, term=TERMINO_A4)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_biblioteca.py:169: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b560f710>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+______ test_keyword_visible_desde_segunda_conexion_antes_del_primer_post ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B55C5700>
+
+    @_skip_db
+    def test_keyword_visible_desde_segunda_conexion_antes_del_primer_post(monkeypatch):
+        """Otra conexion ve la fila con la cola `applied` y la fase
+        `hermanas_negadas` ANTES del primer POST de hermana. Regla 9: el
+        mutante que escribe en `_paso_hermanas` o `_cierra_o_sigue` (en vez
+        del sello) deja a la segunda conexion sin fila. Espejo del test de
+        sello de A.3."""
+        with db_f2("orbit_bib_kw2") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+            hermanas_ag = {
+                setup["roles"][r]["ag_ext"] for r in ROLES_DISCOVERY if r != setup["origen_rol"]
+            }
+            visto: dict = {}
+    
+            from test_schema import _test_dsn
+    
+            from app.ads.write import AdsWriteClient
+    
+            original = AdsWriteClient.crear_negative_exacto
+    
+            def _espia(self, ad_group_id, campaign_id, keyword_text):
+                if str(ad_group_id) in hermanas_ag and "bib" not in visto:
+                    otra = psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+                    try:
+                        visto["bib"] = otra.execute(
+                            "SELECT count(*) FROM keyword_biblioteca WHERE texto = %s",
+                            (TERMINO_NORM,),
+                        ).fetchone()[0]
+                        visto["cola"] = otra.execute(
+                            "SELECT estado FROM apply_queue WHERE id = %s", (visto["qid"],)
+                        ).fetchone()[0]
+                        visto["fase"] = otra.execute(
+                            "SELECT fase FROM harvest_job WHERE decision_id = %s",
+                            (visto["dec"],),
+                        ).fetchone()[0]
+                    finally:
+                        otra.close()
+                return original(self, ad_group_id, campaign_id, keyword_text)
+    
+            monkeypatch.setattr(AdsWriteClient, "crear_negative_exacto", _espia)
+            exacta = setup["roles"]["category_exact"]
+            dec = _decision_harvest_grupo(
+                conn,
+                setup["ciclo_dec"],
+                setup["config"],
+                setup["origen"]["ag"],
+                grupo_id=setup["grupo_id"],
+                exacta_camp_ext=exacta["camp_ext"],
+                exacta_ag_ext=exacta["ag_ext"],
+                term=TERMINO_A4,
+            )
+            qid = _encola_fila(conn, dec, setup["origen"]["ag"], term=TERMINO_A4)
+            visto["dec"], visto["qid"] = dec, qid
+            handler, _vistos = _handler_harvest()
+>           libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador(conn, handler, setup["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_biblioteca.py:243: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55b5850>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+________ test_mismo_termino_otro_job_actualiza_updated_at_sin_duplicar ________
+
+    @_skip_db
+    def test_mismo_termino_otro_job_actualiza_updated_at_sin_duplicar():
+        """Repetir el termino en otro job del mismo grupo (otro origen) mueve
+        `updated_at` sin duplicar y jamas pisa `origen`. Regla 9: sin ON
+        CONFLICT, el segundo sello duplicaria o reventaria por unique."""
+        with db_f2("orbit_bib_kw3") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+>           _corre_harvest_grupo(conn, setup, term=TERMINO_A4)
+
+tests\test_fabrica_f2_biblioteca.py:261: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55cc110>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________ test_reconciliacion_de_job_en_hermanas_negadas_no_reescribe _________
+
+    @_skip_db
+    def test_reconciliacion_de_job_en_hermanas_negadas_no_reescribe():
+        """Retomar un job en `hermanas_negadas` (una hermana fallo, se
+        reconcilia y cierra) no vuelve a escribir biblioteca: el sello ya lo
+        hizo. Regla 9: escribir al retomar moveria `updated_at` y el `origen`
+        quedaria ambiguo."""
+        with db_f2("orbit_bib_kw4") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn,
+                setup,
+                term=TERMINO_A4,
+                handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}},
+            )
+
+tests\test_fabrica_f2_biblioteca.py:298: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5595880>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+____________ test_done_por_tope_de_ciclos_no_duplica_ni_reescribe _____________
+
+    @_skip_db
+    def test_done_por_tope_de_ciclos_no_duplica_ni_reescribe():
+        """`done` por tope de ciclos (hermana en 400 persistente): la fila
+        existe desde el sello, unica, con el rastro intacto y sin reescritura
+        al cerrar con pendientes. Regla 9: escribir en `_cierra_o_sigue`
+        moveria `updated_at` al tercer ciclo."""
+        with db_f2("orbit_bib_kw5") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+            hermanas = [r for r in ROLES_DISCOVERY if r != setup["origen_rol"]]
+            ag_falla = setup["roles"][hermanas[0]]["ag_ext"]
+>           corrido = _corre_harvest_grupo(
+                conn,
+                setup,
+                term=TERMINO_A4,
+                handler_kw={"fallo_post_negative_por_adgroup": {ag_falla: 400}},
+            )
+
+tests\test_fabrica_f2_biblioteca.py:335: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55bb3b0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________________ test_terna_sin_grupo_cero_filas_biblioteca __________________
+
+    @_skip_db
+    def test_terna_sin_grupo_cero_filas_biblioteca():
+        """Harvest por terna (sin grupo) cierra `done` como hoy, sin fila de
+        keyword y sin que el negativo de origen entre a `negative_biblioteca`.
+        Regla 9: el mutante que escribe para `resuelto_por != grupo` deja una
+        fila aqui."""
+        with db_f2("orbit_bib_cero1") as conn:
+            ids = _semilla_harvest(conn)
+            dec = _decision_harvest(conn, ids["ciclo_dec"], ids["config"], ids["ag"])
+            qid = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+            _termino_calificado(conn, ids["ag"], term=TERMINO)
+            handler, _vistos = _handler_harvest()
+>           res = libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_biblioteca.py:380: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:736: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b362b380>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_______________ test_excepcion_sin_grupo_cero_filas_biblioteca ________________
+
+    @_skip_db
+    def test_excepcion_sin_grupo_cero_filas_biblioteca():
+        """Harvest por excepcion (fila real en `harvest_excepcion`, destino en
+        `ad_entity`): cierra `done` por la rama no-grupo, sin fila de keyword
+        y sin negativos aprendidos. Regla 9: mismo mutante que la terna."""
+        with db_f2("orbit_bib_cero1b") as conn:
+            ids = _semilla_harvest(conn)
+            dest_camp = conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id)"
+                " VALUES ('amazon_us', 'campaign', 'EXC1') RETURNING id"
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO ad_entity (platform, kind, external_id, parent_id)"
+                " VALUES ('amazon_us', 'ad_group', 'EXG1', %s)",
+                (dest_camp,),
+            )
+            conn.execute(
+                "INSERT INTO harvest_excepcion"
+                " (ad_entity_id, destino_campaign_external, destino_ad_group_external, go_literal)"
+                " VALUES (%s, 'EXC1', 'EXG1', 'go dueno 2026-09-14')",
+                (ids["camp"],),
+            )
+            dec = _decision_harvest_excepcion(
+                conn, ids["ciclo_dec"], ids["config"], ids["ag"], camp_ext="EXC1", ag_ext="EXG1"
+            )
+            qid = _encola_fila(conn, dec, ids["ag"], term=TERMINO)
+            handler, vistos = _handler_harvest()
+>           res = libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_biblioteca.py:456: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:736: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5643b60>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+____________ test_grupo_negativos_de_harvest_no_entran_a_negativa _____________
+
+    @_skip_db
+    def test_grupo_negativos_de_harvest_no_entran_a_negativa():
+        """Con grupo: origen y hermanas se niegan en Amazon, pero
+        `negative_biblioteca` queda en cero para el termino (invariante (d),
+        direccion harvest: son ruteo, no exclusion). Regla 9: el mutante que
+        llama `registra_negative` desde `_paso_negative`/`_paso_hermanas`
+        deja filas aqui."""
+        with db_f2("orbit_bib_cero2") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+>           corrido = _corre_harvest_grupo(conn, setup, term=TERMINO_A4)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_biblioteca.py:482: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55f8e90>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________________ test_negative_en_cola_campana_grupo_aprende _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B3677500>
+
+    @_skip_db
+    def test_negative_en_cola_campana_grupo_aprende(monkeypatch):
+        """Negative aplicado por `libera_vencidos` en campana de grupo deja UNA
+        fila con `origen` de decision; veredicto del ledger `ok` intacto y
+        cero alertas (el exito no avisa). Regla 9: sin el cableado en
+        `_ejecuta_negative`, la fila no existe."""
+        import app.notifica as _notifica
+    
+        with db_f2("orbit_bib_neg1") as conn:
+            setup = _grupo_listo(conn)
+            _obs_negative(conn, setup["run"], setup["roles"]["category_phrase"]["ag"], TERMINO_A4)
+            rol = "category_phrase"
+            par = setup["roles"][rol]
+            dec = _decision_negativa_grupo(conn, setup, rol, TERMINO_A4)
+            llamadas: list = []
+            monkeypatch.setattr(
+                _notifica, "notifica_biblioteca_no_escrita", lambda **kw: llamadas.append(kw) or True
+            )
+>           res, _vistos, _h = _libera_negativa(conn, setup, dec, rol, TERMINO_A4)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_biblioteca.py:696: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_biblioteca.py:147: in _libera_negativa
+    res = libera_vencidos(
+app\apply_cola.py:759: in libera_vencidos
+    ok = _aisla_corte(conn, aplicador, fila, rama)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola.py:602: in _aisla_corte
+    return _ejecuta_rama(conn, aplicador, fila, rama)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola_ejecuta.py:205: in _ejecuta_rama
+    return _ejecuta_negative(conn, aplicador, fila)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_negative.py:201: in _ejecuta_negative
+    aplicador.confirma_cercada(fila.decision_id, ack, verify)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b5e0d610>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+__________ test_negative_campana_sin_grupo_cero_filas_y_cero_alerta ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B35B30E0>
+
+    @_skip_db
+    def test_negative_campana_sin_grupo_cero_filas_y_cero_alerta(monkeypatch):
+        """Mismo negative en campana fuera de grupo: aplicado, cero filas y
+        cero alerta (no es fallo: no hay `tipo_producto` que inventar)."""
+        import app.notifica as _notifica
+    
+        with db_f2("orbit_bib_neg2") as conn:
+            ids = _semilla_cola(conn)
+            _obs_negative(conn, ids["run"], ids["ag"], TERMINO_A4)
+            dec = _decision_cola(
+                conn, ids["ciclo_dec"], ids["config"], ids["ag"], "negative", term=TERMINO_A4
+            )
+            _encola_cola(
+                conn,
+                dec,
+                ids["ag"],
+                "negative",
+                term=TERMINO_A4,
+                payload=_payload_negative("7101", "7001", TERMINO_A4),
+            )
+            llamadas: list = []
+            monkeypatch.setattr(
+                _notifica, "notifica_biblioteca_no_escrita", lambda **kw: llamadas.append(kw) or True
+            )
+            handler, _vistos = _handler_cortes()
+>           res = libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=dt.datetime.now(dt.UTC),
+                aplicador=_aplicador_cola(conn, handler, ids["ciclo_ejec"]),
+            )
+
+tests\test_fabrica_f2_biblioteca.py:745: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_cola.py:759: in libera_vencidos
+    ok = _aisla_corte(conn, aplicador, fila, rama)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola.py:602: in _aisla_corte
+    return _ejecuta_rama(conn, aplicador, fila, rama)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola_ejecuta.py:205: in _ejecuta_rama
+    return _ejecuta_negative(conn, aplicador, fila)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_negative.py:201: in _ejecuta_negative
+    aplicador.confirma_cercada(fila.decision_id, ack, verify)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b35b2c00>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_____________________ test_negative_ack_sin_id_cero_filas _____________________
+
+    @_skip_db
+    def test_negative_ack_sin_id_cero_filas():
+        """2xx sin id (`fallo:ack_sin_id`): no es applied, cero filas. Regla 9:
+        el mutante que escribe con `verify == False` deja una fila aqui."""
+        with db_f2("orbit_bib_neg3") as conn:
+            setup = _grupo_listo(conn)
+            _obs_negative(conn, setup["run"], setup["roles"]["category_phrase"]["ag"], TERMINO_A4)
+            rol = "category_phrase"
+            dec = _decision_negativa_grupo(conn, setup, rol, TERMINO_A4)
+>           res, _vistos, _h = _libera_negativa(
+                conn, setup, dec, rol, TERMINO_A4, ack_negative_sin_id=True
+            )
+
+tests\test_fabrica_f2_biblioteca.py:765: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_biblioteca.py:147: in _libera_negativa
+    res = libera_vencidos(
+app\apply_cola.py:759: in libera_vencidos
+    ok = _aisla_corte(conn, aplicador, fila, rama)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola.py:602: in _aisla_corte
+    return _ejecuta_rama(conn, aplicador, fila, rama)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola_ejecuta.py:205: in _ejecuta_rama
+    return _ejecuta_negative(conn, aplicador, fila)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_negative.py:201: in _ejecuta_negative
+    aplicador.confirma_cercada(fila.decision_id, ack, verify)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b36763f0>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (False, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+__________________ test_reconciliacion_por_identidad_aprende __________________
+
+    @_skip_db
+    def test_reconciliacion_por_identidad_aprende():
+        """Negativo huerfano `applying` CONFIRMADO por identidad en campana de
+        grupo deja UNA fila con `origen` de decision. Regla 9: sin el
+        cableado en la rama `propio is not None`, la fila no existe."""
+        from app.apply_harvest import reconcilia_harvest
+    
+        with db_f2("orbit_bib_neg4") as conn:
+            setup = _grupo_listo(conn)
+            rol = "category_phrase"
+            par = setup["roles"][rol]
+            dec, qid = _huerfana_negativa(conn, setup, rol, TERMINO_A4)
+            handler, _vistos = _handler_harvest(
+                negatives=[_neg_vivo(par["ag_ext"], par["camp_ext"], "n-9", TERMINO_A4)]
+            )
+            resumen = reconcilia_harvest(
+                conn, _aplicador(conn, handler, setup["ciclo_ejec"]), "amazon_us"
+            )
+>           assert resumen.negativas_confirmadas == 1, resumen
+E           AssertionError: ResumenReconciliacion(jobs_done=0, jobs_failed=0, negativas_confirmadas=0, negativas_fallidas=0, jobs_cerrados_por_cola=0, alertas=(), pausas_confirmadas=0, pausas_fallidas=0, harvest_huerfanas_cerradas=0, caps_saturados=())
+E           assert 0 == 1
+E            +  where 0 = ResumenReconciliacion(jobs_done=0, jobs_failed=0, negativas_confirmadas=0, negativas_fallidas=0, jobs_cerrados_por_cola=0, alertas=(), pausas_confirmadas=0, pausas_fallidas=0, harvest_huerfanas_cerradas=0, caps_saturados=()).negativas_confirmadas
+
+tests\test_fabrica_f2_biblioteca.py:824: AssertionError
+___________ test_reconciliacion_ausente_reintenta_aplicado_aprende ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B35B0290>
+
+    @_skip_db
+    def test_reconciliacion_ausente_reintenta_aplicado_aprende(monkeypatch):
+        """A.4r1, contrario del cero original (spec, decision 5 sobre el
+        brief): ausente en Amazon, la reconciliacion REINTENTA el POST,
+        confirma `applied`... y esa rama TAMBIEN aprende, con el mismo
+        `origen` de decision que la identidad. Regla 9: contra dff25a8 (sin
+        el helper en el reintento) no hay fila y este test cae."""
+        import app.notifica as _notifica
+        from app.apply_harvest import reconcilia_harvest
+    
+        with db_f2("orbit_bib_neg6") as conn:
+            setup = _grupo_listo(conn)
+            rol = "category_phrase"
+            par = setup["roles"][rol]
+            dec, qid = _huerfana_negativa(conn, setup, rol, TERMINO_A4)
+            llamadas: list = []
+            monkeypatch.setattr(
+                _notifica, "notifica_biblioteca_no_escrita", lambda **kw: llamadas.append(kw) or True
+            )
+            handler, vistos = _handler_harvest()
+>           resumen = reconcilia_harvest(
+                conn, _aplicador(conn, handler, setup["ciclo_ejec"]), "amazon_us"
+            )
+
+tests\test_fabrica_f2_biblioteca.py:878: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\apply_harvest.py:853: in reconcilia_harvest
+    return apply_harvest_reconciliacion.reconcilia_harvest(conn, aplicador, platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest_reconciliacion.py:736: in reconcilia_harvest
+    negativas_confirmadas, negativas_fallidas = _reconcilia_negativas(conn, aplicador, platform)
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest_reconciliacion.py:562: in _reconcilia_negativas
+    apply._confirma_resumen(conn, decision_id, ack, True, aplicador.cycle_id_ejecutor)
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b565f890>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________ test_precedencia_termino_ya_keyword_no_entra_como_exclusion _________
+
+    @_skip_db
+    def test_precedencia_termino_ya_keyword_no_entra_como_exclusion():
+        """Invariante (d), direccion negative: negative aplicado sobre un
+        termino que ya esta en `keyword_biblioteca` NO entra a
+        `negative_biblioteca` (un termino que ya vendio no se ensena como
+        exclusion); el veredicto `applied` y el ledger `ok` quedan intactos.
+        Regla 9: insertar sin la consulta previa dejaria la fila."""
+        with db_f2("orbit_bib_prec") as conn:
+            setup = _grupo_listo(conn)
+            rastro = registra_keyword(
+                conn,
+                grupo_id=setup["grupo_id"],
+                tipo_producto="collar_perro",
+                platform="amazon_us",
+                texto=TERMINO_A4,
+                origen=f"grupo:{setup['grupo_id']}/semilla-precedencia",
+            )
+            assert rastro["escrita"] is True, rastro
+            _obs_negative(conn, setup["run"], setup["roles"]["category_phrase"]["ag"], TERMINO_A4)
+            rol = "category_phrase"
+            dec = _decision_negativa_grupo(conn, setup, rol, TERMINO_A4)
+>           res, _vistos, _h = _libera_negativa(conn, setup, dec, rol, TERMINO_A4)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_biblioteca.py:972: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_biblioteca.py:147: in _libera_negativa
+    res = libera_vencidos(
+app\apply_cola.py:759: in libera_vencidos
+    ok = _aisla_corte(conn, aplicador, fila, rama)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola.py:602: in _aisla_corte
+    return _ejecuta_rama(conn, aplicador, fila, rama)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola_ejecuta.py:205: in _ejecuta_rama
+    return _ejecuta_negative(conn, aplicador, fila)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_negative.py:201: in _ejecuta_negative
+    aplicador.confirma_cercada(fila.decision_id, ack, verify)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55c5a90>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_________________ test_fallo_inyectado_keyword_sello_intacto __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B55B7A40>
+
+    @_skip_db
+    def test_fallo_inyectado_keyword_sello_intacto(monkeypatch):
+        """Fallo de biblioteca en el sello del harvest: job, cola, resumen y
+        fase INTACTOS, cero filas, rastro `escrita: false` con motivo y UNA
+        alerta veraz por el sender nuevo. Regla 9: sin el SAVEPOINT + catch,
+        el sello aborta y este test cae en `done`/`applied`."""
+        from test_schema import _test_dsn
+    
+        import app.notifica as _notifica
+    
+        with db_f2("orbit_bib_fallo1") as conn:
+            setup = _grupo_listo(conn, term=TERMINO_A4)
+            envios: list = []
+    
+            def _espia(texto, transport=None):
+                # R.1 H4: el estado se REGISTRA, no se aserta aqui: un assert
+                # dentro del espia seria tragado por el try/except fail-silent
+                # del sender y el test reportaria la causa equivocada.
+                # Ronda: ademas del timing, el sello debe ser VISIBLE desde
+                # otra conexion (con autocommit, IDLE solo prueba que no hay
+                # tx explicita abierta, no que el sello persistio).
+                otra = psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+                try:
+                    rastro_visible = otra.execute(
+                        "SELECT external_ids ? 'biblioteca' FROM harvest_job WHERE search_term = %s",
+                        (TERMINO_A4,),
+                    ).fetchone()
+                finally:
+                    otra.close()
+                envios.append((texto, conn.info.transaction_status, rastro_visible))
+                return True
+    
+            monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
+            monkeypatch.setattr(_notifica, "_envia_texto", _espia)
+            import app.biblioteca as _bib
+    
+            monkeypatch.setattr(
+                _bib, "SQL_BIBLIOTECA_KEYWORD", "INSERT INTO no_existe VALUES (%s, %s, %s, %s)"
+            )
+>           corrido = _corre_harvest_grupo(conn, setup, term=TERMINO_A4)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_biblioteca.py:1053: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_hermanas.py:127: in _corre_harvest_grupo
+    res = libera_vencidos(
+app\apply_cola.py:738: in libera_vencidos
+    da, df, dc, dq = _aisla_harvest(
+app\apply_cola.py:622: in _aisla_harvest
+    return _procesa_harvest_liberada(
+app\apply_cola.py:573: in _procesa_harvest_liberada
+    resultado_h = apply_harvest.aplica_harvest(conn, aplicador, fila, platform=platform)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:830: in aplica_harvest
+    estado, alerta = _continua_job(conn, aplicador, job, queue_id=fila.id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:809: in _continua_job
+    estado, alerta = _paso_readback(conn, aplicador, job, ctx, queue_id)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_harvest.py:764: in _paso_readback
+    aplicador.confirma_cercada(job.decision_id, ack, True)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b55b6690>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+_______________ test_fallo_inyectado_negative_veredicto_intacto _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001E7B55C6570>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x000001E7B560F6E0>
+
+    @_skip_db
+    def test_fallo_inyectado_negative_veredicto_intacto(monkeypatch, caplog):
+        """Fallo de biblioteca en el negative de cola: veredicto `applied`
+        intacto, ledger `ok` (opcion (b): el formato no se toca), fallo en el
+        log con scrub y UNA alerta veraz. Regla 9: sin el catch, el apply
+        revienta en vez de sellar."""
+        import logging
+    
+        from test_schema import _test_dsn
+    
+        import app.notifica as _notifica
+    
+        with db_f2("orbit_bib_fallo3") as conn:
+            setup = _grupo_listo(conn)
+            _obs_negative(conn, setup["run"], setup["roles"]["category_phrase"]["ag"], TERMINO_A4)
+            envios: list = []
+    
+            def _espia(texto, transport=None):
+                # R.1 H4: el estado se REGISTRA, no se aserta aqui: un assert
+                # dentro del espia seria tragado por el try/except fail-silent
+                # del sender y el test reportaria la causa equivocada.
+                # Ronda: ademas del timing, el veredicto debe ser VISIBLE
+                # desde otra conexion (con autocommit, IDLE solo prueba que
+                # no hay tx explicita abierta, no que el sello persistio).
+                otra = psycopg.connect(_test_dsn(), dbname=conn.info.dbname, autocommit=True)
+                try:
+                    veredicto = otra.execute(
+                        "SELECT estado FROM apply_queue WHERE search_term = %s"
+                        " ORDER BY id DESC LIMIT 1",
+                        (TERMINO_A4,),
+                    ).fetchone()
+                finally:
+                    otra.close()
+                envios.append((texto, conn.info.transaction_status, veredicto))
+                return True
+    
+            monkeypatch.setattr(_notifica, "canal_activo", lambda: True)
+            monkeypatch.setattr(_notifica, "_envia_texto", _espia)
+            import app.biblioteca as _bib
+    
+            monkeypatch.setattr(
+                _bib, "SQL_BIBLIOTECA_NEGATIVE", "INSERT INTO no_existe VALUES (%s, %s, %s, %s)"
+            )
+            rol = "category_phrase"
+            dec = _decision_negativa_grupo(conn, setup, rol, TERMINO_A4)
+            with caplog.at_level(logging.WARNING, logger="app.biblioteca"):
+>               res, _vistos, _h = _libera_negativa(conn, setup, dec, rol, TERMINO_A4)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_fabrica_f2_biblioteca.py:1128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_fabrica_f2_biblioteca.py:147: in _libera_negativa
+    res = libera_vencidos(
+app\apply_cola.py:759: in libera_vencidos
+    ok = _aisla_corte(conn, aplicador, fila, rama)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola.py:602: in _aisla_corte
+    return _ejecuta_rama(conn, aplicador, fila, rama)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_cola_ejecuta.py:205: in _ejecuta_rama
+    return _ejecuta_negative(conn, aplicador, fila)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\apply_negative.py:201: in _ejecuta_negative
+    aplicador.confirma_cercada(fila.decision_id, ack, verify)
+app\apply.py:725: in confirma_cercada
+    _confirma_resumen(
+app\apply_store.py:556: in _confirma_resumen
+    temporada_io.cierra_efecto_resumen(
+app\temporada_io.py:534: in cierra_efecto_resumen
+    conn.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [BAD] at 0x1e7b560c890>
+query = "UPDATE temporada_efecto SET cerrado_el = now(), desenlace = CASE WHEN %s THEN 'confirmado' ELSE 'divergencia' END WHERE decision_id = %s AND cerrado_el IS NULL"
+params = (True, 1), prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedTable: relation "temporada_efecto" does not exist
+E           LINE 1: UPDATE temporada_efecto SET cerrado_el = now(), desenlace = ...
+E                          ^
+
+.venv\Lib\site-packages\psycopg\connection.py:300: UndefinedTable
+------------------------------ Captured log call ------------------------------
+WARNING  app.biblioteca:biblioteca.py:200 biblioteca_no_escrita: negative aplicado pero termino no aprendido (grupo=1 decision=1): UndefinedTable: relation "no_existe" does not exist
+LINE 1: INSERT INTO no_existe VALUES ($1, $2, $3, $4)
+                    ^
+=========================== short test summary info ===========================
+FAILED tests/test_fabrica_f2_hermanas.py::test_sello_durable_visible_desde_segunda_conexion_antes_del_primer_post
+FAILED tests/test_fabrica_f2_hermanas.py::test_sello_no_se_repite_en_reintentos_de_higiene
+FAILED tests/test_fabrica_f2_hermanas.py::test_roster_tres_hermanas_por_cada_rol_origen[auto_discovery]
+FAILED tests/test_fabrica_f2_hermanas.py::test_roster_tres_hermanas_por_cada_rol_origen[category_phrase]
+FAILED tests/test_fabrica_f2_hermanas.py::test_roster_tres_hermanas_por_cada_rol_origen[category_broad]
+FAILED tests/test_fabrica_f2_hermanas.py::test_roster_tres_hermanas_por_cada_rol_origen[product_targeting]
+FAILED tests/test_fabrica_f2_hermanas.py::test_terna_sin_grupo_cierra_como_hoy
+FAILED tests/test_fabrica_f2_hermanas.py::test_previo_truncado_cero_post_y_pendientes
+FAILED tests/test_fabrica_f2_hermanas.py::test_list_fila_sin_keyword_id_cero_post_nunca_none
+FAILED tests/test_fabrica_f2_hermanas.py::test_list_fila_matchtype_roto_cero_post_nunca_none
+FAILED tests/test_fabrica_f2_hermanas.py::test_identidad_adopta_enabled_exact_e_ignora_archived_y_phrase
+FAILED tests/test_fabrica_f2_hermanas.py::test_dos_barridos_batched_con_filtro_en_cada_pagina
+FAILED tests/test_fabrica_f2_hermanas.py::test_crash_sin_ack_nunca_marca_propio
+FAILED tests/test_fabrica_f2_hermanas.py::test_recupera_dos_abiertas_sin_atribuir_ajena_intacta
+FAILED tests/test_fabrica_f2_hermanas.py::test_seq_global_monotonica_en_flujo_de_hermanas
+FAILED tests/test_fabrica_f2_hermanas.py::test_fallo_400_deja_pendiente_y_reintenta_sin_quota
+FAILED tests/test_fabrica_f2_hermanas.py::test_pt_rechazada_queda_pendiente_con_motivo_propio
+FAILED tests/test_fabrica_f2_hermanas.py::test_5xx_y_ack_sin_id_quedan_pendientes_con_motivo
+FAILED tests/test_fabrica_f2_hermanas.py::test_merge_conserva_exitos_previos
+FAILED tests/test_fabrica_f2_hermanas.py::test_gate_origen_pausado_no_falla_el_harvest
+FAILED tests/test_fabrica_f2_hermanas.py::test_ciclo_3_cierra_done_con_pendientes_y_alerta_veraz
+FAILED tests/test_fabrica_f2_hermanas.py::test_posterior_truncado_en_ciclo_3_cierra_por_tope
+FAILED tests/test_fabrica_f2_hermanas.py::test_quota_no_se_recobra_en_reintentos_de_higiene
+FAILED tests/test_fabrica_f2_hermanas.py::test_harvest_grupo_impulso_done_sin_hermanas_ni_reversa
+FAILED tests/test_fabrica_f2_biblioteca.py::test_harvest_grupo_aprende_keyword_en_sello
+FAILED tests/test_fabrica_f2_biblioteca.py::test_keyword_visible_desde_segunda_conexion_antes_del_primer_post
+FAILED tests/test_fabrica_f2_biblioteca.py::test_mismo_termino_otro_job_actualiza_updated_at_sin_duplicar
+FAILED tests/test_fabrica_f2_biblioteca.py::test_reconciliacion_de_job_en_hermanas_negadas_no_reescribe
+FAILED tests/test_fabrica_f2_biblioteca.py::test_done_por_tope_de_ciclos_no_duplica_ni_reescribe
+FAILED tests/test_fabrica_f2_biblioteca.py::test_terna_sin_grupo_cero_filas_biblioteca
+FAILED tests/test_fabrica_f2_biblioteca.py::test_excepcion_sin_grupo_cero_filas_biblioteca
+FAILED tests/test_fabrica_f2_biblioteca.py::test_grupo_negativos_de_harvest_no_entran_a_negativa
+FAILED tests/test_fabrica_f2_biblioteca.py::test_negative_en_cola_campana_grupo_aprende
+FAILED tests/test_fabrica_f2_biblioteca.py::test_negative_campana_sin_grupo_cero_filas_y_cero_alerta
+FAILED tests/test_fabrica_f2_biblioteca.py::test_negative_ack_sin_id_cero_filas
+FAILED tests/test_fabrica_f2_biblioteca.py::test_reconciliacion_por_identidad_aprende
+FAILED tests/test_fabrica_f2_biblioteca.py::test_reconciliacion_ausente_reintenta_aplicado_aprende
+FAILED tests/test_fabrica_f2_biblioteca.py::test_precedencia_termino_ya_keyword_no_entra_como_exclusion
+FAILED tests/test_fabrica_f2_biblioteca.py::test_fallo_inyectado_keyword_sello_intacto
+FAILED tests/test_fabrica_f2_biblioteca.py::test_fallo_inyectado_negative_veredicto_intacto
+40 failed, 104 passed in 105.30s (0:01:45)

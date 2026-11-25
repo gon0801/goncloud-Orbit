@@ -1,0 +1,23 @@
+{
+  "feature": "contribucion",
+  "entry_point": "nav /contribucion",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /contribucion, GET /api/dashboard/contribucion y capturas 1440/390",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=contribucion": true,
+    "h1_contribucion": true,
+    "tarjetas_plataforma": true,
+    "no_hay_filas": true,
+    "sin_estilos_inline": true,
+    "api_http_200": true,
+    "api_amazon_us_filas_vacias": true,
+    "api_amazon_us_ventana_keys": true,
+    "api_amazon_mx_filas_vacias": true,
+    "api_amazon_mx_ventana_keys": true,
+    "screenshot": false,
+    "screenshot_390": false
+  },
+  "ok": false,
+  "evidence_dir": "/tmp/orbit-z/repo/.cursor/skills/verify-orbit/evidence/z-cierre/contribucion"
+}

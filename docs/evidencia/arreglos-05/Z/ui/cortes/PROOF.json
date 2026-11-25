@@ -1,0 +1,28 @@
+{
+  "feature": "cortes",
+  "entry_point": "nav /cortes",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /cortes y GET /api/dashboard/cortes",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=cortes": true,
+    "h2_cortes": true,
+    "bloque_crecen": true,
+    "bloque_recortan": true,
+    "columna_por_que": true,
+    "confirmar_rechazo": true,
+    "zapato_blanco": true,
+    "entidad_campana_a": true,
+    "button_vetar": true,
+    "form_veto": true,
+    "dias_value_30": true,
+    "actor_input": true,
+    "token_input": true,
+    "sin_asesoria_jev": true,
+    "api_http_200": true,
+    "api_has_negative_pending_veto": true,
+    "api_sin_asesoria": true
+  },
+  "ok": true,
+  "evidence_dir": "/tmp/orbit-z/repo/.cursor/skills/verify-orbit/evidence/z-cierre/cortes"
+}

@@ -82,8 +82,15 @@ def run_cycle(conn, decided=seeds.DECIDED_AT):
         )
 
 
+# ARREGLOS 05 J retiro la pausa de la era bandas: sin `ads_bid_politica` la
+# hoja solo registra `politica_apagada`. El escenario declara la politica viva
+# para conservar la pausa que estas aserciones siempre exigieron; no cambia
+# ninguna asercion.
+POLITICA_VIVA = {"ads_bid_politica_amazon_us": "niveles_v3"}
+
+
 def harvest_scenario(conn, *, reobservado=False, keyword_propia=False):
-    ids = seeds._siembra_maestra(conn)
+    ids = seeds._siembra_maestra(conn, settings=POLITICA_VIVA)
     if keyword_propia:
         seeds._entidad(conn, "amazon_us", "keyword", "review-own", parent=ids["ag"],
                        match_type="EXACT", keyword_text="Buena Yarda")

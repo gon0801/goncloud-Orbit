@@ -1,0 +1,44 @@
+=== N a
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+269 passed, 6245 deselected, 1 warning in 120.46s (0:02:00)
+RC=0
+=== N b
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+40 passed, 6474 deselected, 1 warning in 38.84s
+RC=0
+=== N c
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+21 passed, 6493 deselected, 1 warning in 35.99s
+RC=0
+=== N d
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+23 passed, 6491 deselected, 1 warning in 24.15s
+RC=0
+=== N e
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+16 passed, 6498 deselected, 1 warning in 35.71s
+RC=0
+=== N f
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+10 passed, 6504 deselected, 1 warning in 45.35s
+RC=0
+=== N g
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 6510 deselected, 1 warning in 27.07s
+RC=0
+=== N h
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+21 passed, 6493 deselected, 1 warning in 35.11s
+RC=0
+=== N i
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+19 passed, 6495 deselected, 1 warning in 30.60s
+RC=0
+=== N j
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+6 passed, 6508 deselected, 1 warning in 22.60s
+RC=0
+=== N k
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+6514 deselected, 1 warning in 16.76s
+RC=5

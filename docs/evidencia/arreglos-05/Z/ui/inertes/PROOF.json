@@ -1,0 +1,22 @@
+{
+  "feature": "inertes",
+  "entry_point": "nav /inertes",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /inertes y GET /api/dashboard/inertes",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=inertes": true,
+    "h2_inertes": true,
+    "nav_aria_current": true,
+    "vacio_semilla": true,
+    "kpi_hojas": true,
+    "h3_lotes": true,
+    "vacio_lotes": true,
+    "api_http_200": true,
+    "api_items_vacios": true,
+    "api_totales_vacios": true,
+    "api_lotes_vacios": true
+  },
+  "ok": true,
+  "evidence_dir": "/tmp/orbit-z/repo/.cursor/skills/verify-orbit/evidence/z-cierre/inertes"
+}

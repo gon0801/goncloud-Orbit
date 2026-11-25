@@ -1,0 +1,172 @@
+# Resultado del bloque Z: cierre de ARREGLOS 05
+
+- SHA conjunto de cierre: `7b06778d376eb5631b0a2863beea6a90ab804da0` (merge del
+  PR #773, `arreglos-05/k`, con BASE y A-K integrados). Todo lo de este informe
+  se ejecuto sobre ese commit.
+- Rama: `arreglos-05/z`.
+- Modelo: `opencode-go/deepseek-v4.1-flash` (OpenCode Go), por orden de David, con
+  `poteto-mode` completo.
+- Aviso del bloque: se publica el resultado de la revision completa del codigo
+  integrado, con evidencia de cada cierre y los pendientes reales.
+
+## Veredicto: PARCIAL
+
+Orbit queda aprobado en todo lo que depende de ARREGLOS 05, pero **el plan no
+recibe pase global porque K sigue abierto para Amazon US**. La fuente externa no
+permite demostrar el impuesto sobre comisiones en US (`K/conciliacion.md`,
+`K/resultado.md`): MX y MeLi estan adjudicados y el impuesto viaja una sola vez en
+la politica S4, pero US queda desconocido y no se escribe 16% ni cero. Este
+bloque no marca K como terminado ni suaviza ese pendiente.
+
+No hay ningun P0/P1 real abierto de ARREGLOS 05 en la aceptacion ni en los
+recorridos. Las esquinas y la deuda de fixtures de otros planes van a
+"Seguimiento (P2)".
+
+## Aceptacion integrada (Z.2)
+
+```bash
+export ORBIT_ACCEPTANCE_XML="$PWD/docs/evidencia/arreglos-05/Z/acceptance.xml"
+bash docs/evidencia/arreglos-05/comprobar.sh ALL \
+  > docs/evidencia/arreglos-05/Z/acceptance.log 2>&1
+```
+
+- `Z/acceptance.xml`: `tests="31" failures="0" errors="0" skipped="0"
+  time="112.697"`.
+- `Z/acceptance.log`: `31 passed, 1 warning in 112.73s`. La advertencia es la
+  deprecacion de `httpx` en `starlette.testclient`, no un fallo.
+- 31 de 31 en verde. Los 5 rojos de producto que BASE dejo (TN03, TN10, TN11,
+  TN12 y TN13) quedaron cerrados por B, C, F y G.
+
+### Porte de fixture trazado (2 casos)
+
+En la primera corrida del SHA conjunto, `test_13_reobservar_un_termino_maduro_no_aborta_el_ciclo`
+y `test_control_arreglos01_b_no_harvestea_keyword_exact_propia` fallaban por una
+sola causa comun: faltaba la decision `pause`. No es un defecto de producto. J
+retiro la pausa de la era bandas y sin `ads_bid_politica_<plataforma>` la hoja
+solo registra `politica_apagada` (`tests/test_arreglos05_j_modos.py`,
+`tests/test_cycle.py`). El escenario de aceptacion venia de antes de J.
+
+Porte aplicado, igual que BASE hizo con TN05/06/07/11:
+
+- `revision/optimizer.py::harvest_scenario` siembra
+  `{"ads_bid_politica_amazon_us": "niveles_v3"}`, la politica vigente, para
+  conservar la pausa que estas aserciones siempre exigieron.
+- **Cero aserciones tocadas.** Con el porte, el control produce
+  `{pause, harvest, negative}` y TN13 el mismo lote mixto que exigia.
+- El original queda byte a byte en `revision/historico/optimizer.py`, con
+  SHA-256 `ee41a3fbacb6b4df469aebff0b351e63e2af2955653546aa159e64289f621ccf`,
+  que coincide con `revision/manifest.json`. El manifiesto no cambia.
+
+## Regresiones promovidas y vecinos (Z.2)
+
+`comprobar.sh N a` .. `N k`, en serie, sobre el SHA conjunto:
+
+| Letra | Casos | Resultado |
+|---|---|---|
+| a | 269 | 269 passed |
+| b | 40 | 40 passed |
+| c | 21 | 21 passed |
+| d | 23 | 23 passed |
+| e | 16 | 16 passed |
+| f | 10 | 10 passed |
+| g | 4 | 4 passed |
+| h | 21 | 21 passed |
+| i | 19 | 19 passed |
+| j | 6 | 6 passed |
+| k | 0 | sin casos a proposito (ver abajo) |
+
+- Logs por letra en `Z/regresiones-<letra>.log` y resumen en
+  `Z/regresiones.log`. Total 429 passed, cero fallos y cero omisiones.
+- **`N k` no existe por decision de K.2**, no por omision: K no cambio el
+  calculo y su aceptacion pide `N k` solo si cambia. Los cuatro casos que
+  cubriria tienen control vigente y estan citados en `K/resultado.md`: TaxAmount
+  anidado, total inclusivo, impuesto separado y dato ausente. No se inventa una
+  prueba para aparentar cobertura.
+
+Controles y candados en el mismo SHA:
+
+- `tests/test_config_write.py -k arreglos01_x`: 1 passed (banda manual 01X).
+- `tests/test_architecture.py`: 99 passed, 2 skipped. Las dos omisiones son los
+  casos de permisos de archivo que Windows no puede reproducir
+  (`tests/util_fs.py`); no son de aceptacion.
+- `ruff check app tests tools`: All checks passed. `ruff format --check`: 541
+  files already formatted. Ningun modulo nuevo rompe el presupuesto de 900
+  lineas.
+
+## Decision sobre los fallos previos de master en esta PC (Z.2)
+
+Se corrieron los archivos senalados sobre el SHA conjunto. Ninguno pertenece a la
+aceptacion de 31 casos ni al codigo de ARREGLOS 05; son bootstraps de fixture que
+aplican una cadena parcial de migraciones y quedaron atras cuando TEMPORADA y 05
+agregaron tablas o consultas.
+
+| Archivo | Fallos | Causa observada | Decision |
+|---|---|---|---|
+| `test_fabrica_f2_hermanas.py` | 24 | `UndefinedTable: relation "temporada_efecto" does not exist`; `ORDEN_F2` no aplica 0093 | Pendiente P2: fixture de F2, no producto. Produccion aplica la cadena completa |
+| `test_fabrica_f2_biblioteca.py` | 16 | La misma tabla ausente | Pendiente P2, misma causa |
+| `test_harvest_destino.py` | 3 | `db_f2_0092` aplica 0086/0092/0094 y omite 0093 | Pendiente P2, misma causa |
+| `test_d3_adversary.py` | 2 | El mapa SQL falso no conoce `SELECT id, settings FROM config_version ...` | Pendiente P2: fixture de conexion falsa, no producto |
+| `test_notifica.py` | 3 | `tuple index out of range` al leer filas de un `_conn_campanas` con forma vieja | Pendiente P2: fixture, no producto |
+| `test_precio02_escenario_meli.py` | 1 | `ingest_run.ok` es False porque `ORDEN_M3` aplica una cadena parcial | Pendiente P2: fixture, no producto |
+| `test_orbit07_m1.py` | 0 | Ya no falla en este SHA | Cerrado |
+
+Logs: `Z/legado-fabrica.log` y `Z/legado-resto.log`. No se ocultan en un XML: se
+declaran aqui y en `Z/cobertura.tsv` como deuda de fixture. El pase de aceptacion
+de ARREGLOS 05 queda limpio.
+
+## UI del mapa de pantallas (Z.4)
+
+Detalle y evidencia en `Z/ui.md` y `Z/ui/`. Instancia del SHA conjunto en WSL,
+`launch` y `doctor` OK (`{"ok": true, "health": "{\"status\":\"ok\"}"}`).
+
+- Diez drives ejecutados: Resumen, Campanas, Decisiones, Salud, Contribucion,
+  Propuestas, Inertes, Crear campanas, Settings y Productos sin clics.
+- Todos los checks funcionales, HTML, JSON, CSP y de cableado en verde. Cuatro
+  pantallas (Resumen, Campanas, Salud, Contribucion) marcan `ok=false` solo por
+  la captura PNG: el unico navegador es Edge de Windows y el helper lanza Chrome
+  con un perfil de ruta Linux. Se capturaron las cuatro paginas con Edge headless
+  de Windows contra la misma instancia (`Z/ui/*-1440.png`).
+- Settings adverso con Edge real: `1,000` no envia, error visible, cero POST, sin
+  version nueva; `7` si intenta el POST. `ok=true`.
+- Productos cubre limites simulados frente a vigentes, 422 con minimo, no
+  guardar, encendido deshabilitado en practica y volver a practica.
+- Resumen: el caso de datos desconocidos frente a cero es TN16, verde en la
+  aceptacion.
+- `cleanup` cerro el pid y la base `orbit_verify_z_cierre`; no queda uvicorn ni
+  base `orbit_verify_z%`.
+
+## Secretos (Z.4)
+
+`Z/secretos.txt`: `gitleaks detect` sobre el arbol del SHA conjunto encuentra 13
+falsos positivos de `generic-api-key` (md5 de archivos, prosa que empieza con
+"sale", tokens ficticios de pruebas), todos anteriores al SHA. Sobre el rango de
+commits del bloque (`1191125c..HEAD`): `no leaks found`. No se commitea ningun
+secreto.
+
+## Matriz de cobertura (Z.1)
+
+`Z/cobertura.tsv`: 14 IDs revalidados, 5 controles (01, 08, 09, D2 y 01X), la
+nota D1 y las 53 fallas del legado agrupadas por area, cada fila con owner,
+commit y comprobacion. El legado suma 53 sin doble conteo (Ciclo5 duplica
+Politica1 y Politica3 se descarto con datos). K aparece como pendiente explicito
+para US y no como cierre.
+
+- 03 completo por su DoD: 20 bloques integrados y desplegados en `819fe1ff`.
+- 04 completo por su DoD: 21 bloques integrados y desplegados en `f5dc86d5`, seis
+  casos TN verdes (`docs/evidencia/arreglos-04/CIERRE/`).
+- TEMPORADA completo por su DoD: bloques I-H y olas OLA1-OLA3 desplegados; el
+  unico pendiente que su cierre traslado a 05 (conciliar antes de decidir) quedo
+  cerrado por A.2 y su reproduccion legada esta verde.
+
+## Pendientes
+
+1. **K abierto para Amazon US**: hace falta una fuente que demuestre el impuesto
+   sobre comisiones en US. Mientras tanto el veredicto global es PARCIAL.
+2. **Revision global Z.3**: la ejecuta el revisor asignado, distinto al
+   implementador (Astra o el alterno que anuncie el coordinador). `Z/review.md`
+   recibe alcance, hallazgos P0/P1 frente a P2 y veredicto. Hasta que exista, no
+   se declara PASA.
+3. **Deuda de fixture P2** de los 49 casos de la tabla anterior, en los planes
+   duenos de esos archivos.
+4. Despliegue: este bloque es `lane: fast` y no despliega; el despliegue se
+   acredita aparte.

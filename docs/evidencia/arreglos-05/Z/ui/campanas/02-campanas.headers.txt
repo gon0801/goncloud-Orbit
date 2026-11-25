@@ -1,0 +1,8 @@
+status: 200
+date: Wed, 25 Nov 2026 13:59:09 GMT
+server: uvicorn
+content-length: 48555
+content-type: text/html; charset=utf-8
+content-security-policy: default-src 'self'
+cache-control: no-store
+connection: close

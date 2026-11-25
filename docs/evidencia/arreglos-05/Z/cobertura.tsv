@@ -1,0 +1,49 @@
+ambito	clave	contenido	owner	commit	comprobacion	resultado	evidencia
+hallazgo_14	02	Lista truncada, tokens invalidos o contenedor ausente no acreditan ausencia: cero POST y ningun terminal por ausencia supuesta	04 B-C	f5dc86d5	T writes test_02 (missing y truncated)	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-04/CIERRE
+hallazgo_14	03	Reversa solo archiva la keyword cuya creacion propia este acreditada; ajena/adoptada nunca hereda autoria	05 B	ae7626ba	T writes test_03	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-05/B
+hallazgo_14	04	Retiro e impulso invalidan previa/seleccion anterior; no envian el plan de una previa fallida	04 W-P	f5dc86d5	T ui test_04 y vecino impulso	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-04/CIERRE
+hallazgo_14	05	Fuente corrupta no publica subtotal completo ni recrea la clave invalidada	03 D-G	819fe1ff	T ingest test_05	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-03/D-G
+hallazgo_14	06	Scan MeLi incompleto no desactiva publicaciones ausentes; solo cobertura completa certifica ausencia	03 D-M	819fe1ff	T ingest test_06	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-03/D-M
+hallazgo_14	07	Cotizacion MeLi conserva fecha y arbol de fees, fresca y persistida	03 P-G	819fe1ff	T pricing test_07 (corriente y persistida)	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-03/P-G
+hallazgo_14	10	Negative reconciliado conserva identidad durable para una reversa ejecutable, una sola vez	05 B	ae7626ba	T writes test_10	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-05/B
+hallazgo_14	11	Reposicion registra intencion antes del HTTP y no repite POST tras ACK y readback ambiguo	05 C	73ea8f90	T writes test_11	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-05/C
+hallazgo_14	12	Target avanza desde la ultima meta base live comprometida, independiente de overlay y apply, con ledger rancio	05 F	96eddb99	T optimizer test_12	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-05/F
+hallazgo_14	13	Reobservacion de un termino maduro no aborta el lote por un sello temporal incoherente	05 G	d0cdf1c1	T optimizer test_13	verde en 7b06778d con porte trazado de fixture por J	Z/acceptance.xml y Z/resultado.md
+hallazgo_14	14	Catalogo cuenta solo escrituras que sobreviven al savepoint; resultado externo despues del commit	03 D-M	819fe1ff	T ingest test_14	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-03/D-M
+hallazgo_14	15	Gasto desconocido no produce ACoS numerico; cobertura y madurez se comprueban por separado	04 W-E	f5dc86d5	T ui test_15	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-04/CIERRE
+hallazgo_14	16	Ventas conocidas con ACoS incompleto se muestran como dato faltante, no como ausencia de ventas	04 W-D	f5dc86d5	T ui test_16	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-04/CIERRE
+hallazgo_14	S1	Errores de proveedor/model/choice se redactan antes de persistir en Jev; clave ficticia ausente del error durable	03 D-N	819fe1ff	T ingest test_S1	verde en 7b06778d	Z/acceptance.xml y docs/evidencia/arreglos-03/D-N
+control	01	Reconciliacion bid solo lee; no reenvia el bid anterior	01K	arreglos-01 Z f53ad3f8	T writes test_01 (live/off/shadow)	verde en 7b06778d	Z/acceptance.xml
+control	08	Unidades reales y variantes en precio y reversa	01R	arreglos-01 Z f53ad3f8	T pricing test_08	verde en 7b06778d	Z/acceptance.xml
+control	09	Jev cierra su TX implicita y conserva la ajena	ARREGLOS 01 S	de895d18	T ingest test_09	verde en 7b06778d	Z/acceptance.xml
+control	D2	Fusible no libera al cambiar de dia	01E	arreglos-01 Z f53ad3f8	T pricing test_D2	verde en 7b06778d	Z/acceptance.xml
+control	01X	Banda manual canonica en config_write; control de Settings	ARREGLOS 01 X	arreglos-01 X 976df4dc	tests/test_config_write.py -k arreglos01_x	1 passed en 7b06778d	Z/resultado.md
+nota	D1	Contraste entre formula prior y frase «solo frena»: nota de contrato, no cambio de politica ni bloqueo	ARREGLOS 03	ff03ed61	Lectura de COBERTURA, sin cambio de codigo	nota vigente, no bloqueo	COBERTURA.md
+legado_53	Politica1,2,4	Ciclo de pujas: piso redondeado, 10 dias frente a 20 clics/14 dias, ajuste de campana cuenta como subida	ARREGLOS 02 A/B/C	dabfac13, 5b73e2ed, 8d5a84c9	Integrados antes de ff03ed61; control 01X y N a en 7b06778d	integrado	COBERTURA.md y HALLAZGOS.md
+legado_53	Politica3	«Heredar del ad group»: descartada con datos, no era falla	decision del dueno	ff03ed61	Registro en HALLAZGOS; sin trabajo vigente	descartada	HALLAZGOS.md
+legado_53	Ciclo1,2,3	Fallo individual detiene el ciclo, degraded no recupera, running reciente bloquea el horario	05 A	fb9f7f0f	N a y reproducciones F1/F2/F3	verde en 7b06778d	Z/regresiones-a.log
+legado_53	Ciclo4	Conciliar antes de decidir	TEMPORADA B.2; verificado y completado por 05 A	fb9f7f0f (05 A)	Reproduccion legada test_reconciliacion_corre_despues_de_decidir	verde en 7b06778d (A.2)	docs/evidencia/arreglos-05/A
+legado_53	Ciclo5	Duplica Politica1; no se cuenta dos veces	ARREGLOS 02 B	dabfac13	Mismo control que Politica1	integrado, sin doble conteo	HALLAZGOS.md
+legado_53	Apply1	Lectura previa antes de la reversa	TEMPORADA E; reversa y comprobacion 05 B	ae7626ba	N b y T writes test_03	verde en 7b06778d	Z/regresiones-b.log
+legado_53	Apply2	Bypass de escritura fuera del cliente protegido	05 D	8c58f548	N d	verde en 7b06778d	Z/regresiones-d.log
+legado_53	Apply3	Archivo de anuncios (no confundir con reposicion 11)	04 B-A	f5dc86d5	Cierre 04 y vecinos de archivo	integrado	docs/evidencia/arreglos-04/CIERRE
+legado_53	Apply4,8,9	Identidad y ACK de harvest y hermanas	04 B-B/B-D	f5dc86d5	Cierre 04; controles de fabrica y harvest	integrado	docs/evidencia/arreglos-04/CIERRE
+legado_53	Apply5	Practica shadow vencida bloquea el trabajo real	05 E	4f44c07d	N e	verde en 7b06778d	Z/regresiones-e.log
+legado_53	Apply6	Tope de 150 pujas ordinarias por ciclo, sin renovar cupo en recuperacion	05 H	889fe5ca	N h	verde en 7b06778d	Z/regresiones-h.log
+legado_53	Apply7,11	Reversa y reposicion over TN10/11	05 B/C	ae7626ba, 73ea8f90	T writes test_10 y test_11	verde en 7b06778d	Z/acceptance.xml
+legado_53	Apply10	Creacion sin contenedor o lista incompleta	04 B-C	f5dc86d5	T writes test_02	verde en 7b06778d	Z/acceptance.xml
+legado_53	Apply12	Redondeo 02 B y ACK por item 04 B-B	ARREGLOS 02 B; 04 B-B	dabfac13, f5dc86d5	Controles 02 y cierre 04	integrado	ORDEN-IMPLEMENTACION y CIERRE 04
+legado_53	Ingesta1..5	Fuente corrupta, scan parcial, error redactado, cobertura y agregados	03 D-E/D-F/D-G/D-I/D-H	819fe1ff	T ingest test_05, test_06, test_14, test_S1	verde en 7b06778d	Z/acceptance.xml
+legado_53	Precio1,5	Retencion y unidades reales	03 P-C	819fe1ff	T pricing test_08	verde en 7b06778d	Z/acceptance.xml
+legado_53	Precio2	Fecha y detalle de cotizacion	03 P-B y P-G	819fe1ff	T pricing test_07	verde en 7b06778d	Z/acceptance.xml
+legado_53	Precio3,4	Fusible y dia cerrado; D2 no se reabre	03 P-D	819fe1ff	T pricing test_D2	verde en 7b06778d	Z/acceptance.xml
+legado_53	Fabrica1,5	Creacion y visibilidad de fabrica	04 W-M	f5dc86d5	Cierre 04 y drive-fabrica	integrado; drive verde en Z	Z/ui.md
+legado_53	Fabrica2	Semillas conservadas con aviso	04 W-K	f5dc86d5	Cierre 04	integrado	docs/evidencia/arreglos-04/CIERRE
+legado_53	Fabrica3,4	Lotes y planeacion de fabrica	04 W-L/W-J	f5dc86d5	Cierre 04	integrado	docs/evidencia/arreglos-04/CIERRE
+legado_53	Estimacion1	Comision duplicada en estimacion	ARREGLOS 02 D	9f0181f6	Control test_arreglos02 (aceptacion)	verde en 7b06778d	Z/acceptance.xml
+legado_53	Estimacion2,3,4	Cotizacion, cargos y escenarios	03 P-F/D-J	819fe1ff	Cierre 03 y vecinos de estimacion	integrado	docs/evidencia/arreglos-03
+legado_53	Estimacion5,7	Fee ausente y tax_amount	03 D-K	819fe1ff	Vecinos de estimacion en K	integrado	K/resultado.md
+legado_53	Estimacion6,8,9	Reglas de precio y escenarios	03 D-L	819fe1ff	Vecinos de precio en K	integrado	K/resultado.md
+legado_53	Web1	Banda manual y fabrica; Goals en 04 W-I	01X y 04 W-I	976df4dc, f5dc86d5	Control arreglos01_x y cierre 04	verde en 7b06778d	Z/resultado.md
+legado_53	Web2..10	Pantallas de dinero, campanas, resumen y settings	04 W-H/W-D/W-C/W-E/W-G/W-F; 05 I	f5dc86d5, 0244dc38	Drives del mapa y T ui test_15/test_16	verde en Z salvo PNG por entorno	Z/ui.md
+pendiente	K-US	Impuesto sobre comisiones de Amazon US no adjudicable con la fuente actual; K queda abierto para US	05 K	7b06778d	K/conciliacion.md y K/resultado.md	PARCIAL: MX y MeLi adjudicados, US desconocido	docs/evidencia/arreglos-05/K

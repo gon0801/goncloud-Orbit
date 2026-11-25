@@ -1,0 +1,5 @@
+devtools no arranco: 
+DevTools listening on ws://127.0.0.1:58308/devtools/browser/22322503-34c9-44cc-a808-c7e78c76e3b4
+[18336:11536:1125/055856.201:ERROR:chrome\browser\task_manager\providers\fallback_task_provider.cc:126] Every renderer should have at least one task provided by a primary task provider. If a "Renderer" fallback task is shown, it is a bug. If you have repro steps, please file a new bug and tag it as a dependency of crbug.com/40528867.
+[18336:8684:1125/055857.704:ERROR:components\media_router\common\providers\cast\certificate\cast_crl.cc:446] CRL - Verification failed.
+

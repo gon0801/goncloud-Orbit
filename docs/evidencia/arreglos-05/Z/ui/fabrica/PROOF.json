@@ -1,0 +1,26 @@
+{
+  "feature": "fabrica",
+  "entry_point": "nav /campanas/nuevas",
+  "base_url": "http://127.0.0.1:18010",
+  "action": "GET /campanas/nuevas, GET /api/fabrica/catalogo y /lotes",
+  "checks": {
+    "http_200": true,
+    "data-pantalla=fabrica": true,
+    "h1_crear": true,
+    "selector_publicaciones": true,
+    "comparador_publicaciones": true,
+    "nav_aria_current": true,
+    "form_plan": true,
+    "select_plataforma": true,
+    "input_token": true,
+    "frase_crear": true,
+    "aviso_activas": true,
+    "catalogo_http_200": true,
+    "catalogo_productos_vacios": true,
+    "catalogo_tipos_vacios": true,
+    "lotes_http_200": true,
+    "lotes_items_vacios": true
+  },
+  "ok": true,
+  "evidence_dir": "/tmp/orbit-z/repo/.cursor/skills/verify-orbit/evidence/z-cierre/fabrica"
+}
