@@ -1,0 +1,130 @@
+# Acepta de ARREGLOS 05 G. SHA d0b831ef8bfe4ba1dbd7ec9b2ca0027da7c49a0c (parte 1 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [ACEPTA] G.1: T optimizer test_13, reobservacion madura no revierte el lote
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_13
+.                                                                        [100%]
+1 passed, 2 deselected in 9.38s
+resultado=ok
+
+### [ACEPTA] G.1: N g, regresiones del bloque
+$ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N g
+....                                                                     [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-44\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4 passed, 6443 deselected, 1 warning in 27.27s
+resultado=ok
+
+### [CONTROL] bloque A: modelo de estados (casillas, invariantes, clasificadores)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_estados.py
+........................................................................ [ 39%]
+........................................................................ [ 79%]
+.....................................                                    [100%]
+181 passed in 1.46s
+resultado=ok
+
+### [CONTROL] bloque A: regresiones de ciclo
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_a_ciclo.py
+.........................................................                [100%]
+57 passed in 100.73s (0:01:40)
+resultado=ok
+
+### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports del cliente de escritura
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
+..............................................................ss........ [ 71%]
+.............................                                            [100%]
+99 passed, 2 skipped in 10.56s
+resultado=ok
+
+# comandos que no pasaron: 0
+# Acepta de ARREGLOS 05 G. SHA d0b831ef8bfe4ba1dbd7ec9b2ca0027da7c49a0c (parte 2 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] ciclo completo: decision, sello, replay y fixturas
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_cycle.py
+......................................................                   [100%]
+54 passed in 75.09s (0:01:15)
+resultado=ok
+
+### [CONTROL] aplicador, cola, cosecha y producto
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply.py tests/test_apply_schema.py tests/test_apply_producto.py tests/test_apply_harvest.py tests/test_apply_cola.py tests/test_harvest_excepcion.py
+........................................................................ [ 26%]
+........................................................................ [ 52%]
+........................................................................ [ 78%]
+............................................................             [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-44\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+276 passed, 1 warning in 273.68s (0:04:33)
+resultado=ok
+
+# comandos que no pasaron: 0
+# Acepta de ARREGLOS 05 G. SHA d0b831ef8bfe4ba1dbd7ec9b2ca0027da7c49a0c (parte 3 de 3)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] temporada 01: entrada, regreso, overlay y prioridad
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_temporada01_a.py tests/test_temporada01_b.py tests/test_temporada01_c.py tests/test_temporada01_d.py tests/test_temporada01_e.py tests/test_temporada01_f.py tests/test_temporada01_g.py tests/test_temporada01_h.py tests/test_temporada01_i.py
+........................................................................ [ 56%]
+........................................................                 [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-44\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+128 passed, 1 warning in 116.69s (0:01:56)
+resultado=ok
+
+### [CONTROL] optimizer: motores puros, cortes, higiene y ventanas
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_optimizer_caso.py tests/test_optimizer_bid.py tests/test_optimizer_cortes.py tests/test_optimizer_goals.py tests/test_optimizer_politica.py tests/test_optimizer_hygiene.py tests/test_optimizer_proteccion.py tests/test_optimizer_windows.py
+........................................................................ [ 28%]
+........................................................................ [ 56%]
+........................................................................ [ 85%]
+......................................                                   [100%]
+254 passed in 16.84s
+resultado=ok
+
+### [CONTROL] esquema y esquema del aplicador
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema.py tests/test_apply_schema.py
+........................................................................ [ 61%]
+.............................................                            [100%]
+117 passed in 23.56s
+resultado=ok
+
+### [CONTROL] bloques B a E: reversas, reposicion, escritura y shadow
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_b_reversas.py tests/test_arreglos05_c_reposicion.py tests/test_arreglos05_d_write.py tests/test_arreglos05_e_shadow.py tests/test_arreglos05_e_migracion.py
+........................................................................ [ 76%]
+......................                                                   [100%]
+94 passed in 42.46s
+resultado=ok
+
+### [CONTROL] selector del instalador: migraciones de ARREGLOS 05 (G no agrega DDL)
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py -k arreglos05
+....                                                                     [100%]
+4 passed, 47 deselected in 4.82s
+resultado=ok
+
+### [ACEPTA] revision de secretos de los commits del bloque
+$ gitleaks detect --redact --no-banner --log-opts=2825fb036be82d118acfeb4e53e07e490cdd4557..HEAD
+[90m7:53PM[0m [32mINF[0m [1m2 commits scanned.[0m
+[90m7:53PM[0m [32mINF[0m [1mscanned ~25983 bytes (25.98 KB) in 214ms[0m
+[90m7:53PM[0m [32mINF[0m [1mno leaks found[0m
+resultado=ok
+
+# comandos que no pasaron: 0
