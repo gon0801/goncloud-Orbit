@@ -1,0 +1,24 @@
+# Lectura RO de esquema (rol orbit_read, read_only)
+# SHA desplegado: 7cc88976bf509c47bfb08224287432be08377542.
+
+# Lectura RO de esquema y estado (rol orbit_read, read_only)
+# Fecha: 2026-11-25T12:20:54Z
+
+## conexion
+orbit|orbit_read
+
+## tablas del bloque
+decision|config_version|evaluacion_producto_ciclo
+
+## columnas de config_version
+id|bigint
+created_at|timestamp with time zone
+label|text
+settings|jsonb
+
+## triggers de config_version
+config_append_only
+config_append_only_truncate
+
+## sonda 0099: tope_ciclo en el CHECK
+CHECK ((motivo = ANY (ARRAY['modo_no_live'::text, 'ya_aplicada'::text, 'bid_incompleto'::text, 'entidad_no_decisora'::text, 'tope_intentos'::text, 'fuera_de_cap'::text, 'fallo_http'::text, 'sin_quota'::text, 'espera_target'::text, 'sin_respuesta'::text, 'perdida'::text, 'choque_clave'::text, 'espera_proteccion'::text, 'bid_cambiado_fuera'::text, 'vigencia_vencida'::text, 'tope_ciclo'::text])))

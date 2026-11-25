@@ -1,0 +1,33 @@
+# Huella del codigo desplegado
+# SHA desplegado: 7cc88976bf509c47bfb08224287432be08377542.
+
+# Huella del codigo desplegado
+# Fecha: 2026-11-25T12:21:47Z
+# Archivos que cambia J y su md5 en local, host y contenedor.
+
+OK   app/cli_productos.py 9e5da10f659ee46b058b6ca3cfb521a9
+OK   app/config_write.py 2f70a00865552c5f20e2be6ac97aa753
+OK   app/cycle.py 402b5bee7ca5e41a1c856c9e0a6ef86f
+OK   app/cycle_recorrido.py 84bf88eb32b3dfd1ac1121a3b474b652
+OK   app/cycle_serializacion.py 39b6774d4bc5fa8ff14e9340da69502f
+OK   app/cycle_sombra.py 5b78d72c348a734a65744937c7d5fb64
+OK   app/optimizer/bid.py 3a22d434f18f3b3ee69917feb10df9e7
+OK   app/optimizer/goals.py 143a5666923cf4d7d95bad8137a3aad6
+OK   app/optimizer/productos.py c41cd4dcf124467f3c1ed1e1c42b10dd
+OK   app/optimizer/settings_lectura.py 0f2883e45799a7449868008006cfa679
+OK   app/templates/productos_sin_clics.html 18cc7db54a8cbcce0450c0396d0c4789
+
+## SHA y estado desplegados
+sha_desplegado=7cc88976bf509c47bfb08224287432be08377542
+MOTOR_SHA=7cc88976bf509c47bfb08224287432be08377542
+ESTADO=guardas
+ESTADO=desplegado
+ESTADO=verificado
+
+## Marcas del retiro en el contenedor
+MODOS_POR_TIPO=2
+_pendiente_pause_apagada=0
+frase_meta_practica=0
+
+## Health
+{"status":"ok"}

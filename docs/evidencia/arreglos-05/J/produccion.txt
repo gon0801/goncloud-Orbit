@@ -1,0 +1,31 @@
+# Comprobacion de produccion (solo lectura)
+# SHA desplegado: 7cc88976bf509c47bfb08224287432be08377542.
+
+# Comprobacion de produccion (solo lectura)
+# Fecha: 2026-11-25T12:20:15Z
+
+## Productos: texto retirado y modos conservados
+frase_meta_practica_retirada=0
+meta_por_producto=3
+pausa_por_producto=2
+pausa_en_practica=1
+meta_en_vivo=2
+
+## API de productos: modos del ultimo ciclo
+cycle_id= 213
+modo_meta= live
+modo_pausa= shadow
+con_meta= 1
+
+## Settings: opciones del motor de bids
+motor_bid_opcion= niveles_v3
+motor_bid_opcion= apagado
+
+## CLI de productos-modo: modos disponibles
+                                        [--meta {off,live}]
+                                        [--pausa {off,shadow,live}]
+  --meta {off,live}
+  --pausa {off,shadow,live}
+
+## SHA desplegado
+7cc88976bf509c47bfb08224287432be08377542

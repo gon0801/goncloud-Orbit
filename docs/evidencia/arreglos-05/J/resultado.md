@@ -6,7 +6,9 @@
 - Modelo (escrito antes del commit de codigo): `J/estados.md`.
 - Cabeza de la implementacion: `55568efa` (codigo + regresiones + fixture y
   las correcciones de revision).
-- Evidencia: el commit que contiene este archivo, sobre `55568efa`.
+- Evidencia de fase 1: el commit que contiene este archivo, sobre `55568efa`.
+- Fase 2: este archivo y los recibos de `J/` sobre el master integrado
+  `7cc88976`.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md:243-248` y la decision 5 de
   `docs/evidencia/arreglos-02/DISENO.md:417-432`.
 - Aviso del bloque: se retiraron caminos obsoletos comprobados, conservando los
@@ -172,7 +174,115 @@ existente.
   con `cp: cannot stat 'app'` y en `awk` de Windows; no toca el codigo de J. El
   selector del plan (`-k arreglos05`) pasa 4/4.
 
-## Seguimiento (P2)
+## Fase 2: despliegue y recibo
+
+- PR #771 integrado. Merge `7cc88976bf509c47bfb08224287432be08377542` en
+  `master`; el revisor aprobo `a84a9c63` sin P0/P1 y la cabeza de codigo era
+  `55568efa`.
+- `SHA_PREVIO=0244dc381c18b59b76112c68317738114d0b6ff8` (bloque I).
+- Fecha: 2026-11-25 (UTC). Respaldo: `predeploy-20261125-121402`.
+
+### Ensayo de solo lectura
+
+`MOTOR_SHA=7cc88976... bash tools/despliegue/desplegar.sh --ensayo`
+(`J/despliegue.txt`):
+
+- Guardas libres: `true|0|0|0|0`.
+- Monotonia: habia que desplegar; migraciones 0076-0099 **aplicadas**, ninguna
+  pendiente. J no agrega DDL: la `0099_arreglos05_tope_ciclo.sql` sigue siendo la
+  ultima.
+- `claves: ninguna cambia`; bloque de cron igual al canonico;
+  `refresh_estimacion.sh` ya era el del SHA.
+- `== ENSAYO OK`.
+
+### Despliegue real
+
+`MOTOR_SHA=7cc88976... bash tools/despliegue/desplegar.sh`
+(`J/despliegue.txt`):
+
+- Respaldo `predeploy-20261125-121402` completo.
+- Migraciones 0076-0099 `ya aplicada` (ninguna se ejecuto).
+- `md5 OK: 304 archivos`; imagen construida aparte y contenedor recreado;
+  `/health 200`; `despliegue/sha = 7cc88976...`.
+- Cron igual al canonico; ninguna clave cambia.
+- `== DESPLEGADO 7cc88976...`.
+
+### Checklist
+
+`MOTOR_SHA=7cc88976... bash tools/despliegue/checklist.sh`
+(`J/checklist.txt`):
+
+- `== CHECKLIST VERDE 7cc88976...`: SHA desplegado, migraciones 0076-0099
+  aplicadas (la ultima, `0099_arreglos05_tope_ciclo.sql`), bloque de cron
+  canonico, `refresh_estimacion.sh` del SHA y `/health 200`.
+
+### Prueba real sobre el SHA integrado
+
+`J/prueba-real.txt`:
+
+- `N j`: **6 passed**.
+- UI de productos: 4 passed (render de la plantilla y `test_ui.py -k productos`).
+
+### Produccion: modos retirados y conservados
+
+`J/produccion.txt` (solo lectura, 2026-11-25T12:20Z):
+
+- La frase retirada "se calcula y no cambia ninguna puja" aparece **0** veces.
+- `Meta por producto` y `Pausa por producto` siguen en la pantalla.
+- API del ultimo ciclo: `modo_meta=live`, `modo_pausa=shadow`, `con_meta=1`.
+- Settings: `motor_bid` solo `niveles_v3` y `apagado`.
+- CLI: `--meta {off,live}` y `--pausa {off,shadow,live}`.
+
+### Lectura RO de esquema
+
+`J/ro_esquema.txt` (rol `orbit_read`, `read_only`):
+
+- `current_database=orbit`, `current_user=orbit_read`.
+- Tablas `decision`, `config_version` y `evaluacion_producto_ciclo` presentes.
+- `config_version` conserva `id`, `created_at`, `label`, `settings` (jsonb) y los
+  triggers `config_append_only` y `config_append_only_truncate`.
+- La sonda de la 0099 da `tope_ciclo` en
+  `decision_sin_aplicar_motivo_check`; la 0099 sigue siendo la ultima.
+
+### Huella del codigo
+
+`J/huella-codigo.txt`:
+
+- Los 11 archivos que cambia J tienen el **mismo md5 en local, host y
+  contenedor**.
+- `sha_desplegado = 7cc88976...`, `ESTADO=verificado`, `/health 200`.
+- En el contenedor: `MODOS_POR_TIPO=2`, `_pendiente_pause_apagada=0` y
+  `frase_meta_practica=0`.
+
+### UI
+
+`J/ui.md`: `orbit-verify` no se pudo ejecutar en esta sesion Windows (helper
+POSIX y WSL sin Postgres 16/sudo). El equivalente fue el render de la plantilla y
+el HTML/API real de produccion; no se declara un pase que no se hizo.
+
+### Migracion y reversa
+
+- J no trae migracion; la 0099 sigue siendo la ultima aplicada. No hay DDL que
+  deshacer.
+- Reversa de despliegue: `MOTOR_SHA=7cc88976... bash
+  tools/despliegue/rollback.sh` deshace solo lo anotado en `ultimo.env` para ese
+  SHA (codigo; sin claves, cron ni migraciones en esta corrida) y sale 0 sin
+  deshacer con otro SHA.
+- Reversa de datos: no hace falta; no se reescribio ninguna `config_version` ni
+  ninguna decision.
+
+### Seguimiento (P2) de la revision
+
+- (a) `J/verde.txt` y `J/notifica.txt` estaban en UTF-16 con BOM y GitHub los
+  mostraba como binarios. En esta rama de evidencia se reescriben en UTF-8.
+- (b) El comentario viejo de `tests/test_notifica.py:1048` queda anotado; no
+  cambia comportamiento y no se toca en un PR de solo docs.
+- (c) El docstring de `_aplica_producto_modo` y la ficha
+  `.cursor/skills/verify-orbit/features/productos.md` aun mencionan la meta en
+  practica; quedan anotados para una limpieza posterior, fuera de este PR de
+  docs.
+
+## Seguimiento (P2) del contrato
 
 - La sonda historica `tools/auto03/sondas/meta_sombra.sql` se conserva como
   lectura documental de la era shadow; ya no hay modo que la produzca.
