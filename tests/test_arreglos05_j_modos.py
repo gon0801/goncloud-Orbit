@@ -47,6 +47,29 @@ def test_arreglos05_j_sin_politica_no_muta_y_cuenta_el_skip():
 
 
 @_skip_db
+def test_arreglos05_j_sin_politica_conserva_el_target_para_cosecha():
+    """Apagar bids no congela el ancla que usa la cosecha: la meta por hoja se
+    sigue resolviendo y guardando, solo no hay decision de hoja."""
+    with _db_temporal("orbit_j_target_cosecha") as (conn, _c):
+        ids = _siembra_maestra(conn)
+        res = _corre(conn)
+        assert res.status == "done"
+        por = {(f[0], f[1]) for f in _decisions_de(conn, res.cycle_id)}
+        assert (ids["kw_bid"], "bid") not in por
+        assert (ids["kw_pause"], "pause") not in por
+        targets = {
+            f[0]: (f[1], f[2])
+            for f in conn.execute(
+                "SELECT ad_entity_id, target_acos_pct, procedencia FROM target_acos_ciclo"
+                " WHERE cycle_id = %s",
+                (res.cycle_id,),
+            ).fetchall()
+        }
+        assert ids["kw_bid"] in targets
+        assert ids["kw_pause"] in targets
+
+
+@_skip_db
 def test_arreglos05_j_politica_ilegible_aborta_sin_decisiones():
     """Un valor corrupto de la politica revienta TX2 y no deja decisiones."""
     with _db_temporal("orbit_j_politica_ilegible") as (conn, _c):

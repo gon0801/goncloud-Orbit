@@ -238,12 +238,6 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         contadores.skips_entidad[MOTIVO_ENTIDAD_INERTE] += 1
         tick()
         return
-    # ARREGLOS 05 J: sin politica de bids no hay permiso de mutacion. La era
-    # bandas dejo de decidir pausas en vivo; su unico uso vivo era esta rama.
-    if politica is None:
-        contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
-        tick()
-        return
     if ad_group_id not in corte_pause_por_grupo:
         corte_pause_por_grupo[ad_group_id] = evidencia_ad_groups.get(ad_group_id)
     evidencia = corte_pause_por_grupo[ad_group_id]
@@ -304,6 +298,21 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
     }.get(procedencia)
     evaluacion_producto = meta_viva.product_id if meta_viva is not None else None
     contadores.targets[entidad_id] = (target, procedencia)
+    # ARREGLOS 05 J: apagar el motor de bids no congela el ancla que usa la
+    # cosecha. La meta ya se resolvio y se guardo; solo no hay decision de hoja.
+    if politica is None:
+        _anota_sombra(
+            productos_ciclo,
+            entidad_id=entidad_id,
+            ad_group_id=ad_group_id,
+            meta_viva=meta_viva,
+            target=target,
+            procedencia=procedencia,
+            actual=Mantener(MOTIVO_POLITICA_APAGADA),
+        )
+        contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
+        tick()
+        return
     mult_live = cerca_live = None
     if temporada_viva and frontera_h is not None:
         cerca_live = frontera_h.cerca_hoja
