@@ -117,6 +117,16 @@ como excluyentes por término (únicos parciales de 0001).
   `vetoed`, consultable; `vetoed_at`/`vetoed_by` dejan el rastro). Al
   vencer el veto, el motor **re-propone con datos frescos** (nueva decisión,
   nueva fila en cola) — el vencimiento NO reanima la fila vieja.
+- **El veto es del EFECTO, no de una fila (ARREGLOS 05 E)**: vetar cualquier
+  fila de una clave `(platform, ad_entity_id, familia, search_term)` veta en la
+  misma transición TODAS las filas vetables (`pending_veto`/`released`) de esa
+  clave con el mismo `vence_el` y actor. Así, con una práctica vencida y un
+  corte real conviviendo (0098), vetar la práctica detiene el corte real. Si
+  otra fila de la clave ya está `applying` (punto de no retorno), el veto
+  responde 409 y no toca nada. El veto toma un candado asesor por clave
+  (`hashtextextended`) que el trigger de INSERT de la cola toma igual: una
+  decisión ya calculada antes del veto no puede entrar en la cola después de
+  confirmado (el trigger ve el veto vigente y levanta `unique_violation`).
 
 ### 1.5 Candados de schema (sellado 4)
 
@@ -126,11 +136,21 @@ como excluyentes por término (únicos parciales de 0001).
   la tabla §1.2 revienta. Las transiciones son atómicas en la app:
   `UPDATE … WHERE estado = <estado esperado>`; cero filas afectadas =
   perdió la carrera (releer, no aplicar).
-- **Único parcial en-vuelo sobre NO terminales, `NULLS NOT DISTINCT`**: a lo
-  sumo una fila no-terminal por clave de efecto. `NULLS NOT DISTINCT` es
-  obligatorio porque `search_term` es NULL en los pause (sin él, dos pauses
-  de la misma entidad no chocarían). Verificación contra el PG16 del
-  server: unknown (§13).
+- **Unicidad de efectos live y deduplicación de prácticas vigentes
+  (ARREGLOS 05 E, migración 0098)**: el índice único parcial
+  `apply_queue_live_efecto_unico` cubre SOLO `modo='live'` no terminal (como
+  máximo un efecto live no terminal por clave; `NULLS NOT DISTINCT` es
+  obligatorio porque `search_term` es NULL en los pause, sin él dos pauses de
+  la misma entidad no chocarían). La deduplicación de prácticas shadow
+  vigentes y el bloqueo de un shadow contra un efecto live viven en el trigger
+  `apply_queue_clave_vigente`: una shadow no terminal deduplica mientras
+  `vence_el > now()` (reloj de la base). Una shadow **vencida** no bloquea el
+  SELECT ni el INSERT de la decision real, y conserva su fila e historial; no
+  se promociona a live ni se borra. El índice mixto de 0002 se retira. El
+  trigger además bloquea el alta cuando hay un `vetoed` vigente
+  (`vence_el > now()`) y comparte con el veto un candado asesor por clave, de
+  modo que veto y alta de la misma clave se serializan. Verificación contra el
+  PG16 del server: unknown (§13).
 - **`vetoed` sellado en SCHEMA**: la transición a `vetoed` exige
   `current_user` admin (trigger) — el rol del motor (`app_decide`) NO puede
   vetar, ni siquiera con el UPDATE que necesita para el claim (r2 grok 7:
@@ -174,7 +194,10 @@ término); GRANTs probados con el rol real (no superuser).
 
 El ciclo no re-decide una clave de efecto cuando existe:
 
-1. **en-vuelo**: fila NO terminal de esa clave en la cola, o
+1. **en-vuelo**: una fila LIVE no terminal de esa clave en la cola, o una
+   práctica SHADOW no terminal todavía VIGENTE (`vence_el > ahora`, reloj de la
+   base). Una práctica shadow **vencida** no bloquea: conserva su historia y
+   el motor decide y encola sobre la clave (ARREGLOS 05 E), o
 2. **bloqueo vigente**: fila `vetoed` de esa clave con `vence_el` vigente.
 
 Claves distintas avanzan (el bloqueo es por clave de efecto, no por entidad
@@ -237,8 +260,10 @@ insumos congelados de la decisión:
 
 `UPDATE apply_queue SET estado='applying' WHERE id=:id AND
 estado='released'` — cero filas = perdió la carrera (p.ej. un veto que
-llegó primero): releer y no aplicar. Carreras veto/claim testeadas: veto en
-`released` gana o pierde limpio; veto en `applying` → "en vuelo".
+llegó primero): releer y no aplicar. El veto por EFECTO (ARREGLOS 05 E) veta
+todas las filas vetables de la clave en una sola transición: gana o pierde
+limpio contra el claim de cualquiera de ellas; si alguna ya está `applying`,
+responde 409 "en vuelo" y no toca ninguna.
 
 ### 3.3 Reactivación manual y gracia 7d (sellado 17)
 
@@ -334,7 +359,8 @@ vocabulario pero **jamás escrita**: su desenlace ya es el resumen),
 `bid_cambiado_fuera` (0093) y `vigencia_vencida` (0094, §9.1).
 
 **`choque_clave` (D.1b):** la decisión de corte live cuyo INSERT chocó la
-clave de efecto en vuelo (otra fila no terminal con la misma clave). No
+clave de efecto en vuelo (otra fila live no terminal o una práctica shadow
+vigente con la misma clave; ARREGLOS 05 E). No
 deja fila en la cola y, sin registro, `v_decision_huerfana` la listaría
 como `huerfana` sin serlo. El registro usa el modo del **envelope**
 (`encola_cortes` solo lo escribe en ciclos live; en shadow el desenlace
@@ -1052,6 +1078,16 @@ módulos llamadores, y prohíbe fuera de `app/apply_estados.py` el literal
   viven en `docs/evidencia/arreglos-05/A/estados.md`; la ampliación del
   bloque B, en `docs/evidencia/arreglos-05/B/resultado.md`; la del bloque C,
   en `docs/evidencia/arreglos-05/C/estados.md`.
+
+**Cola de cortes (ARREGLOS 05 E).** La disponibilidad de una clave de efecto
+`(platform, ad_entity_id, familia, search_term)` NO es una casilla de esta
+tabla: es una precondición de encolar, no un cambio enviado a Amazon. Por eso
+el bloque E no agrega estados ni eventos y las 176 casillas siguen intactas.
+La decide el esquema (índice `apply_queue_live_efecto_unico` para el efecto
+live y trigger `apply_queue_clave_vigente` para la práctica shadow vigente) y
+la lee `apply_cola._SQL_CLAVES_BLOQUEADAS` (y su espejo en `productos_io`). Una
+práctica shadow vencida no bloquea y conserva su historia. El modelo por camino
+y el papel del índice están en `docs/evidencia/arreglos-05/E/estados.md`.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 

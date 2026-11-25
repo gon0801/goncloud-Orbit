@@ -105,15 +105,19 @@ SELECT a.id, a.fecha_desde, a.fecha_hasta, r.started_at
 """
 
 # Claves de efecto de la familia entity_cut en vuelo o con veto vigente: el
-# mismo predicado que apply_cola._SQL_CLAVES_BLOQUEADAS. Con ignora_practicas
-# (simulacion, H.8) las filas shadow no terminales de pause no bloquean: son
-# las que I.7 descarta al encender la pausa. Con excluye_cola (revalidacion de
-# I.3) la fila que se revalida no bloquea su propio anuncio.
+# mismo predicado que apply_cola._SQL_CLAVES_BLOQUEADAS. Una fila LIVE no
+# terminal bloquea siempre; una practica shadow solo mientras vence_el > ahora
+# (reloj de la base): una shadow vencida no congela el trabajo real (ARREGLOS
+# 05 E). Con ignora_practicas (simulacion, H.8) las filas shadow de pause no
+# bloquean aunque esten vigentes: son las que I.7 descarta al encender la
+# pausa. Con excluye_cola (revalidacion de I.3) la fila que se revalida no
+# bloquea su propio anuncio.
 _SQL_CLAVES_EN_VUELO = """
 SELECT ad_entity_id
   FROM apply_queue
  WHERE platform = %(plataforma)s::platform AND familia = 'entity_cut'
    AND ((estado NOT IN ('applied', 'failed', 'vetoed', 'discarded')
+         AND (modo = 'live' OR vence_el > %(ahora)s)
          AND NOT (%(ignora_practicas)s AND modo = 'shadow' AND kind = 'pause'))
         OR (estado = 'vetoed' AND vence_el > %(ahora)s))
    AND id IS DISTINCT FROM %(excluye_cola)s::bigint

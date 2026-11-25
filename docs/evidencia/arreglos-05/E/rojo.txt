@@ -1,0 +1,66 @@
+# Rojo del bloque E contra el padre real
+
+SHA del padre: 5223bfae1e85fee2d2d956962563ee030113e333 (master con BASE, A, B,
+C y D; sin 0098). PostgreSQL 16 desechable del laboratorio, cadena canonica de
+migraciones. Comando (desde la raiz):
+
+    uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider \
+      tests/test_arreglos05_e_shadow.py
+
+Resultado: 2 failed, 3 passed. Los dos fallos son de COMPORTAMIENTO (no de
+fixture, no skips, no cero casos): la shadow vencida bloquea el SELECT y el
+INSERT de la decision real.
+
+## Fallo 1: la shadow vencida sigue en claves_bloqueadas
+
+    >   assert (ids["kw"], "entity_cut", None) not in claves_bloqueadas(conn, "amazon_us", ahora), (
+    E   AssertionError: una practica vencida no puede seguir en claves_bloqueadas
+    E   assert (3, 'entity_cut', None) not in {(3, 'entity_cut', None)}
+    E    +  where {(3, 'entity_cut', None)} = claves_bloqueadas(...)
+    tests/test_arreglos05_e_shadow.py:90: AssertionError
+
+## Fallo 2: la shadow vencida choca el INSERT live con el indice mixto de 0002
+
+    >   q_live = _inserta_live(conn, dec_live, ids["kw"], _payload_pause("7201"))
+    E   psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "apply_queue_clave_efecto_en_vuelo"
+    E   DETAIL:  Key (platform, ad_entity_id, familia, search_term)=(amazon_us, 3, entity_cut, null) already exists.
+    tests/test_arreglos05_e_shadow.py:120: UniqueViolation
+
+## Resumen
+
+    FAILED tests/test_arreglos05_e_shadow.py::test_arreglos05_e_shadow_vencida_no_bloquea_el_select
+    FAILED tests/test_arreglos05_e_shadow.py::test_arreglos05_e_shadow_vencida_no_bloquea_el_insert_y_conserva_historia
+    2 failed, 3 passed in 8.44s
+
+Las otras tres pruebas del modulo (shadow vigente bloquea, live no terminal y
+veto vigente protegen, dos workers sin doble efecto live) ya pasaban en el
+padre porque 0002 ya cubria esos caminos; se conservan como vecinos del verde.
+
+## Ronda 1 de revision (Devin): el veto de la practica
+
+Hallazgo P1: tras 0098 una practica vencida y un corte real de la misma clave
+conviven; vetar la PRACTICA solo cambiaba su fila y el corte real seguia su
+camino. Rojo contra el endpoint anterior (`app/api_write.py` de `5d016e1f`,
+sin el arreglo), con las dos pruebas nuevas de `tests/test_api_write.py`:
+
+- `test_arreglos05_e_veto_de_practica_detiene_el_corte_real_de_la_clave`:
+  el endpoint responde 200 pero el corte real sigue sin vetar
+  (`AssertionError: la practica y el corte real quedan vetados...`).
+- `test_arreglos05_e_veto_con_corte_equivalente_en_vuelo_409_sin_tocar`:
+  el endpoint responde 200 en vez de 409 (`assert 200 == 409`).
+
+Resultado del rojo: 2 failed, 49 deselected.
+
+## Ronda 2 de revision (Astra): el alta posterior al veto
+
+Hallazgo P1: una decision calculada antes del veto podia insertarse despues de
+confirmado, porque el trigger de 0098 solo miraba live no terminal y shadow
+vigente, no un `vetoed` vigente. Rojo contra `396dab47` (trigger sin la
+comprobacion de veto), con la prueba nueva
+`test_arreglos05_e_veto_bloquea_el_alta_de_una_decision_calculada_antes`:
+
+    >   assert resumen.encoladas_live == 0, "el veto vigente bloquea el alta"
+    E   AssertionError: el veto vigente bloquea el alta
+    E   assert 1 == 0
+
+1 failed, 51 deselected.
