@@ -26,6 +26,13 @@ class VetoNoVetable(RuntimeError):
 
 # La clave se identifica por `search_term` porque 0002 garantiza que determina
 # la familia (entity_cut = NULL, term_cut = NOT NULL).
+_SQL_CLAVE_FILA = """
+SELECT platform::text AS platform, ad_entity_id, search_term
+  FROM apply_queue WHERE id = %s
+"""
+
+_SQL_CANDADO = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))"
+
 _SQL_FILA_VETO = """
 SELECT platform::text AS platform, ad_entity_id, search_term, estado
   FROM apply_queue WHERE id = %s
@@ -53,6 +60,12 @@ RETURNING id, estado, vence_el, vetoed_at, vetoed_by
 """
 
 
+def _texto_clave(platform: str, ad_entity_id: int, search_term: str | None) -> str:
+    """Mismo texto de clave que el trigger `apply_queue_clave_vigente` de 0098."""
+    termino = "<null>" if search_term is None else search_term
+    return f"apply_queue:{platform}:{ad_entity_id}:{termino}"
+
+
 def veta_efecto(
     conn: psycopg.Connection,
     queue_id: int,
@@ -67,6 +80,18 @@ def veta_efecto(
     `filas_vetadas`; no hace commit.
     """
     with cursor_dict(conn) as cur:
+        clave_fila = cur.execute(_SQL_CLAVE_FILA, (queue_id,)).fetchone()
+        if clave_fila is None:
+            raise VetoNoEncontrado(queue_id)
+        clave = (
+            clave_fila["platform"],
+            clave_fila["ad_entity_id"],
+            clave_fila["search_term"],
+        )
+        # Serializa el veto con el ALTA de la misma clave: el trigger de 0098
+        # toma el mismo candado, asi una decision calculada antes del veto no
+        # puede insertarse despues de confirmado.
+        cur.execute(_SQL_CANDADO, (_texto_clave(*clave),))
         fila = cur.execute(_SQL_FILA_VETO, (queue_id,)).fetchone()
         if fila is None:
             raise VetoNoEncontrado(queue_id)

@@ -524,8 +524,10 @@ auditable). **Unicidad de efectos live + deduplicación de prácticas vigentes
 máximo un efecto live no terminal por clave, con `NULLS NOT DISTINCT`; sin él,
 dos pause de la misma entidad no chocarían), y el trigger
 `apply_queue_clave_vigente` deduplica las prácticas shadow no terminales
-mientras `vence_el > now()` y bloquea un shadow contra un efecto live de la
-misma clave. Una práctica shadow **vencida** no bloquea el SELECT ni el INSERT
+mientras `vence_el > now()`, bloquea un shadow contra un efecto live de la
+misma clave y bloquea el alta cuando hay un `vetoed` vigente; el trigger y el
+endpoint de veto comparten un candado asesor por clave, así que el veto y el
+alta de la misma clave se serializan. Una práctica shadow **vencida** no bloquea el SELECT ni el INSERT
 de la decision real y conserva su fila e historial; no se promociona a live ni
 se borra. La vigencia es del reloj de la base (UTC), nunca del proceso.
 **`vetoed` exige admin**: la transición a `vetoed` valida

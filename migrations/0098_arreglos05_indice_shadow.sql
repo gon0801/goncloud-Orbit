@@ -55,15 +55,22 @@ COMMENT ON INDEX apply_queue_live_efecto_unico IS
   'de 0002: una practica shadow vencida ya no hace sombra sobre la clave. '
   'NULLS NOT DISTINCT porque los pause llevan search_term NULL.';
 
--- Deduplicacion de PRACTICAS SHADOW VIGENTES y bloqueo de un shadow contra un
--- efecto live no terminal. BEFORE INSERT y ERRCODE unique_violation: el motor
--- ya captura psycopg.errors.UniqueViolation como choque_clave.
+-- Deduplicacion de PRACTICAS SHADOW VIGENTES, bloqueo de un shadow contra un
+-- efecto live no terminal y VETO VIGENTE al dar de alta. BEFORE INSERT y
+-- ERRCODE unique_violation: el motor ya captura psycopg.errors.UniqueViolation
+-- como choque_clave.
 --
 -- La clave se compara por (platform, ad_entity_id, search_term) y NO por
 -- `familia`: `familia` es una columna GENERATED y un trigger BEFORE no ve su
 -- valor en NEW. El CHECK apply_queue_clave_coherente de 0002 garantiza que
 -- search_term determina la familia (entity_cut = NULL, term_cut = NOT NULL), y
 -- el indice unico parcial (que si ve la generada) es el candado del live.
+--
+-- El candado asesor por clave serializa el ALTA con el VETO
+-- (app/apply_veto.veta_efecto toma el mismo hashtextextended). Sin el, una
+-- decision calculada antes del veto podia insertarse despues de confirmado y
+-- escapar de los 30d de veto: la fila no terminal convivia con la vetoed y el
+-- barrido la enviaba 48h despues.
 CREATE FUNCTION apply_queue_clave_vigente() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
@@ -71,7 +78,12 @@ AS $$
 DECLARE
     v_live INTEGER;
     v_practica INTEGER;
+    v_clave TEXT;
 BEGIN
+    v_clave := 'apply_queue:' || NEW.platform::text || ':' || NEW.ad_entity_id::text
+               || ':' || coalesce(NEW.search_term, '<null>');
+    PERFORM pg_advisory_xact_lock(hashtextextended(v_clave, 0));
+
     SELECT count(*) FILTER (WHERE q.modo = 'live'),
            count(*) FILTER (
                WHERE q.modo = 'shadow' AND q.vence_el > now()
@@ -85,18 +97,35 @@ BEGIN
 
     IF v_live > 0 THEN
         RAISE EXCEPTION
-            'apply_queue: la clave de efecto (platform=%, entidad=%, familia=%, '
+            'apply_queue: la clave de efecto (platform=%, entidad=%, kind=%, '
             'termino=%) ya tiene un efecto LIVE no terminal; no se duplica.',
-            NEW.platform, NEW.ad_entity_id, NEW.familia, NEW.search_term
+            NEW.platform, NEW.ad_entity_id, NEW.kind, NEW.search_term
             USING ERRCODE = 'unique_violation';
     END IF;
 
     IF v_practica > 0 THEN
         RAISE EXCEPTION
-            'apply_queue: la clave de efecto (platform=%, entidad=%, familia=%, '
+            'apply_queue: la clave de efecto (platform=%, entidad=%, kind=%, '
             'termino=%) tiene una PRACTICA shadow VIGENTE (vence_el > now()); '
             'se deduplica hasta que venza.',
-            NEW.platform, NEW.ad_entity_id, NEW.familia, NEW.search_term
+            NEW.platform, NEW.ad_entity_id, NEW.kind, NEW.search_term
+            USING ERRCODE = 'unique_violation';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+          FROM apply_queue q
+         WHERE q.platform = NEW.platform
+           AND q.ad_entity_id = NEW.ad_entity_id
+           AND q.search_term IS NOT DISTINCT FROM NEW.search_term
+           AND q.estado = 'vetoed'
+           AND q.vence_el > now()
+    ) THEN
+        RAISE EXCEPTION
+            'apply_queue: la clave de efecto (platform=%, entidad=%, kind=%, '
+            'termino=%) tiene un VETO vigente; el alta queda bloqueada hasta '
+            'que venza.',
+            NEW.platform, NEW.ad_entity_id, NEW.kind, NEW.search_term
             USING ERRCODE = 'unique_violation';
     END IF;
 
@@ -109,8 +138,11 @@ CREATE TRIGGER apply_queue_clave_vigente
     FOR EACH ROW EXECUTE FUNCTION apply_queue_clave_vigente();
 
 COMMENT ON FUNCTION apply_queue_clave_vigente IS
-  'ARREGLOS 05 E: la deduplicacion de PROPUESTAS shadow vigentes y el bloqueo '
-  'de un shadow contra un efecto live no terminal. La vigencia es del reloj de '
-  'la base (now() sobre TIMESTAMPTZ), nunca del proceso. Una shadow vencida NO '
-  'bloquea: conserva su fila e historia, no se promociona ni se borra. Levanta '
+  'ARREGLOS 05 E: la deduplicacion de PROPUESTAS shadow vigentes, el bloqueo de '
+  'un shadow contra un efecto live no terminal y el VETO VIGENTE al dar de '
+  'alta. La vigencia es del reloj de la base (now() sobre TIMESTAMPTZ), nunca '
+  'del proceso. Una shadow vencida NO bloquea: conserva su fila e historia, no '
+  'se promociona ni se borra. El candado asesor por clave (hashtextextended) '
+  'serializa el alta con el veto de app/apply_veto.veta_efecto: una decision '
+  'calculada antes del veto no puede insertarse despues. Levanta '
   'unique_violation para que el motor lo trate como el choque_clave de siempre.';

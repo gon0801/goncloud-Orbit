@@ -862,6 +862,60 @@ def test_arreglos05_e_veto_con_corte_equivalente_en_vuelo_409_sin_tocar(tmp_path
         )
 
 
+@_skip_db
+def test_arreglos05_e_veto_bloquea_el_alta_de_una_decision_calculada_antes(tmp_path, monkeypatch):
+    """Astra P1 ronda 2: una decision calculada ANTES del veto no puede entrar
+    en la cola despues de confirmado; el candado asesor serializa veto y alta y
+    el trigger de 0098 comprueba el veto vigente al INSERTAR."""
+    from app import apply_cola
+    from app.apply_cola import encola_cortes
+
+    with _db_con_rol_admin("orbit_w_e_veto_alta") as (conn, dsn_admin, _dsn_l):
+        s = _semilla_veto(conn)
+        q_sh = _practica_vencida(conn, s["kw"], _decision_en_ciclo_nuevo(conn, s["kw"]))
+        # Decision calculada ANTES del veto, en su ciclo, todavia sin encolar.
+        config = conn.execute("SELECT id FROM config_version ORDER BY id DESC LIMIT 1").fetchone()[
+            0
+        ]
+        ciclo = conn.execute(
+            "INSERT INTO optimizer_cycle (mode, platform) VALUES ('live', 'amazon_us') RETURNING id"
+        ).fetchone()[0]
+        dec = conn.execute(
+            "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+            " data_observed_at, window_start, window_end, inputs)"
+            " VALUES (%s, %s, 'pause', %s, now() - interval '40 days', CURRENT_DATE - 60,"
+            " CURRENT_DATE - 30, '{}'::jsonb) RETURNING id",
+            (ciclo, s["kw"], config),
+        ).fetchone()[0]
+        _secrets_token(tmp_path, monkeypatch)
+        monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
+
+        resp = TestClient(app).post(
+            "/api/ads-optimizer/veto",
+            json={"queue_id": q_sh, "actor": "dueno"},
+            headers={"x-orbit-token": TOKEN},
+        )
+        assert resp.status_code == 200, resp.text
+
+        # El encolado de la decision ya calculada ocurre DESPUES del veto.
+        monkeypatch.setattr(apply_cola, "_modo_efectivo_corte", lambda *_a, **_k: "live")
+        resumen = encola_cortes(
+            conn, object(), ciclo, modo_envelope="live", ahora=dt.datetime.now(dt.UTC)
+        )
+
+        assert resumen.encoladas_live == 0, "el veto vigente bloquea el alta"
+        assert len(resumen.choques) == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM apply_queue WHERE decision_id = %s", (dec,)
+            ).fetchone()[0]
+            == 0
+        ), "la decision calculada antes del veto no entra a la cola"
+        assert conn.execute(
+            "SELECT motivo FROM decision_sin_aplicar WHERE decision_id = %s", (dec,)
+        ).fetchone() == ("choque_clave",), "el alta bloqueada queda registrada"
+
+
 # ---------------------------------------------------------------------------
 # INTEGRACION: pantalla de cortes (endpoint GET del dashboard + pagina /cortes)
 # ---------------------------------------------------------------------------

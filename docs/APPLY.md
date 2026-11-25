@@ -123,7 +123,10 @@ como excluyentes por término (únicos parciales de 0001).
   clave con el mismo `vence_el` y actor. Así, con una práctica vencida y un
   corte real conviviendo (0098), vetar la práctica detiene el corte real. Si
   otra fila de la clave ya está `applying` (punto de no retorno), el veto
-  responde 409 y no toca nada.
+  responde 409 y no toca nada. El veto toma un candado asesor por clave
+  (`hashtextextended`) que el trigger de INSERT de la cola toma igual: una
+  decisión ya calculada antes del veto no puede entrar en la cola después de
+  confirmado (el trigger ve el veto vigente y levanta `unique_violation`).
 
 ### 1.5 Candados de schema (sellado 4)
 
@@ -143,8 +146,11 @@ como excluyentes por término (únicos parciales de 0001).
   `apply_queue_clave_vigente`: una shadow no terminal deduplica mientras
   `vence_el > now()` (reloj de la base). Una shadow **vencida** no bloquea el
   SELECT ni el INSERT de la decision real, y conserva su fila e historial; no
-  se promociona a live ni se borra. El índice mixto de 0002 se retira.
-  Verificación contra el PG16 del server: unknown (§13).
+  se promociona a live ni se borra. El índice mixto de 0002 se retira. El
+  trigger además bloquea el alta cuando hay un `vetoed` vigente
+  (`vence_el > now()`) y comparte con el veto un candado asesor por clave, de
+  modo que veto y alta de la misma clave se serializan. Verificación contra el
+  PG16 del server: unknown (§13).
 - **`vetoed` sellado en SCHEMA**: la transición a `vetoed` exige
   `current_user` admin (trigger) — el rol del motor (`app_decide`) NO puede
   vetar, ni siquiera con el UPDATE que necesita para el claim (r2 grok 7:

@@ -21,10 +21,12 @@ previo suelto:
    de la base contra dos workers que quieran producir el mismo efecto live.
 2. **Trigger de INSERT** (`apply_queue_clave_vigente`): bloquea una fila nueva
    cuando ya hay una fila live no terminal de la clave (cubre el INSERT shadow
-   contra un live) o una practica shadow no terminal VIGENTE
-   (`vence_el > now()`, reloj de la base). Una practica shadow VENCIDA no
-   bloquea. El trigger levanta `unique_violation`, el mismo error que el motor
-   ya captura como `choque_clave`.
+   contra un live), una practica shadow no terminal VIGENTE
+   (`vence_el > now()`, reloj de la base) o un VETO vigente (`estado='vetoed'`
+   con `vence_el > now()`). Una practica shadow VENCIDA no bloquea. El trigger
+   levanta `unique_violation`, el mismo error que el motor ya captura como
+   `choque_clave`, y toma un candado asesor por clave (`hashtextextended`) que
+   comparte con el endpoint de veto: el alta y el veto no se cruzan.
 3. **SELECT de claves bloqueadas** (`app/apply_cola._SQL_CLAVES_BLOQUEADAS` y
    su espejo `app/productos_io._SQL_CLAVES_EN_VUELO`): al decidir el ciclo, una
    fila live no terminal siempre bloquea; una shadow solo bloquea mientras es
@@ -109,6 +111,19 @@ unica que toma el esquema o el SELECT, y el papel del indice.
 - Indice: el indice no usa `now()` (una restriccion parcial no puede); la
   vigencia la aplica el trigger y el SELECT, ambos con el reloj de la base.
 
+### 7. Decision calculada antes del veto que se encola despues
+
+- Estado: el dueno ya veto la practica (fila `estado='vetoed'` con
+  `vence_el > now()`), pero el ciclo calculo una decision live de la misma
+  clave antes del veto y todavia no la inserto.
+- Evento: `INSERT` del corte live.
+- Accion: **bloqueada** con `unique_violation`; el motor la registra como
+  `choque_clave` y no entra a la cola. El candado asesor por clave serializa el
+  alta con el veto: si el INSERT gana la carrera, el veto espera y luego veta la
+  fila insertada; si el veto gana, el INSERT ve el veto vigente y no entra.
+- Indice: no interviene; deciden el trigger por veto vigente y el candado
+  asesor compartido con `app/apply_veto.veta_efecto`.
+
 ## Invariantes del bloque
 
 1. Una fila shadow vencida nunca bloquea ni el SELECT ni el INSERT de la
@@ -119,3 +134,5 @@ unica que toma el esquema o el SELECT, y el papel del indice.
 4. Como maximo una fila live no terminal por clave, incluso con dos workers.
 5. El down rehusa si restaurar el indice mixto chocaria y nunca borra filas.
 6. La vigencia es del reloj de la base en UTC y no del proceso.
+7. Un veto vigente bloquea tambien el alta de una decision ya calculada: el
+   INSERT y el veto de la misma clave se serializan por candado asesor.

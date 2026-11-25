@@ -41,7 +41,7 @@ esta en `E/estados.md`.
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `4b79de0e` | 15 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa; el veto de la practica veta el corte real | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
+| E.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N e` | `4b79de0e` + ronda 2 | 16 passed | shadow vencida no bloquea SELECT ni INSERT; live/veto vigente protegidos; migracion 0098 y su reversa; el veto de la practica veta el corte real y bloquea el alta posterior | `0098_reversa_arreglos05_indice_shadow.sql` restaura el indice mixto de 0002 si no hay colisiones; con colisiones rehusa sin borrar filas |
 | E.2 | mismos `N e` mas vecinos: `tests/test_apply_cola.py`, `tests/test_apply_producto.py`, `tests/test_apply_harvest.py`, `tests/test_arreglos05_a_ciclo.py`, `tests/test_api_write.py`, `tests/test_productos_io.py`, `tests/test_productos_pausa.py` | `4b79de0e` | verde (ver abajo) | mismo efecto con shadow vieja, vigente y live; dos workers con maximo un live no terminal; historial identico antes/despues; veto por efecto | igual que E.1; el rollback de despliegue usa `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado |
 
 ## Ronda 1 de revision (Devin): el veto es del efecto
@@ -66,6 +66,31 @@ Pruebas nuevas en `tests/test_api_write.py` (rojo contra el endpoint anterior en
 `E/rojo.txt`): la practica vencida + corte real released → el veto deja ambas
 `vetoed` y `libera_vencidos` no envia nada; con el equivalente `applying` → 409
 y ninguna fila cambia.
+
+## Ronda 2 de revision (Astra): el alta posterior al veto
+
+Hallazgo P1: aunque el veto ya alcanzaba el corte live previamente encolado, una
+decision **calculada antes del veto** podia entrar en la cola despues de
+confirmado. El trigger de 0098 solo miraba live no terminal y shadow vigente,
+no un `vetoed` vigente; la fila entraba y el barrido la enviaba 48 h despues,
+dentro de los 30 d de veto.
+
+Arreglo en `migrations/0098_arreglos05_indice_shadow.sql` y
+`app/apply_veto.py`:
+
+- el trigger de INSERT comprueba tambien un `vetoed` vigente
+  (`vence_el > now()`) y levanta `unique_violation` (el motor lo registra como
+  `choque_clave`);
+- trigger y veto toman el mismo candado asesor por clave
+  (`hashtextextended('apply_queue:<platform>:<entidad>:<termino>', 0)`): si el
+  alta gana la carrera, el veto espera y luego veta la fila insertada; si el
+  veto gana, el alta ve el veto vigente y no entra.
+
+Regresion nueva (rojo contra `396dab47` en `E/rojo.txt`):
+`test_arreglos05_e_veto_bloquea_el_alta_de_una_decision_calculada_antes` crea la
+decision antes del veto, veta la practica desde la API y despues llama a
+`encola_cortes`: 0 encoladas, 1 choque, sin fila en la cola y `choque_clave`
+registrado.
 
 ## Foto de produccion (solo lectura)
 
@@ -93,15 +118,16 @@ dos fallos son de comportamiento: la shadow vencida aparece en
 `apply_queue_clave_efecto_en_vuelo` (`UniqueViolation`). No hubo error de
 fixture, skip ni cero casos.
 
-Verde en la cabeza del bloque: 15 passed de `N e` (12 regresiones de los
-modulos E, 2 del veto por clave y la prueba del selector del instalador).
+Verde en la cabeza del bloque: 16 passed de `N e` (12 regresiones de los
+modulos E, 3 del veto y el alta por clave y la prueba del selector del
+instalador).
 
 ## Acepta (salida completa en `E/acepta.txt`, partes en `E/acepta-1..3.txt`)
 
-- Parte 1: `N e` = 15 passed; bloque A estados = 181 passed; arquitectura =
+- Parte 1: `N e` = 16 passed; bloque A estados = 181 passed; arquitectura =
   99 passed, 2 skipped (la omision declarada de la regla 99:2).
 - Parte 2: cola = 44 passed; producto y cosecha = 104 passed; ciclo A = 57
-  passed; API de escritura y veto = 51 passed; productos = 43 passed.
+  passed; API de escritura y veto = 52 passed; productos = 43 passed.
 - Parte 3: esquema y ledger = 117 passed; selector del instalador (0098) = 1
   passed; temporada = 128 passed; gitleaks de `5223bfae..HEAD` = sin fugas.
 - Total: 0 comandos que no pasaron.
@@ -123,7 +149,8 @@ modulos E, 2 del veto por clave y la prueba del selector del instalador).
 
 ## Archivos cambiados
 
-- `migrations/0098_arreglos05_indice_shadow.sql` y
+- `migrations/0098_arreglos05_indice_shadow.sql` (indice live, trigger de clave
+  vigente con veto y candado asesor) y
   `migrations/0098_reversa_arreglos05_indice_shadow.sql`.
 - `app/apply_cola.py` (SELECT de claves bloqueadas), `app/productos_io.py`
   (espejo del mismo predicado) y `app/api_write.py` + `app/apply_veto.py`
@@ -148,12 +175,9 @@ modulos E, 2 del veto por clave y la prueba del selector del instalador).
   conservador (bloquea, no adelanta) y no afecta al cambio de dia.
 - Se actualizo el espejo `productos_io._SQL_CLAVES_EN_VUELO` para no divergir de
   `apply_cola`; su prueba cubre shadow vencida, vigente e `ignora_practicas`.
-- Carrera veto vs. decision nueva: si un ciclo inserta una decision live de la
-  misma clave justo mientras el veto de la practica aun no ha comprometido, esa
-  fila nueva no queda vetada. El `SELECT` de claves la habria saltado con el
-  veto ya comprometido; para el instante intermedio el trigger no consulta
-  vetos. Es una carrera de dos eventos (P2); cerrarla del todo exigiria que el
-  trigger de INSERT tambien mirara vetos vigentes.
+- Carrera veto vs. decision nueva: **cerrada en la ronda 2**. El trigger de
+  INSERT comprueba un `vetoed` vigente y comparte con el veto un candado asesor
+  por clave, asi que una decision calculada antes del veto no entra despues.
 
 ## Fallos previos de `master` en esta PC (no de este bloque)
 

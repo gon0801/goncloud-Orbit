@@ -50,3 +50,17 @@ sin el arreglo), con las dos pruebas nuevas de `tests/test_api_write.py`:
   el endpoint responde 200 en vez de 409 (`assert 200 == 409`).
 
 Resultado del rojo: 2 failed, 49 deselected.
+
+## Ronda 2 de revision (Astra): el alta posterior al veto
+
+Hallazgo P1: una decision calculada antes del veto podia insertarse despues de
+confirmado, porque el trigger de 0098 solo miraba live no terminal y shadow
+vigente, no un `vetoed` vigente. Rojo contra `396dab47` (trigger sin la
+comprobacion de veto), con la prueba nueva
+`test_arreglos05_e_veto_bloquea_el_alta_de_una_decision_calculada_antes`:
+
+    >   assert resumen.encoladas_live == 0, "el veto vigente bloquea el alta"
+    E   AssertionError: el veto vigente bloquea el alta
+    E   assert 1 == 0
+
+1 failed, 51 deselected.
