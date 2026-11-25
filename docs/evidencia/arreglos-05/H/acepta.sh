@@ -169,6 +169,9 @@ en_parte 4 && corre CONTROL "temporada F-I, meta, sello, target y cooldown" 90 \
 en_parte 5 && corre CONTROL "esquema y ledger del aplicador" 117 \
   uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider \
   tests/test_schema.py tests/test_apply_schema.py
+en_parte 5 && corre CONTROL "receta de arranque: conteo de tablas de Launch y Doctor" 1 \
+  uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider \
+  tests/test_schema_docs.py
 en_parte 5 && corre CONTROL "selector del instalador y migracion del bloque E" 4 \
   uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider \
   tests/test_despliegue_motor.py -k "arreglos05"

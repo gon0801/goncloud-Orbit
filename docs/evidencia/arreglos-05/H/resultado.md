@@ -121,6 +121,25 @@ de temporada, cap 0). Los fallos son de comportamiento o de contrato:
 
 Verde en la cabeza `e48a1075`: `N h` = 21 passed; modelo completo = 209 passed.
 
+## Conteo de tablas de la receta de arranque
+
+Al correr los vecinos aparecio `tests/test_schema_docs.py` en rojo (`97 == 98`).
+Se clasifico antes de tocar nada:
+
+- `H/conteo-tablas.txt` (script `H/cuenta_tablas.py`, PG desechable): con todas
+  las migraciones hay **98 tablas BASE y 27 vistas**; **sin 0099 tambien hay
+  98** y sin 0097 ni 0099 hay 97. `0099` no trae `CREATE TABLE`; `0097`
+  (bloque C) crea `keyword_reposicion_intento`. Es decir, el conteo de la
+  receta quedo viejo con el bloque C, no con H.
+- Contra el padre real `c9d31d87`, el mismo test ya fallaba (`97 == 98`); el
+  registro de esa corrida se reemplazo por la evidencia de la correccion.
+
+Aun asi el test es vecino de este bloque y estaba rojo, asi que se corrigio el
+numero en `verify/Launch.md` y `verify/Doctor.md` (97 -> 98; el comentario de
+Doctor pasa de 124 a 125 vistas incluidas, 98 tablas + 27 vistas) y se corrio
+en verde: `H/schema-docs.txt`, 1 passed. No cambia ningun comportamiento: es la
+receta de arranque la que contaba una tabla de menos desde `0097`.
+
 ## Foto de produccion (solo lectura)
 
 Comando: `bash docs/evidencia/arreglos-05/H/lee_previa.sh > H/previa.txt`
@@ -153,9 +172,10 @@ solo amplia el vocabulario. El primer ciclo que supere 150 dejaria filas
   practica vencida, API y bloqueo del dueno = 123 passed.
 - Parte 4: ciclo y temporada A-E = 155 passed; temporada F-I, meta, sello,
   target y cooldown = 90 passed.
-- Parte 5: esquema y ledger = 117 passed; selector del instalador = 4 passed;
+- Parte 5: esquema y ledger = 117 passed; receta de arranque
+  (`test_schema_docs`) = 1 passed; selector del instalador = 4 passed;
   gitleaks de `c9d31d87..HEAD` = sin fugas.
-- Total: 13 comandos, 0 que no pasaron.
+- Total: 14 comandos, 0 que no pasaron.
 
 ## Migracion
 
@@ -203,20 +223,24 @@ solo (`git ls-tree migrations/`) y el lote `-k arreglos05` sigue en 4 passed.
   `tests/test_apply_schema.py`.
 - `docs/APPLY.md` (9.2 y nueva 9.3), `docs/DATABASE.md`,
   `docs/evidencia/arreglos-05/A/estados.md` (ampliacion H).
+- `verify/Launch.md` y `verify/Doctor.md`: el conteo estricto de tablas BASE
+  pasa de 97 a 98 (venia viejo desde `0097`; 0099 no crea tablas) y el
+  comentario de Doctor del conteo sin `table_type` pasa de 124 a 125.
 - Evidencia en `docs/evidencia/arreglos-05/H/`.
 
 ## Fallos previos de `master` en esta PC (no de este bloque)
 
-Verificados contra el padre en un worktree temporal (`H/previos.txt`):
-
-- `tests/test_schema_docs.py::test_launch_doctor_mismo_conteo_que_esquema`:
-  `97 == 98` (el conteo declarado en Launch/Doctor no incluye la tabla de 0097).
-- `tests/test_despliegue_motor.py` completo: `cp: cannot stat 'app'` en el
-  servidor simulado (`fallo_1`); el selector `-k arreglos05` si pasa.
-- Los ya conocidos de la PC: `test_fabrica_f2_hermanas` x24,
-  `test_fabrica_f2_biblioteca` x16, `test_harvest_destino` x3,
-  `test_d3_adversary` x2, `test_notifica` x3, `test_orbit07_m1` x1 y
-  `test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue` x1.
+`test_despliegue_motor.py::test_a_despliegue_completo_y_checklist_verde`
+corrido en el padre real `c9d31d87` con el mismo entorno y DSN
+(`H/previos-despliegue.txt`, pytest sale 1): falla igual con
+`cp: cannot stat 'app'` dentro del directorio temporal del servidor simulado,
+en el paso (3) respaldo de `despliegue/desplegar.sh`. No depende del bloque H:
+el resto del archivo falla por la misma causa en esta PC y el selector
+`-k arreglos05` pasa. Tambien son previos y ya conocidos de la PC:
+`test_fabrica_f2_hermanas` x24, `test_fabrica_f2_biblioteca` x16,
+`test_harvest_destino` x3, `test_d3_adversary` x2, `test_notifica` x3,
+`test_orbit07_m1` x1 y
+`test_precio02_escenario_meli.py::test_ingesta_meli_sin_cliente_salta_meli_y_sigue` x1.
 
 ## Seguimiento (P2)
 

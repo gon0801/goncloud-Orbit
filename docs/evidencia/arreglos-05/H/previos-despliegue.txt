@@ -1,0 +1,38 @@
+# Clasificacion del fallo de test_despliegue_motor::test_a... (solo test_a) contra el PADRE real
+# SHA del padre: c9d31d87fd8ad89fc0492df9bd15a5f68c6bc2f7
+# ORBIT_TEST_DSN: postgresql://orbit@127.0.0.1:55449/postgres
+# Entorno: Git Bash, PATH con orbit-lab/bin, PYTHONUTF8=1, TMPDIR propio
+# Comando: PYTHONPATH=<padre>:<padre>/tests <venv>/python -B -m pytest -q -p no:cacheprovider tests/test_despliegue_motor.py::test_a_despliegue_completo_y_checklist_verde
+
+F                                                                        [100%]
+================================== FAILURES ===================================
+________________ test_a_despliegue_completo_y_checklist_verde _________________
+
+s = <test_despliegue_motor.Servidor object at 0x000001E4A8328950>
+
+    def test_a_despliegue_completo_y_checklist_verde(s):
+>       assert s.motor("Fm") == "ok"
+E       AssertionError: assert 'fallo_1' == 'ok'
+E
+E         - ok
+E         + fallo_1
+
+tests\test_despliegue_motor.py:577: AssertionError
+---------------------------- Captured stdout call -----------------------------
+### tools/despliegue/desplegar.sh Fm () {} -> 1
+== (0) candado y diario
+MOTOR_SHA=1569a990b129b97c06435388f13ec436d978959e SHA_PREVIO=vacio
+== (1) guardas (plazo comun 20s)
+guardas libres
+== (2) monotonia
+== (3) respaldo
+cp: cannot stat 'app': No such file or directory
+
+### tools/despliegue/rollback.sh Fm () {} -> 0
+nada que deshacer para 1569a990b129b97c06435388f13ec436d978959e (diario: MOTOR_SHA=1569a990b129b97c06435388f13ec436d978959e ESTADO=guardas)
+
+=========================== short test summary info ===========================
+FAILED tests/test_despliegue_motor.py::test_a_despliegue_completo_y_checklist_verde
+1 failed in 15.35s
+
+# salida de pytest=1
