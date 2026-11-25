@@ -9,7 +9,7 @@
 - Acepta corrida en `b44d30db7443b659442c11ca54c3b26bcac24cec` con arbol
   limpio. Los commits posteriores (`43dd5e64`, `fbb81d7c`) solo agregan
   evidencia y un docstring; el codigo es el mismo.
-- gitleaks de `8a094228..fbb81d7c`: sin fugas.
+- gitleaks de `8a094228..HEAD`: sin fugas.
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "F-G. Meta base y
   sello temporal" (parte F) e "Integracion con TEMPORADA y migraciones".
 - Aviso del bloque: la meta sigue acercandose a su destino cuando el libro esta
@@ -156,12 +156,13 @@ toca `0001` ni `0002` ni se abre un numero de migracion.
 
 ## Archivos cambiados
 
-- `app/cycle_target.py`: `_SQL_NOTAS_PREVIAS` sobre ciclos live comprometidos;
+- `app/cycle_target.py`: `_SQL_NOTAS_PREVIAS` (ciclos previos done o con TX3
+  comprometida; la base solo toma los live comprometidos);
   `_base_de_snapshot`, `_base_previa`, `_overlay_temporada`, `_BasePrevia`,
   `_OverlayTemporada`; snapshot `target_v2` con `base` y `overlay`.
 - `app/cycle_recorrido.py`: `plat_t` se arma con el overlay congelado (una
   lectura estacional por ciclo).
-- `tests/test_arreglos05_f_meta.py`: las 8 regresiones de F.
+- `tests/test_arreglos05_f_meta.py`: las 9 regresiones de F.
 - Evidencia en `docs/evidencia/arreglos-05/F/`.
 
 No se toco `app/cycle.py` (su techo del ratchet es 1148 y ya estaba en 1148), ni
