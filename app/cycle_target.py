@@ -83,19 +83,19 @@ SELECT SUM(m.ad_revenue), COUNT(DISTINCT m.metric_currency), MAX(m.metric_curren
    AND m.metric_date >= %s AND m.metric_date < %s
 """
 
-# Base y ancla de avisos de los ciclos live ANTERIORES (ARREGLOS 05 F). La
-# evidencia durable es la TX3 comprometida (`decision_committed_at`), no la
-# procedencia de la medicion ni el desenlace del apply: un ciclo `degraded`
-# tambien comprometio sus decisiones y es ancla. El ejecutor de recuperacion
-# (`resume_of`) cierra sin sello y nunca es ancla.
+# Base y ancla de avisos de los ciclos ANTERIORES (ARREGLOS 05 F). La base
+# exige evidencia durable de TX3 (`decision_committed_at`, ciclo live): un
+# ciclo `degraded` tambien comprometio sus decisiones y es ancla, y el ejecutor
+# de recuperacion (`resume_of`) cierra sin sello y nunca lo es. El ancla del
+# aviso (`ultimo_avisado`) conserva la semantica previa y tambien mira los
+# ciclos cerrados `done` (incluidos los de practica).
 _SQL_NOTAS_PREVIAS = """
-SELECT c.id, c.notes
+SELECT c.id, c.mode, c.decision_committed_at IS NOT NULL AS comprometida, c.notes
   FROM optimizer_cycle c
  WHERE c.platform = %s::platform
    AND c.motor = 'ads_optimizer'
-   AND c.mode = 'live'
    AND c.id < %s
-   AND c.decision_committed_at IS NOT NULL
+   AND (c.status = 'done' OR c.decision_committed_at IS NOT NULL)
  ORDER BY c.id DESC
  LIMIT 200
 """
@@ -190,14 +190,16 @@ def _base_de_snapshot(target: dict) -> tuple[bool, Decimal | None]:
 def _base_previa(filas, setting_target: Decimal | None) -> _BasePrevia:
     """La base del ultimo ciclo live con decision comprometida, o el setting
     (inicializacion ya aprobada) cuando no hay evidencia. `filas` son
-    (cycle_id, notes) del mas reciente al mas viejo.
+    (cycle_id, mode, comprometida, notes) del mas reciente al mas viejo.
 
     Un ciclo cuya base es `null` (el peldano no aplico: `sin_fraccion`, o ya en
     el destino) no acredita base y NO borra la anterior: se sigue buscando la
     ultima base explicita, como hacia la semantica vieja, para que una fase
     apagada no haga saltar la meta al reencenderse. Si ninguna la tiene, manda
     el setting: la ausencia sigue visible en cada snapshot."""
-    for cycle_id, notes in filas:
+    for cycle_id, mode, comprometida, notes in filas:
+        if mode != "live" or not comprometida:
+            continue
         target = _target_de_notas(notes)
         if target is None:
             continue
@@ -246,7 +248,7 @@ def _resuelve_target_ciclo(
         fila = cur.execute(_SQL_TARGET_MARGEN, (platform,)).fetchone()
     previas = conn.execute(_SQL_NOTAS_PREVIAS, (platform, cycle_id)).fetchall()
     ancla: str | None = None
-    for _, notes in previas:
+    for _, _, _, notes in previas:
         target = _target_de_notas(notes)
         if target is not None and ancla is None and target.get("ultimo_avisado") is not None:
             ancla = target["ultimo_avisado"]
