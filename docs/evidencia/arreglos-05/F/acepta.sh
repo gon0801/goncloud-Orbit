@@ -13,6 +13,10 @@
 # minutos. `tests/test_notifica.py` no entra: sus 3 fallos de avisos de
 # campana son previos de master en esta PC (F/resultado.md).
 #
+# Despues de capturar cada parte, sanear la salida (quita la ruta local del aviso
+# de FastAPI) con:
+#   uv run --frozen --python 3.12 python docs/evidencia/arreglos-05/F/sanea_evidencia.py
+#
 # Prerrequisitos de esta PC:
 # - ORBIT_TEST_DSN apunta al PG16 desechable del laboratorio.
 # - UV_PROJECT_ENVIRONMENT apunta al venv del checkout principal: el .venv del
