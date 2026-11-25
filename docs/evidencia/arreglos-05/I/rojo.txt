@@ -24,7 +24,7 @@ _________ test_arreglos05_i_proxima_config_normaliza_el_entero_valido _________
         )
 >       assert nuevo[CLAVE_CAP_BID] == "7"
 E       AssertionError: assert '007' == '7'
-E         
+E
 E         - 7
 E         + 007
 
