@@ -158,6 +158,17 @@ para US y no como cierre.
   unico pendiente que su cierre traslado a 05 (conciliar antes de decidir) quedo
   cerrado por A.2 y su reproduccion legada esta verde.
 
+## CI del PR
+
+- `reconcile`: verde sobre la cabeza de evidencia.
+- Devin Review: falla solo porque el diff supera su limite de tamano
+  ("Review skipped: diff exceeds the size limit"). Es informativo y no es
+  compuerta; no se recorta evidencia para que quepa.
+- CodeRabbit: skipping.
+- El repositorio no tiene workflow de pytest en `.github/workflows` (solo los de
+  `ai-review`). Por eso la compuerta de comportamiento de este cierre es la
+  aceptacion en PG16 de Z.2, no un job de CI.
+
 ## Pendientes
 
 1. **K abierto para Amazon US**: hace falta una fuente que demuestre el impuesto
