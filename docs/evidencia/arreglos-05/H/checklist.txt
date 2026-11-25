@@ -1,0 +1,36 @@
+# Checklist - ARREGLOS 05 H (PR 767)
+# Fecha: 2026-11-25 06:14 UTC
+# MOTOR_SHA: 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+# Comando: env -i PATH=/ucrt64/bin:/usr/bin:/bin HOME=$HOME MOTOR_SHA=889fe5cac5a54178eff8f0562f6e418ecf6d4ef8 bash tools/despliegue/checklist.sh
+
+OK    el SHA desplegado (889fe5cac5a54178eff8f0562f6e418ecf6d4ef8) contiene 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+OK    migracion 0076_auto03_peldano_producto.sql aplicada
+OK    migracion 0077_auto03_evaluacion_producto.sql aplicada
+OK    migracion 0078_auto03_retiro_decision.sql aplicada
+OK    migracion 0079_auto03_vista_impulso.sql aplicada
+OK    migracion 0080_auto03_retiro_desde_ciclo.sql aplicada
+OK    migracion 0081_orbit07_proteccion_venta.sql aplicada
+OK    migracion 0082_claridad01_entidad_inerte.sql aplicada
+OK    migracion 0083_arreglos01_costos_sin_compuerta.sql aplicada
+OK    migracion 0084_arreglos01_impulso_desarmado.sql aplicada
+OK    migracion 0085_arreglos01_ledger_reatribucion.sql aplicada
+OK    migracion 0086_arreglos02_cargos.sql aplicada
+OK    migracion 0087_arreglos03_devoluciones_meli.sql aplicada
+OK    migracion 0088_arreglos03_ledger_original.sql aplicada
+OK    migracion 0089_arreglos03_reputacion_avisada.sql aplicada
+OK    migracion 0090_arreglos03_error_cierra_por_observacion.sql aplicada
+OK    migracion 0091_arreglos03_sin_precio_cap.sql aplicada
+OK    migracion 0092_temporada01_margen_vigente.sql aplicada
+OK    migracion 0093_estimacion_s4_caja_real_mx.sql aplicada
+OK    migracion 0093_temporada01_episodio.sql aplicada
+OK    migracion 0094_arreglos05_ciclo_origen.sql aplicada
+OK    migracion 0095_arreglos05_evidencia_previa.sql aplicada
+OK    migracion 0096_arreglos05_regreso_destino_efectivo.sql aplicada
+OK    migracion 0097_arreglos05_reposicion.sql aplicada
+OK    migracion 0098_arreglos05_indice_shadow.sql aplicada
+OK    migracion 0099_arreglos05_tope_ciclo.sql aplicada
+OK    bloque Orbit igual al canonico
+OK    /mnt/data/appdata/orbit/refresh_estimacion.sh es el de tools/
+OK    /health 200
+== CHECKLIST VERDE 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+# salida=0

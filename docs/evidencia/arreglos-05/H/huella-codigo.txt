@@ -1,0 +1,29 @@
+# Huella del codigo desplegado - ARREGLOS 05 H (fase 2)
+# SHA local: 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+
+## despliegue/sha en el servidor
+889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+
+## md5 de los archivos que toca H (servidor)
+e598778e3b23000d3cdf544f5abc40e4  app/apply.py
+fa6690d18df10f452ec0feb9d48b154f  app/apply_cuota.py
+d160737320fcb68df6acef089406e91c  app/apply_estados.py
+
+## md5 de los mismos archivos en el arbol local (889fe5ca)
+e598778e3b23000d3cdf544f5abc40e4 *app/apply.py
+fa6690d18df10f452ec0feb9d48b154f *app/apply_cuota.py
+d160737320fcb68df6acef089406e91c *app/apply_estados.py
+
+## simbolos de H dentro del contenedor vivo
+tope= 150
+motivo= tope_ciclo
+evento= cupo_ciclo_agotado
+estado= cupo_ciclo_agotado
+clasificador= True
+exenta= True
+
+## sonda de la 0099 en produccion (via lee_prod.sh)
+True
+
+## md5 del despliegue (linea del recibo real)
+md5 OK: 304 archivos

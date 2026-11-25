@@ -1,0 +1,29 @@
+# Lectura RO de produccion de la fase 2 del bloque H (solo SELECT). SHA local 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8
+
+== momento
+2026-11-25 06:22:54.663160+00:00|160015
+
+== sonda_0099
+True
+
+== motivos_check
+CHECK ((motivo = ANY (ARRAY['modo_no_live'::text, 'ya_aplicada'::text, 'bid_incompleto'::text, 'entidad_no_decisora'::text, 'tope_intentos'::text, 'fuera_de_cap'::text, 'fallo_http'::text, 'sin_quota'::text, 'espera_target'::text, 'sin_respuesta'::text, 'perdida'::text, 'choque_clave'::text, 'espera_proteccion'::text, 'bid_cambiado_fuera'::text, 'vigencia_vencida'::text, 'tope_ciclo'::text])))
+
+== conteo_tablas
+98|27
+
+== tope_ciclo_desenlaces
+0|0|None
+
+== intentos_por_ciclo
+100|45|0|10
+
+== ciclos
+ads_optimizer|live|done|179|211
+ads_optimizer|off|skipped|2|2
+ads_optimizer|shadow|done|30|32
+
+== roles
+True|False|True|True
+
+# bloques procesados: 8 de 8; con error: 0

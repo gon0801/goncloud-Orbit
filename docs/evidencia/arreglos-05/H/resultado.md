@@ -253,3 +253,65 @@ el resto del archivo falla por la misma causa en esta PC y el selector
   no se reclasifica nada ni se escribe `tope_ciclo` retroactivo.
 - La pantalla de Salud no muestra el motivo `tope_ciclo` todavia; el dato vive
   en `decision_sin_aplicar` y lo puede pintar un bloque que toque Salud.
+
+## Fase 2: despliegue y recibo
+
+- PR #767 integrado. `MOTOR_SHA=889fe5cac5a54178eff8f0562f6e418ecf6d4ef8`
+  (merge de master) y `SHA_PREVIO=d0cdf1c110a965542239ae9bc1ae7f1e97d05d48`.
+- Fecha del despliegue: 2026-11-25 06:08-06:20 UTC.
+- Ensayo de solo lectura: guardas libres (`true|0|0|0|0`), 24 migraciones
+  aplicadas y **0099 pendiente**, `claves: ninguna cambia`, bloque Orbit igual
+  al canonico, `== ENSAYO OK`.
+- **Primer intento real: fallo del entorno local, no del servidor.** Salio 1 en
+  el paso (5) con `xargs: environment is too large for exec` (el md5 del paso 5
+  corre en el Git Bash local y el entorno de esta sesion excede el limite de
+  exec). Estado remoto tras ese intento, leido antes de seguir: diario
+  `MOTOR_SHA=889fe5ca ... CODIGO=predeploy-20261125-060839
+  MIGRACION=0099_arreglos05_tope_ciclo.sql ESTADO=guardas`,
+  `despliegue/sha = d0cdf1c1` (el codigo no se copio), `orbit-app-1` arriba,
+  `/health` (8010) 200 y sonda de 0099 `True`.
+- **Reanudacion de la MISMA corrida** con el entorno limpio que usan los
+  recibos de C y F (`env -i PATH=/ucrt64/bin:/usr/bin:/bin HOME=$HOME`):
+  `reanudo la corrida de 889fe5ca (ESTADO=guardas)`, 0099 ya aplicada,
+  `md5 OK: 304 archivos`, contenedor recreado, `/health 200`,
+  `despliegue/sha = 889fe5ca`, cron canonico, `ninguna clave cambia` y
+  `== DESPLEGADO 889fe5cac5a54178eff8f0562f6e418ecf6d4ef8`.
+- Checklist: **VERDE** `889fe5ca`; la linea
+  `OK migracion 0099_arreglos05_tope_ciclo.sql aplicada` esta en
+  `checklist.txt`, con bloque Orbit canonico, `refresh_estimacion.sh` del SHA
+  y `/health 200`. El diario remoto termina en `ESTADO=verificado`.
+- `N h` sobre el SHA integrado: **21 passed** (`prueba-real.txt`, que tambien
+  trae los vecinos: 357 passed en modelo de estados, bloque A ciclo, aplicador
+  y esquema de apply). La corrida de la fase 1 queda en
+  `prueba-real-fase1.txt`.
+- Lectura RO de produccion (`previa-fase2.txt`, rol `orbit_read`, `read_only`):
+  sonda de 0099 `True`; el CHECK vivo lista los 16 motivos con `tope_ciclo` al
+  final; **98 tablas BASE y 27 vistas**; 0 desenlaces `tope_ciclo` (el primer
+  ciclo despues del despliegue aun no corrio); 100 ciclos con intentos bid,
+  maximo 45 por ciclo (p90 10) y ninguno sobre 150; 179 live+done, 30
+  shadow+done y 2 off+skipped; `app_decide` puede INSERT el desenlace y
+  `app_read` no, con SELECT.
+- **Conteo y privilegios.** `information_schema.tables` bajo `orbit_read`
+  devuelve 97 porque la tabla privada de 0087
+  (`arreglos03_devoluciones_meli_ids`) no tiene privilegios para ese rol;
+  contada por `pg_class` da 98, igual que el esquema canonico
+  (`tablas-produccion-vs-canonico.txt`: 0 diferencias). El 98 corregido en
+  Launch/Doctor es el conteo real; 0099 no suma tablas, suma el estado del
+  CHECK.
+- Huella del codigo (`huella-codigo.txt`): `despliegue/sha = 889fe5ca`;
+  md5 de `app/apply.py`, `app/apply_cuota.py` y `app/apply_estados.py`
+  identico entre servidor y arbol local; dentro del contenedor
+  `TOPE_PUJAS_ORDINARIAS_CICLO=150`, `MOTIVO_TOPE_CICLO=tope_ciclo`,
+  `EventoCambio.CUPO_CICLO_AGOTADO=cupo_ciclo_agotado`,
+  `EstadoCambio.CUPO_CICLO_AGOTADO=cupo_ciclo_agotado` y los helpers
+  `transicion_de_reserva_cupo`/`puja_exenta_del_cupo` presentes.
+- Reversa: `MOTOR_SHA=889fe5cac5a54178eff8f0562f6e418ecf6d4ef8 bash
+  tools/despliegue/rollback.sh` deshace lo anotado en `ultimo.env` para ese SHA
+  (la 0099 y el codigo; las claves y el cron no cambiaron) y sale 0 sin deshacer
+  con otro SHA. La reversa de 0099 solo restaura el CHECK: **no borra intentos
+  ni ciclos**, y aborta con `restrict_violation` si ya hay desenlaces
+  `tope_ciclo` para no reescribir historia.
+- Recibo completo: `despliegue.txt`, `checklist.txt`, `prueba-real.txt`,
+  `prueba-real-fase1.txt`, `previa-fase2.txt`, `previa-fase2.sql`,
+  `lee_previa_fase2.sh`, `tablas-produccion-vs-canonico.txt` y
+  `huella-codigo.txt`.
