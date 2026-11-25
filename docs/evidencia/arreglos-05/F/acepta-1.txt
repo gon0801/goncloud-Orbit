@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 F. SHA 5eb549f4b18289f52d71b31c76a8a103ddf2cb37 (parte 1 de 3)
+# Acepta de ARREGLOS 05 F. SHA edd48fae622e57ed1716665c4fe7eebbc7454415 (parte 1 de 3)
 # base del bloque: 8a094228cd9704b35195000b83e37157527f887c
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
@@ -8,7 +8,7 @@
 ### [ACEPTA] F.1: T optimizer test_12, base 29/28.5/28 con ledger rancio
 $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12
 .                                                                        [100%]
-1 passed, 2 deselected in 6.58s
+1 passed, 2 deselected in 6.34s
 resultado=ok
 
 ### [ACEPTA] F.1 y F.2: N f, regresiones del bloque (base, overlay, practica, snapshot viejo, replay, recuperacion)
@@ -20,7 +20,7 @@ $ uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh N f
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-8 passed, 6433 deselected, 1 warning in 39.21s
+8 passed, 6433 deselected, 1 warning in 38.47s
 resultado=ok
 
 ### [CONTROL] bloque A: modelo de estados completo, invariantes y clasificadores (181 casillas)
@@ -28,14 +28,14 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
 ........................................................................ [ 39%]
 ........................................................................ [ 79%]
 .....................................                                    [100%]
-181 passed in 1.46s
+181 passed in 1.43s
 resultado=ok
 
 ### [CONTROL] arquitectura: presupuesto de tamano por modulo e imports
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_architecture.py
 ..............................................................ss........ [ 71%]
 .............................                                            [100%]
-99 passed, 2 skipped in 10.55s
+99 passed, 2 skipped in 10.70s
 resultado=ok
 
 # comandos que no pasaron: 0

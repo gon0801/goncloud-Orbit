@@ -1,4 +1,4 @@
-# Acepta de ARREGLOS 05 F. SHA 5eb549f4b18289f52d71b31c76a8a103ddf2cb37 (parte 2 de 3)
+# Acepta de ARREGLOS 05 F. SHA edd48fae622e57ed1716665c4fe7eebbc7454415 (parte 2 de 3)
 # base del bloque: 8a094228cd9704b35195000b83e37157527f887c
 # arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
 # variables PG* de destino o de servicio quitadas del entorno: 0
@@ -9,7 +9,7 @@
 $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_cycle.py tests/test_cycle_target_ciclo.py tests/test_target_margen.py
 ........................................................................ [ 70%]
 ..............................                                           [100%]
-102 passed in 134.01s (0:02:14)
+102 passed in 134.48s (0:02:14)
 resultado=ok
 
 ### [CONTROL] aplicador: ledger, cola, cosecha, producto, esquema y API de escritura
@@ -25,7 +25,7 @@ $ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests
     from starlette.testclient import TestClient as TestClient  # noqa
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-291 passed, 1 warning in 283.40s (0:04:43)
+291 passed, 1 warning in 288.63s (0:04:48)
 resultado=ok
 
 # comandos que no pasaron: 0

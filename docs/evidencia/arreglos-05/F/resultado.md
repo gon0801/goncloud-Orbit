@@ -4,7 +4,9 @@
   y E integrados y desplegados).
 - Rama: `arreglos-05/f`.
 - Cabeza de la implementacion: `5eb549f4b18289f52d71b31c76a8a103ddf2cb37`
-  (modelo en `4bf03729`).
+  (modelo en `4bf03729`; evidencia en `edd48fae`).
+- Acepta corrida en `edd48fae622e57ed1716665c4fe7eebbc7454415` (la app es la
+  misma que `5eb549f4`; `edd48fae` solo agrega evidencia).
 - Contrato: `docs/evidencia/arreglos-05/DISENO.md`, seccion "F-G. Meta base y
   sello temporal" (parte F) e "Integracion con TEMPORADA y migraciones".
 - Aviso del bloque: la meta sigue acercandose a su destino cuando el libro esta
