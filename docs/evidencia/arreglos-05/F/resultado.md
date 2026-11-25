@@ -56,8 +56,8 @@ Para quien mantiene:
 
 | Fila | Comando | SHA | Resultado | Impacto | Reversa |
 |---|---|---|---|---|---|
-| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `142b1ba9` | `test_12`: 1 passed. `N f`: 9 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
-| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `142b1ba9` | 9 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
+| F.1 | `uv run --frozen --python 3.12 bash docs/evidencia/arreglos-05/comprobar.sh T optimizer test_12` y `... comprobar.sh N f` | `142b1ba9` | `test_12`: 1 passed. `N f`: 10 passed. Secuencia 29 -> 28.5 -> 28 tambien con overlay de alta 25; el overlay no es base; la practica no mueve el ancla live | ancla = ultimo ciclo live comprometido; snapshot con `base` y `overlay` separados; salida de alta retoma la base | no hay DDL que revertir; `tools/despliegue/rollback.sh` con el `MOTOR_SHA` desplegado devuelve el binario anterior, que lee `target_aplicado` y el JSON viejo sin problemas (claves aditivas) |
+| F.2 | mismos comandos mas las pruebas de snapshot viejo, fraccion apagada, replay y recuperacion | `142b1ba9` | 10 passed (ver abajo el caso de cada una) | snapshot viejo sin base inequivoca conserva la semantica vieja y la ausencia explicita; una fase apagada no borra el ancla; replay con inputs congelados; lote nuevo tras recuperacion parcial ancla al origen | igual que F.1 |
 
 Casos de `N f` (`tests/test_arreglos05_f_meta.py`):
 
@@ -78,11 +78,16 @@ Casos de `N f` (`tests/test_arreglos05_f_meta.py`):
    `sin_fraccion` sella `base.valor` nulo y su hoja recibe el setting; al
    reencender, la meta camina desde la ultima base (28.5) y no salta al
    derivado.
-8. `test_arreglos05_f_replay_consume_su_version`: con la fraccion apagada, la
+8. `test_arreglos05_f_ledger_refrescado_tras_el_destino_camina_medio_punto`
+   (revision de PR #763, Devin): llegar al destino deja `base.valor` nulo en ese
+   ciclo; al recuperarse el ledger con un margen menor la meta camina 0.5 desde
+   la ultima base explicita (27.5), no salta al derivado (20). Rojo propio en
+   `F/rojo-devin.txt` contra `8bd59c9c`.
+9. `test_arreglos05_f_replay_consume_su_version`: con la fraccion apagada, la
    meta de alta en 10 y la escalera en off, `reproduce` da el mismo veredicto; el
    freeze declara `target_v2`.
-9. `test_arreglos05_f_recuperacion_parcial_retoma_la_base`: el ejecutor no decide
-   ni se sella; el lote del dia siguiente ancla al origen (28.5, no 29).
+10. `test_arreglos05_f_recuperacion_parcial_retoma_la_base`: el ejecutor no decide
+    ni se sella; el lote del dia siguiente ancla al origen (28.5, no 29).
 
 ## Foto de produccion (solo lectura)
 
@@ -122,11 +127,15 @@ skip ni cero casos. Los fallos son de comportamiento o del contrato nuevo:
 - Los otros siete: `KeyError` de `base`/`version`, el contrato versionado que
   aun no existia.
 
-Verde en la cabeza: `N f` = 9 passed; `T optimizer test_12` = 1 passed.
+Verde en la cabeza: `N f` = 10 passed; `T optimizer test_12` = 1 passed.
+
+La regresion que pidio Devin en el hilo del PR (#763) se demuestra en rojo
+contra la cabeza `8bd59c9c`, donde `_base_previa` cortaba la busqueda con base
+nula: `F/rojo-devin.txt`, 1 failed (`20` en vez de `27.5`). En la cabeza pasa.
 
 ## Acepta (salida completa en `F/acepta.txt`, partes en `F/acepta-1..3.txt`)
 
-- Parte 1: `T optimizer test_12` = 1 passed; `N f` = 9 passed; bloque A estados
+- Parte 1: `T optimizer test_12` = 1 passed; `N f` = 10 passed; bloque A estados
   = 181 passed; arquitectura = 99 passed, 2 skipped (la omision declarada de la
   regla 99:2).
 - Parte 2: ciclo y target = 102 passed; aplicador (apply, cola, cosecha,
@@ -162,7 +171,7 @@ toca `0001` ni `0002` ni se abre un numero de migracion.
   `_OverlayTemporada`; snapshot `target_v2` con `base` y `overlay`.
 - `app/cycle_recorrido.py`: `plat_t` se arma con el overlay congelado (una
   lectura estacional por ciclo).
-- `tests/test_arreglos05_f_meta.py`: las 9 regresiones de F.
+- `tests/test_arreglos05_f_meta.py`: las 10 regresiones de F.
 - Evidencia en `docs/evidencia/arreglos-05/F/`.
 
 No se toco `app/cycle.py` (su techo del ratchet es 1148 y ya estaba en 1148), ni

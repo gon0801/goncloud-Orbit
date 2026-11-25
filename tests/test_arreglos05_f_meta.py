@@ -301,6 +301,50 @@ def test_arreglos05_f_salida_de_alta_retoma_la_base():
         assert target["base"]["origen"] == f"ciclo:{primero.cycle_id}"
 
 
+@_skip_db
+def test_arreglos05_f_ledger_refrescado_tras_el_destino_camina_medio_punto():
+    """Revision de PR #763 (Devin): llegar al destino deja `base.valor` nulo en
+    ESE ciclo (convergencia sin paso), pero al recuperarse el ledger y volver un
+    margen fresco menor la meta camina 0.5 desde la ultima base explicita y no
+    salta al derivado de una vez."""
+    with _db_temporal("orbit_f05_refresco") as (conn, _extra):
+        _mundo(conn, setting="29.5")
+        primero = _corre_f(conn)
+        assert primero.status == "done", primero.notes
+        assert Decimal(_target_de(conn, primero.cycle_id)["target_aplicado"]) == Decimal("29")
+
+        _envejece_ledger(conn)
+        _config(conn, ads_target_acos_pct_amazon_us="28")
+        pasos = []
+        for _ in range(2):  # 29 -> 28.5 -> 28
+            res = _corre_f(conn)
+            assert res.status == "done", res.notes
+            pasos.append(res.cycle_id)
+        assert Decimal(_target_de(conn, pasos[-1])["target_aplicado"]) == Decimal("28")
+
+        # Un ciclo mas con el ledger vencido: ya en el destino, el peldano no
+        # entrega base (convergencia sin paso) y la hoja usa el setting.
+        destino = _corre_f(conn)
+        assert destino.status == "done", destino.notes
+        target_destino = _target_de(conn, destino.cycle_id)
+        assert target_destino["base"]["valor"] is None
+        assert target_destino["target_aplicado"] is None
+
+        # El ledger se recupera y el margen fresco da un derivado menor (20).
+        conn.execute(
+            "UPDATE ingest_run SET started_at = now(), finished_at = now()"
+            " WHERE source = 'accounting_ledger_events'"
+        )
+        refrescado = _corre_f(conn)
+        assert refrescado.status == "done", refrescado.notes
+        target = _target_de(conn, refrescado.cycle_id)
+        assert target["motivo_abstencion"] is None
+        assert Decimal(target["target_aplicado"]) == Decimal("27.5"), (
+            "no salta al derivado: camina 0.5 desde la ultima base explicita"
+        )
+        assert target["base"]["origen"] == f"ciclo:{pasos[-1]}"
+
+
 # ---------------------------------------------------------------------------
 # F.1: la practica no modifica el ancla live
 # ---------------------------------------------------------------------------
