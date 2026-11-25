@@ -31,8 +31,9 @@ ORDEN = (
     "0033_ingest_run_llamadas.sql",
     "0034_ingest_run_llamadas_grant.sql",
     "0036_ingest_run_platform.sql",
-    "0037_ingest_run_salud_idx.sql",
-)  # A.5: el sello escribe platform+llamadas
+    "0037_ingest_run_salud_idx.sql",  # A.5: el sello escribe platform+llamadas
+    "0102_envios01_seguimiento.sql",  # ENVIOS 01: la ingesta escribe envios
+)
 
 AHORA = datetime(2026, 9, 9, 12, 0, 0, tzinfo=UTC)
 CRED = {
@@ -256,8 +257,25 @@ def test_ventana_primera_y_segunda_corrida():
         ultimo_observado=datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC),
         ahora=AHORA,
     )
-    assert segunda["lastUpdatedAfter"] == "2026-09-07T11:00:00Z"
+    # ENVIOS 01: la lectura cubre al menos los 30 dias de seguimiento.
+    assert segunda["lastUpdatedAfter"] == "2026-08-10T12:00:00Z"
     assert "createdAfter" not in segunda
+    # Con un hueco mayor a 30 dias manda el maximo observado menos el solape.
+    atrasada = orders.parametros_ventana(
+        marketplace_id=mid,
+        ultimo_observado=datetime(2026, 7, 1, 11, 0, 0, tzinfo=UTC),
+        ahora=AHORA,
+    )
+    assert atrasada["lastUpdatedAfter"] == "2026-06-30T11:00:00Z"
+
+
+def test_corte_resumen_solo_aplica_a_la_corrida_normal():
+    ultimo = datetime(2026, 9, 8, 11, 0, 0, tzinfo=UTC)
+    assert orders.corte_resumen(ultimo_observado=ultimo, desde=None) == datetime(
+        2026, 9, 7, 11, 0, 0, tzinfo=UTC
+    )
+    assert orders.corte_resumen(ultimo_observado=None, desde=None) is None
+    assert orders.corte_resumen(ultimo_observado=ultimo, desde=datetime(2026, 8, 10).date()) is None
 
 
 def test_pide_secciones_en_cada_peticion():
@@ -267,7 +285,7 @@ def test_pide_secciones_en_cada_peticion():
     orders.recorrer_ordenes(cliente, params, max_paginas=2)
     assert llamadas, "sin HTTP no hay nada que afirmar"
     for request in llamadas:
-        assert request.url.params["includedData"] == "FULFILLMENT,PROCEEDS"
+        assert request.url.params["includedData"] == "FULFILLMENT,PROCEEDS,PACKAGES"
 
 
 def test_jamas_pide_buyer_ni_recipient():
@@ -865,7 +883,7 @@ def test_ingesta_punta_a_punta_idempotente_y_ventana():
             (primera.run_id,),
         ).fetchone()
         assert run[0] is True
-        assert run[1] == 3
+        assert run[1] == 6  # ENVIOS 01: 3 resumenes + 3 envios
         assert run[2] == 1
         assert run[3] == "1x sin_identidad"
         assert conn.execute("SELECT count(*) FROM spapi_order_observation").fetchone()[0] == 3
@@ -887,10 +905,10 @@ def test_ingesta_punta_a_punta_idempotente_y_ventana():
             (segunda.run_id,),
         ).fetchone()
         assert run2[0] == 0
-        assert "duplicada" in (run2[2] or "")
-        # Segunda corrida usa lastUpdatedAfter = max - 1 dia de solape.
+        assert run2[2] == "3x duplicada, 3x envio_sin_cambio, 1x sin_identidad"
+        # Segunda corrida: ventana de 30 dias (mas ancha que max - 1 dia).
         params2 = llamadas[0].url.params
-        assert params2.get("lastUpdatedAfter") == "2026-09-07T11:00:00Z"
+        assert params2.get("lastUpdatedAfter") == "2026-08-10T12:00:00Z"
         assert "createdAfter" not in params2
 
 
@@ -949,6 +967,143 @@ def test_dos_corridas_reobservan_y_vista_muestra_ultima():
         # La segunda corrida trae seccion sin ciclo: el envio queda en su
         # columna y el ciclo en NULL (nunca mezclados).
         assert vista == (None, "Shipped", "AFN", Decimal("250.0000"), "MXN")
+
+
+def _orden_fbm(order_id, actualizado, estado_paquete, detalle):
+    direccion = {"name": "CENTINELA_NOMBRE", "addressLine1": "CENTINELA_CALLE"}
+    return _resumen(
+        order_id,
+        createdTime="2026-08-19T10:00:00Z",
+        lastUpdatedTime=actualizado,
+        buyer={"buyerName": "CENTINELA_COMPRADOR"},
+        recipient={"deliveryAddress": direccion},
+        fulfillment={"fulfilledBy": "MERCHANT", "fulfillmentStatus": "SHIPPED"},
+        orderItems=[
+            {"quantityOrdered": 1, "product": {"asin": "B000000001", "sellerSku": "SKU-1"}}
+        ],
+        packages=[
+            {
+                "packageReferenceId": "1",
+                "carrier": "AMZMX",
+                "trackingNumber": f"GUIA-{order_id}",
+                "packageStatus": {"status": estado_paquete, "detailedStatus": detalle},
+                "shipFromAddress": direccion,
+            }
+        ],
+    )
+
+
+@_skip_db
+def test_orders_una_llamada_llena_resumen_y_envio_sin_inflar_resumenes(caplog):
+    caplog.set_level("DEBUG")
+    reciente = _orden_fbm("MX-A", "2026-09-08T11:00:00Z", "IN_TRANSIT", "PICKED_UP")
+    en_corte = _orden_fbm("MX-C", "2026-09-07T11:00:00Z", "IN_TRANSIT", "PICKED_UP")
+    bajo_corte = _orden_fbm("MX-D", "2026-09-07T10:59:59Z", "IN_TRANSIT", "PICKED_UP")
+    vieja = _orden_fbm("MX-B", "2026-08-20T11:00:00Z", "IN_TRANSIT", "PICKED_UP")
+    # El paquete cambia sin que Amazon mueva lastUpdatedTime.
+    entregada = _orden_fbm("MX-B", "2026-08-20T11:00:00Z", "DELIVERED", "DELIVERED")
+
+    def correr(conn, ordenes, ahora, **mas):
+        llamadas: list = []
+        cuerpo = {"cuerpo": {"payload": {"orders": ordenes}}}
+        cliente = SpapiClient(
+            credentials=CRED,
+            transport=httpx.MockTransport(_handler_fixture([cuerpo], llamadas)),
+            sleep=lambda _s: None,
+            clock=lambda: 1000.0,
+        )
+        resultado = orders.ejecutar_ingesta(conn, cliente, platform="amazon_mx", ahora=ahora, **mas)
+        run = conn.execute(
+            "SELECT ok, rows_written, rows_skipped, skip_reason FROM ingest_run WHERE id = %s",
+            (resultado.run_id,),
+        ).fetchone()
+        conn.commit()
+        assert len(llamadas) == 1
+        return resultado, run, llamadas[0].url.params
+
+    def resumenes(conn):
+        return conn.execute(
+            "SELECT amazon_order_id, count(*) FROM spapi_order_observation GROUP BY 1 ORDER BY 1"
+        ).fetchall()
+
+    def paquetes(conn):
+        return conn.execute(
+            "SELECT e.envio_ref, p.estado_fuente, e.observed_at, e.ingest_run_id"
+            " FROM envio_observation e"
+            " JOIN envio_paquete_observation p ON p.envio_obs_id = e.id"
+            " ORDER BY e.envio_ref, e.observed_at"
+        ).fetchall()
+
+    with db_orders() as conn:
+        primera, run1, _ = correr(conn, [reciente, en_corte, bajo_corte, vieja], AHORA)
+        assert (primera.escritas, primera.envios_escritos, primera.envios_sin_cambio) == (4, 4, 0)
+        assert run1 == (True, 8, 0, None)
+
+        despues = AHORA + timedelta(hours=4)
+        segunda, run2, params = correr(conn, [reciente, en_corte, bajo_corte, entregada], despues)
+        assert params["includedData"] == "FULFILLMENT,PROCEEDS,PACKAGES"
+        assert params["lastUpdatedAfter"] == "2026-08-10T16:00:00Z"
+        # Corte = maximo observado - 1 dia = 2026-09-07T11:00:00Z, inclusive.
+        assert (segunda.escritas, segunda.envios_escritos, segunda.envios_sin_cambio) == (2, 1, 3)
+        assert segunda.omitidas == 5
+        assert run2 == (True, 3, 5, "3x envio_sin_cambio, 2x resumen_ya_cubierto")
+        assert resumenes(conn) == [("MX-A", 2), ("MX-B", 1), ("MX-C", 2), ("MX-D", 1)]
+        assert paquetes(conn) == [
+            ("MX-A", "IN_TRANSIT", AHORA, primera.run_id),
+            ("MX-B", "IN_TRANSIT", AHORA, primera.run_id),
+            ("MX-B", "DELIVERED", despues, segunda.run_id),
+            ("MX-C", "IN_TRANSIT", AHORA, primera.run_id),
+            ("MX-D", "IN_TRANSIT", AHORA, primera.run_id),
+        ]
+        conn.commit()
+
+        # Backfill: sin corte, el resumen viejo vuelve a escribirse.
+        tercera, _, _ = correr(
+            conn,
+            [bajo_corte, entregada],
+            AHORA + timedelta(hours=8),
+            desde=datetime(2026, 8, 1).date(),
+        )
+        assert (tercera.escritas, tercera.envios_escritos, tercera.envios_sin_cambio) == (2, 0, 2)
+
+        guardado = str(
+            [
+                conn.execute(f"SELECT t::text FROM {tabla} t").fetchall()
+                for tabla in (
+                    "spapi_order_observation",
+                    "envio_observation",
+                    "envio_paquete_observation",
+                    "ingest_run",
+                )
+            ]
+        )
+        assert "GUIA-MX-A" in guardado  # el volcado si trae los datos
+        assert "CENTINELA" not in guardado
+        assert "CENTINELA" not in caplog.text
+
+
+@_skip_db
+def test_fallo_al_escribir_envios_revierte_tambien_los_resumenes():
+    # Resumen y envio van en la misma transaccion: si avanzara solo el resumen,
+    # el maximo observado dejaria atras pedidos sin envio.
+    import psycopg
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(_handler_fixture(_fixture_dos_paginas(), [])),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        conn.execute("DROP TABLE envio_observation CASCADE")
+        conn.commit()
+        with pytest.raises(psycopg.errors.UndefinedTable):
+            orders.ejecutar_ingesta(conn, cliente, platform="amazon_mx", ahora=AHORA)
+        assert conn.execute("SELECT count(*) FROM spapi_order_observation").fetchone()[0] == 0
+        run = conn.execute(
+            "SELECT ok, rows_written FROM ingest_run ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert run == (False, 0)
 
 
 @_skip_db
@@ -1035,7 +1190,7 @@ def test_paginacion_incompleta_sella_ok_false_con_lo_escrito():
             (resultado.run_id,),
         ).fetchone()
         assert run[0] is False
-        assert run[1] == 2
+        assert run[1] == 4  # ENVIOS 01: 2 resumenes + 2 envios
         assert run[2] == "paginacion_incompleta:next_token_repetido"
 
 

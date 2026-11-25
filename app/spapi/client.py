@@ -135,7 +135,7 @@ class SpapiRechazoLWA(SpapiAuthError):
         super().__init__(f"refresh LWA rechazado: status={status}")
 
 
-_PII_GLOBAL = frozenset({"shippingaddress", "shipaddress", "recipient"})
+_PII_GLOBAL = frozenset({"shippingaddress", "shipaddress", "shipfromaddress", "recipient"})
 _PII_ORDERS = frozenset(
     {
         "addressline1",
