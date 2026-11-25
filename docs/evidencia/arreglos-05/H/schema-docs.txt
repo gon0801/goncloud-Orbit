@@ -1,0 +1,7 @@
+# test_schema_docs en la rama de H tras corregir el conteo 97 -> 98
+# SHA e2709b1a0af1c661c288c47f240faadfee7fba33 (arbol de trabajo con la correccion sin commitear)
+# Comando: uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_schema_docs.py
+
+.                                                                        [100%]
+1 passed in 4.83s
+# salida de pytest=0

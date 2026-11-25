@@ -1,8 +1,9 @@
 """ARREGLOS 05 A: pruebas exhaustivas de la tabla `estado x evento` y chequeos `/correct`.
 
-Recorre TODAS las casillas de `app.apply_estados.TABLA_TRANSICIONES` (11 estados
-x 16 eventos = 176 casillas; ARREGLOS 05 B agrego 2 estados y 3 eventos, y C un evento),
-comprueba los invariantes de los bloques A y B sobre toda la tabla, valida los
+Recorre TODAS las casillas de `app.apply_estados.TABLA_TRANSICIONES` (12 estados
+x 17 eventos = 204 casillas; ARREGLOS 05 B agrego 2 estados y 3 eventos, C un evento
+y H un estado y un evento), comprueba los invariantes de los bloques A, B y H sobre
+toda la tabla, valida los
 clasificadores puros y ejecuta los chequeos estructurales
 de `/correct` que impiden reintroducir la premisa rota (constantes, consultas
 `HAVING` ad hoc o comprobaciones 401/403 duplicadas fuera del dueno unico).
@@ -75,6 +76,8 @@ CASILLAS_ESPERADAS: dict[tuple[EstadoCambio, EventoCambio], tuple[AccionCambio, 
     (E.PENDIENTE, V.IDENTIDAD_SUSTITUIDA): (A.NO_TOCAR, E.AJENO),
     (E.PENDIENTE, V.IDENTIDAD_DUDOSA): (A.NO_TOCAR, E.PENDIENTE),
     (E.PENDIENTE, V.CAMBIO_MANUAL_DUENO): (A.NO_TOCAR, E.MOVIDO_POR_DUENO),
+    # ARREGLOS 05 H: el cupo del ciclo agotado no envia
+    (E.PENDIENTE, V.CUPO_CICLO_AGOTADO): (A.NO_TOCAR, E.CUPO_CICLO_AGOTADO),
     # INCIERTO
     (E.INCIERTO, V.NUEVO_HORARIO): (A.LEER_RESULTADO, E.INCIERTO),
     (E.INCIERTO, V.OK_CONFIRMADO): (A.SELLAR_APLICADO, E.APLICADO),
@@ -93,6 +96,7 @@ CASILLAS_ESPERADAS: dict[tuple[EstadoCambio, EventoCambio], tuple[AccionCambio, 
     (E.INCIERTO, V.IDENTIDAD_SUSTITUIDA): (A.SELLAR_TERMINAL, E.AJENO),
     (E.INCIERTO, V.IDENTIDAD_DUDOSA): (A.MANTENER_INCIERTO, E.INCIERTO),
     (E.INCIERTO, V.CAMBIO_MANUAL_DUENO): (A.SELLAR_TERMINAL, E.MOVIDO_POR_DUENO),
+    (E.INCIERTO, V.CUPO_CICLO_AGOTADO): (A.LEER_RESULTADO, E.INCIERTO),
     # EN_VUELO
     **{
         (E.EN_VUELO, ev): (
@@ -114,6 +118,7 @@ CASILLAS_ESPERADAS: dict[tuple[EstadoCambio, EventoCambio], tuple[AccionCambio, 
             E.TOPE_INTENTOS,
             E.AJENO,
             E.MOVIDO_POR_DUENO,
+            E.CUPO_CICLO_AGOTADO,
         )
         for ev in V
     },
@@ -125,7 +130,7 @@ def test_arreglos05_a_tabla_estados_completa_y_sin_ambiguedad():
     esperadas = set(itertools.product(EstadoCambio, EventoCambio))
     assert set(TABLA_TRANSICIONES.keys()) == esperadas
     assert set(CASILLAS_ESPERADAS.keys()) == esperadas
-    assert len(TABLA_TRANSICIONES) == len(EstadoCambio) * len(EventoCambio) == 176
+    assert len(TABLA_TRANSICIONES) == len(EstadoCambio) * len(EventoCambio) == 204
 
 
 @pytest.mark.parametrize(

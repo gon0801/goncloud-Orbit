@@ -263,3 +263,27 @@ sigue en 176 casillas. El modelo por camino (que fila de `apply_queue`, que
 evento de la base, que accion del indice o del trigger) y el papel de
 `apply_queue_live_efecto_unico` y `apply_queue_clave_vigente` viven en
 [`../E/estados.md`](../E/estados.md).
+
+## Ampliacion del bloque H (ARREGLOS 05 H)
+
+El tope de 150 pujas ordinarias por ciclo de origen si entra a la tabla: es un
+hecho del ledger, hermano de `intentos_agotados`, y el envio no puede salir de
+ningun camino que no sea `enviar`. Se agrega:
+
+- Estado terminal `cupo_ciclo_agotado` (el ciclo origen ya intento sus 150
+  pujas ordinarias; la decision queda con `decision_sin_aplicar.motivo =
+  'tope_ciclo'`).
+- Evento `cupo_ciclo_agotado`.
+- Casillas: `(pendiente, cupo_ciclo_agotado) -> no_tocar -> cupo_ciclo_agotado`
+  y `(incierto, cupo_ciclo_agotado) -> leer_resultado -> incierto`
+  (`origen_incompleto=True`); `en_vuelo` y los terminales no envian, como con
+  cualquier evento.
+- Clasificador `transicion_de_reserva_cupo(agotado=...)`: consulta la tabla en
+  un solo paso (`nuevo_horario` -> `enviar` con lugar; la casilla del tope si
+  esta agotado). El aplicador ramifica solo por `transicion.accion`.
+
+La tabla pasa de 176 a **204 casillas (12 estados por 17 eventos)**; las
+pruebas exhaustivas de este archivo y las nuevas de H
+(`tests/test_arreglos05_h_estados.py`) la recorren completa. El modelo por
+camino (que cuenta, donde se reserva y donde se suelta el cerrojo) vive en
+[`../H/estados.md`](../H/estados.md).

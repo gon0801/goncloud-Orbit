@@ -15,9 +15,10 @@ from decimal import Decimal
 
 import psycopg
 from psycopg import pq
+from psycopg.errors import LockNotAvailable
 from psycopg.types.json import Json
 
-from app import temporada_io
+from app import lock, temporada_io
 from app.db import tx_durable
 
 # CAMPANA ACTIVA 01 · 1.6: ancestros no ENABLED (o sin fila de state, regla 3)
@@ -68,6 +69,11 @@ MOTIVO_BID_CAMBIADO_FUERA = "bid_cambiado_fuera"
 # este desenlace auditable. La que ya tiene un intento no se toca: esa solo la
 # resuelve la conciliacion, leyendo.
 MOTIVO_VIGENCIA_VENCIDA = "vigencia_vencida"
+# ARREGLOS 05 H: el ciclo de origen ya intento sus 150 pujas ordinarias. La
+# decision no se envia, queda con este desenlace auditable y NO se abre otro
+# ciclo para eludir el tope (el plan del dia ya impide un segundo origen con
+# TX3 comprometida).
+MOTIVO_TOPE_CICLO = "tope_ciclo"
 
 # Etiqueta de skip en memoria del aplicador (NO se persiste): la decision ya
 # tiene un intento normal, cierto o fallido, y el aplicador no la vuelve a
@@ -97,6 +103,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_ESPERA_PROTECCION,
     MOTIVO_BID_CAMBIADO_FUERA,
     MOTIVO_VIGENCIA_VENCIDA,
+    MOTIVO_TOPE_CICLO,
 )
 
 _SQL_SIN_APLICAR = """
@@ -185,6 +192,50 @@ def expira_no_intentadas(
     finally:
         if estaba_idle:
             conn.rollback()
+
+
+# ARREGLOS 05 H: tope de pujas ORDINARIAS por ciclo de ORIGEN y plataforma.
+# Se cuenta del ledger `apply_attempt` (decision kind 'bid', intento 'normal'):
+# cada intento durable consume, incluido el incierto y el rechazado; las
+# reversas no cuentan. Es la fuente unica del numero.
+TOPE_PUJAS_ORDINARIAS_CICLO = 150
+
+# Solo la ENTRADA y el REGRESO de TEMPORADA quedan exentos, por su marcador
+# CONGELADO en la decision (motivo + episodio). Un ajuste a media baja o un
+# `Regresar` ordinario (Recupera) cuentan; si el marcador falta, la puja cuenta
+# como ordinaria (contrato: contar como ordinario o abstenerse).
+MOTIVOS_TEMPORADA_EXENTOS = (temporada_io.MOTIVO_ENTRA, temporada_io.MOTIVO_SALE)
+
+# La fila del ORIGEN, bloqueada: contar e insertar la intencion del mismo
+# origen se serializan entre dos procesos o un sucesor del claim.
+_SQL_BLOQUEA_CICLO_ORIGEN = "SELECT id FROM optimizer_cycle WHERE id = %s FOR UPDATE"
+
+_SQL_INTENTOS_ORDINARIOS_CICLO = """
+SELECT count(*)
+  FROM apply_attempt a
+  JOIN decision d ON d.id = a.decision_id
+ WHERE d.cycle_id = %s
+   AND a.tipo = 'normal'
+   AND d.kind = 'bid'
+   AND NOT (COALESCE(d.inputs->>'motivo' = ANY(%s), FALSE)
+            AND d.inputs->>'temporada_episodio_id' IS NOT NULL)
+"""
+
+
+class CupoDelCicloNoReservable(Exception):
+    """No se pudo contar/reservar el cupo del origen (cerrojo ajeno o ciclo
+    inexistente): fail-closed, no sale ninguna mutacion."""
+
+
+@dataclass(frozen=True)
+class ReservaCiclo:
+    """Lo que dejo la reserva del tope: si permite el envio, si la puja esta
+    exenta por TEMPORADA y los numeros del ledger para el desenlace."""
+
+    permite: bool
+    exenta: bool
+    usados: int | None
+    tope: int
 
 
 # Formas de quota de la rampa (preflight 1.4): ESPEJO del CASE del trigger
@@ -432,6 +483,50 @@ def bids_recuperables(conn: psycopg.Connection, cycle_id: int) -> list[DecisionB
     unicas que la fase de apply intenta. Recien decidido un ciclo es el lote
     completo; en un ejecutor son solo las que falta completar."""
     return _decisions_de(conn.execute(_SQL_BIDS_SIN_DESENLACE, (cycle_id,)).fetchall())
+
+
+def puja_exenta_del_cupo(inputs: Mapping) -> bool:
+    """True solo con el marcador CONGELADO de TEMPORADA en la decision:
+    `motivo` de entrada/regreso Y `temporada_episodio_id` presente. Nunca por
+    heuristica de estado ni por el modo del ciclo."""
+    motivo = inputs.get("motivo")
+    return motivo in MOTIVOS_TEMPORADA_EXENTOS and inputs.get("temporada_episodio_id") is not None
+
+
+def reserva_cupo_ciclo(
+    conn: psycopg.Connection,
+    *,
+    ciclo_origen: int,
+    decision: DecisionBid,
+    tope: int = TOPE_PUJAS_ORDINARIAS_CICLO,
+) -> ReservaCiclo:
+    """Cuenta el cupo ordinario del ciclo de ORIGEN bajo el cerrojo de su fila.
+
+    La reserva y la intencion (fila de `apply_attempt`) viven en la MISMA
+    transaccion: el cerrojo se suelta en el commit que el aplicador hace justo
+    antes del HTTP, y para entonces el intento ya es visible. Dos procesos del
+    mismo origen no pueden contar 149 a la vez. `decision.inputs` es el marcador
+    congelado de TEMPORADA: la entrada y el regreso no consultan el tope.
+
+    No conseguir el cerrojo a tiempo o no encontrar el origen falla cerrado:
+    sin contar no se envia."""
+    if puja_exenta_del_cupo(decision.inputs):
+        return ReservaCiclo(permite=True, exenta=True, usados=None, tope=tope)
+    lock.acota_espera_de_cerrojos(conn)
+    try:
+        fila = conn.execute(_SQL_BLOQUEA_CICLO_ORIGEN, (ciclo_origen,)).fetchone()
+    except LockNotAvailable as exc:
+        raise CupoDelCicloNoReservable(
+            f"ciclo origen {ciclo_origen}: el cerrojo de la fila no se obtuvo a tiempo"
+        ) from exc
+    if fila is None:
+        raise CupoDelCicloNoReservable(
+            f"el ciclo origen {ciclo_origen} no existe: no hay cupo que contar"
+        )
+    usados = conn.execute(
+        _SQL_INTENTOS_ORDINARIOS_CICLO, (ciclo_origen, list(MOTIVOS_TEMPORADA_EXENTOS))
+    ).fetchone()[0]
+    return ReservaCiclo(permite=usados < tope, exenta=False, usados=usados, tope=tope)
 
 
 # Clave de orden para gasto desconocido (regla 3): dentro de SU nivel, al

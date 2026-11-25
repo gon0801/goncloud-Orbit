@@ -1,0 +1,28 @@
+# Acepta de ARREGLOS 05 H. SHA e48a1075df56d7d92371adde0a16e7349fe607d0 (parte 3 de 5)
+# arbol con seguimiento limpio (sin contar los archivos de salida de esta carpeta): si
+# variables PG* de destino o de servicio quitadas del entorno: 0
+# herramientas en el PATH para recolectar con CI=1: psql=si pg_dump=si flock=si
+# PG: PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu | 160015
+
+### [CONTROL] cosecha, reversa manual y reposicion
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_apply_harvest.py tests/test_reversa_harvest.py tests/test_arreglos05_b_reversas.py tests/test_arreglos05_c_reposicion.py
+........................................................................ [ 44%]
+........................................................................ [ 88%]
+..................                                                       [100%]
+162 passed in 171.27s (0:02:51)
+resultado=ok
+
+### [CONTROL] cliente protegido, practica vencida, API y bloqueo del dueno
+$ uv run --frozen --python 3.12 python -B -m pytest -q -p no:cacheprovider tests/test_arreglos05_d_write.py tests/test_arreglos05_e_shadow.py tests/test_api_write.py tests/test_bloqueo_dueno_efecto.py
+........................................................................ [ 58%]
+...................................................                      [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+  <checkout>goncloud-orbit-45\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+123 passed, 1 warning in 141.74s (0:02:21)
+resultado=ok
+
+# comandos que no pasaron: 0

@@ -852,6 +852,9 @@ SQL96 = (
     / "migrations"
     / "0096_arreglos05_regreso_destino_efectivo.sql"
 ).read_text(encoding="utf-8")
+SQL99 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0099_arreglos05_tope_ciclo.sql"
+).read_text(encoding="utf-8")
 
 
 def _sql46() -> str:
@@ -911,6 +914,7 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
+        conn.execute(SQL99)  # 0099 (ARREGLOS 05 H): motivo tope_ciclo del CHECK
         yield conn
     finally:
         if conn is not None:
