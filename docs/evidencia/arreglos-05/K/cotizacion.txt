@@ -1,0 +1,32 @@
+# K/cotizacion.sql
+# generado: 2026-11-25T12:57:38Z
+# base: 1191125c65841e8ec8d77448f7bbdcfeed29be1a
+
+-- A. Volumen por plataforma, moneda y estado [platform|currency|estado|n|desde|hasta]
+amazon_mx|MXN|success|86130|2026-09-08|2026-11-25
+amazon_mx|MXN|error|396|None|None
+amazon_us|USD|success|16387|2026-10-15|2026-11-25
+amazon_us|USD|error|62|None|None
+meli|MXN|success|2103|2026-10-17|2026-11-25
+
+-- B. Impuesto explicito en la cotizacion; el escritor solo guarda "tax_amount" cuando es distinto de cero [platform|currency|cotizaciones|con_tax_no_cero|sin_detalle|sin_total]
+amazon_mx|MXN|86130|0|0|0
+amazon_us|USD|16387|0|0|0
+meli|MXN|2103|0|0|0
+
+-- C. Tasa cotizada de cada componente sobre el precio cotizado [platform|currency|tipo|n|mediana|pmin|pmax]
+amazon_mx|MXN|FBAFees|65462|0.045999|0.018629|0.090129
+amazon_mx|MXN|ReferralFee|86130|0.129310|0.129306|0.129316
+amazon_us|USD|PerItemFee|16387|0.000000|0.000000|0.000000
+amazon_us|USD|ReferralFee|16387|0.150000|0.149944|0.150073
+amazon_us|USD|VariableClosingFee|16387|0.000000|0.000000|0.000000
+meli|MXN|ListingFee|2103|0.000000|0.000000|0.000000
+meli|MXN|SaleFee|2103|0.195003|0.195000|0.195007
+meli|MXN|SaleFeeFixed|2103|0.000000|0.000000|0.000000
+
+-- D. Canal de las cotizaciones de Amazon MX y presencia de FBAFees [canal|n|con_fba]
+fba|65462|65462
+fbm|20668|0
+
+-- E. FBAFees cotizado por producto contra fba_fee real por unidad; fuera de la comision, se mide para descartar un patron 1.16 [productos|mediana_razon|p10|p90|a_1pct|a_116]
+65|1.046875|1.015152|1.063492|2|0

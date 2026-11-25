@@ -1,0 +1,100 @@
+# K/cargo.sql
+# generado: 2026-11-25T12:57:55Z
+# base: 1191125c65841e8ec8d77448f7bbdcfeed29be1a
+
+-- A. Filas estimadas frente a reales por plataforma [platform|filas|estimadas]
+amazon_mx|4140|325
+amazon_us|2365|108
+meli|2576|0
+
+-- B. Tipos de cargo, moneda, signo y ventana [platform|currency|kind|fee_type|n|desde|hasta|total]
+amazon_mx|MXN|sale|(null)|1563|2026-01-01|2026-11-25|1868737.87
+amazon_mx|MXN|fee|ads|263|2026-03-07|2026-11-24|-128182.45
+amazon_mx|MXN|fee|fba_fee|615|2026-01-01|2026-11-23|-43123.11
+amazon_mx|MXN|fee|otros|115|2026-02-13|2026-11-22|-5861.94
+amazon_mx|MXN|fee|referral_fee|1905|2026-01-01|2026-11-25|-320948.52
+amazon_mx|MXN|fee|shipping_fee|974|2026-01-01|2026-11-23|-83073.96
+amazon_mx|MXN|fee|storage_fee|14|2026-01-08|2026-06-07|-9.52
+amazon_mx|MXN|refund|refund|82|2026-01-02|2026-11-24|-37819.79
+amazon_mx|MXN|withholding|isr_withheld|9|2026-03-13|2026-10-12|-29915.79
+amazon_mx|MXN|withholding|tax_withheld|1583|2026-01-01|2026-11-23|-127128.72
+amazon_us|MXN|sale|(null)|599|2026-01-01|2026-11-22|1457277.80
+amazon_us|MXN|fee|ads|262|2026-03-07|2026-11-24|-289553.09
+amazon_us|MXN|fee|referral_fee|727|2026-01-01|2026-11-22|-235055.71
+amazon_us|MXN|fee|shipping_fee|1290|2026-01-01|2026-11-22|-368402.87
+amazon_us|MXN|refund|refund|66|2026-02-08|2026-10-19|-42037.19
+amazon_us|MXN|withholding|isr_withheld|9|2026-03-13|2026-10-13|-27911.10
+amazon_us|MXN|withholding|tax_withheld|1014|2026-01-01|2026-11-21|-99242.97
+meli|MXN|sale|(null)|642|2026-01-03|2026-11-25|794029.63
+meli|MXN|fee|ads|283|2026-02-16|2026-11-25|-153444.46
+meli|MXN|fee|referral_fee|632|2026-01-03|2026-11-25|-152232.90
+meli|MXN|fee|shipping_fee|632|2026-01-03|2026-11-25|-52602.50
+meli|MXN|refund|refund|35|2026-01-10|2026-11-17|-40257.90
+meli|MXN|withholding|isr_withheld|635|2026-01-03|2026-11-25|-16873.54
+meli|MXN|withholding|tax_withheld|635|2026-01-03|2026-11-25|-53995.67
+
+-- C. Razon cobrada de la comision variable por pedido, plataforma y mes [platform|currency|mes|pares|mediana|pmin|pmax]
+amazon_mx|MXN|2025-11-01|3|0.030000|0.029990|0.030000
+amazon_mx|MXN|2025-12-01|142|0.150000|0.140594|0.180000
+amazon_mx|MXN|2026-01-01|136|0.150000|0.140594|0.180000
+amazon_mx|MXN|2026-02-01|151|0.150000|0.142358|0.180000
+amazon_mx|MXN|2026-03-01|192|0.150000|0.139622|0.186002
+amazon_mx|MXN|2026-04-01|149|0.150000|0.140343|0.186002
+amazon_mx|MXN|2026-05-01|114|0.150000|0.139622|0.185996
+amazon_mx|MXN|2026-06-01|68|0.150000|0.139622|0.186814
+amazon_mx|MXN|2026-07-01|99|0.150000|0.139622|0.205416
+amazon_mx|MXN|2026-08-01|101|0.150000|0.139622|0.201452
+amazon_mx|MXN|2026-09-01|145|0.150000|0.111474|0.185996
+amazon_mx|MXN|2026-10-01|226|0.150000|0.139316|0.185999
+amazon_mx|MXN|2026-11-01|181|0.150000|0.102798|0.180010
+amazon_us|MXN|2025-11-01|2|0.027155|0.017985|0.036325
+amazon_us|MXN|2025-12-01|39|0.168364|0.154658|0.177301
+amazon_us|MXN|2026-01-01|52|0.171735|0.161066|0.194068
+amazon_us|MXN|2026-02-01|47|0.176747|0.152208|0.221345
+amazon_us|MXN|2026-03-01|73|0.150387|0.138796|0.201803
+amazon_us|MXN|2026-04-01|71|0.142486|0.102877|0.159158
+amazon_us|MXN|2026-05-01|51|0.129252|0.100465|0.161504
+amazon_us|MXN|2026-06-01|41|0.130756|0.098332|0.156672
+amazon_us|MXN|2026-07-01|57|0.130757|0.111546|0.159909
+amazon_us|MXN|2026-08-01|65|0.128106|0.103053|0.157797
+amazon_us|MXN|2026-09-01|61|0.129540|0.106459|0.161543
+amazon_us|MXN|2026-10-01|44|0.128117|0.095421|0.147199
+amazon_us|MXN|2026-11-01|36|0.128273|0.095118|0.142939
+meli|MXN|2025-03-01|29|0.195000|0.194992|0.195007
+meli|MXN|2025-04-01|74|0.195000|0.194992|0.343614
+meli|MXN|2025-05-01|64|0.195000|0.194992|0.195007
+meli|MXN|2025-06-01|37|0.195006|0.194993|0.467727
+meli|MXN|2025-07-01|39|0.195005|0.194993|0.467727
+meli|MXN|2025-08-01|51|0.195003|0.194993|0.195007
+meli|MXN|2025-09-01|57|0.195005|0.194993|0.467727
+meli|MXN|2025-10-01|54|0.195003|0.194993|0.195007
+meli|MXN|2025-11-01|70|0.195005|0.194993|0.195007
+meli|MXN|2025-12-01|40|0.195000|0.194992|0.195007
+meli|MXN|2026-01-01|13|0.195000|0.195000|0.195007
+meli|MXN|2026-02-01|45|0.195005|0.194983|0.195007
+meli|MXN|2026-03-01|75|0.195000|0.194993|0.195007
+meli|MXN|2026-04-01|93|0.195001|0.194993|0.195007
+meli|MXN|2026-05-01|49|0.195003|0.194996|0.195006
+meli|MXN|2026-06-01|35|0.195004|0.195000|0.195006
+meli|MXN|2026-07-01|75|0.195004|0.195000|0.195007
+meli|MXN|2026-08-01|40|0.195004|0.195000|0.195005
+meli|MXN|2026-09-01|50|0.195004|0.195000|0.195006
+meli|MXN|2026-10-01|81|0.195004|0.195000|0.195007
+meli|MXN|2026-11-01|76|0.195004|0.097502|0.195007
+
+-- D. Distribucion de la razon por pedido en la ventana de cada plataforma [platform|pares|p10|p50|p90|exactos_0150|exactos_0195]
+amazon_mx|552|0.150000|0.150000|0.150005|510|0
+amazon_us|55|0.108622|0.128270|0.135325|0|0
+meli|207|0.195000|0.195004|0.195005|0|206
+
+-- E. Razon cobrado/cotizado por producto y plataforma en MXN [platform|productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
+amazon_mx|169|1527|0.150000|0.129311|1.160000|0.862061|1.276003|161|0
+meli|13|72|0.195004|0.195004|1.000000|0.999978|1.000000|0|13
+
+-- F. Amazon US en su ventana: razon por producto, con la cotizacion en USD y el cargo en MXN [productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
+24|55|0.128797|0.150000|0.858649|0.634122|0.940567|0|0
+
+-- G. Un pedido MX con la comision cobrada al 15% y su diferencia contra la tasa cotizada 12.931% [order_id|venta|comision|tasa|razon|diferencia]
+701-6167430-7852254|2689.0000|403.3600|0.150004|1.160032|55.6454
+701-2934445-2283440|2689.0000|403.3600|0.150004|1.160032|55.6454
+701-7091239-6440216|2689.0000|403.3600|0.150004|1.160032|55.6454
