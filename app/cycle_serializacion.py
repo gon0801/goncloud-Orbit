@@ -19,12 +19,7 @@ from app.optimizer import bid, cortes, harvest_destino, hygiene, windows
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
-from app.optimizer.caso import (
-    POLITICA_BID,
-    InsumosPausa,
-    InsumosProteccion,
-    _proteccion_json,
-)
+from app.optimizer.caso import POLITICA_BID, InsumosPausa
 from app.optimizer.politica import Mover, Pausar
 
 if TYPE_CHECKING:
@@ -253,65 +248,6 @@ def pendiente_bid(
         old_value=old_value,
         new_value=new_value,
         value_currency=value_currency,
-        inputs=inputs,
-    )
-
-
-def _pendiente_pause_apagada(
-    entidad_id: int,
-    resultado: bid.ResultadoBid,
-    *,
-    platform: str,
-    modo: str,
-    goal: g.Goal,
-    cortes: windows.AgregadoMetricas | None,
-    target: Decimal,
-    procedencia: str,
-    snapshot: dict | None,
-    bid_actual: Decimal | None,
-    bid_moneda: str | None,
-    decided_at: dt.datetime,
-    corte: cortes.UmbralResuelto,
-    evidencia: windows.EvidenciaAdGroup | None,
-    cost_min: Decimal,
-    policy_version: str | None,
-    proteccion: InsumosProteccion | None = None,
-) -> _Pendiente:
-    """La PAUSE con la politica apagada (BIDS 02 M.3, cambio 4): freeze
-    sin caso ni politica, con la forma de la era anterior (ventanas +
-    corte + version economica) para que el replay la re-decida por eras."""
-    assert resultado.kind == "pause"
-    assert cortes is not None
-    inputs = {
-        "motor": "bid",
-        "platform": platform,
-        "ventanas": {
-            "bids": None,
-            "cortes": _agregado_json(cortes),
-        },
-        "goal": _goal_json(goal, PLATAFORMAS_MONEDA[platform]),
-        "target_acos_pct_usado": _dec_str(target),
-        "economic_policy": {"version": policy_version},
-        "target_procedencia": procedencia,
-        **({"target_snapshot": snapshot} if snapshot is not None else {}),
-        "bid_actual": _dec_str(bid_actual),
-        "bid_moneda": bid_moneda,
-        "factor": None,
-        "motivo": resultado.motivo,
-        "modo": modo,
-        "corte": _corte_json(corte, evidencia, cost_min=cost_min),
-        "proteccion": _proteccion_json(proteccion),
-    }
-    return _Pendiente(
-        ad_entity_id=entidad_id,
-        kind="pause",
-        data_observed_at=_sello_bitemporal(decided_at, resultado.data_observed_at, None),
-        window_start=resultado.window_start,
-        window_end=resultado.window_end,
-        search_term=None,
-        old_value=None,
-        new_value=None,
-        value_currency=None,
         inputs=inputs,
     )
 

@@ -108,7 +108,6 @@ def presupuesto_alto(
 
 
 CLAVE_SETTING_MODO = "ads_optimizer_mode"
-CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID = "ads_pause_sin_cooldown_bid"
 CLAVE_SETTING_PAUSE_ECONOMICA = "ads_pause_economica"
 CLAVE_SETTING_PROPUESTAS_CAMPANA = "ads_propuestas_campana"
 
@@ -162,12 +161,6 @@ def modo_desde_settings(settings: Mapping) -> str:
     if isinstance(valor, str) and valor in _ORDEN_MODO:
         return valor
     return "off"
-
-
-def pause_sin_cooldown_bid_desde_settings(settings: Mapping) -> bool:
-    """B.2a: True solo si config_version.settings trae JSON true bajo
-    ads_pause_sin_cooldown_bid (fail-closed)."""
-    return settings.get(CLAVE_SETTING_PAUSE_SIN_COOLDOWN_BID) is True
 
 
 def pause_economica_desde_settings(settings: Mapping) -> bool:

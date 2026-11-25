@@ -134,15 +134,13 @@ def _relleno_calendario(conn, run_id, ag) -> int:
 
 
 def _siembra_c2a(conn) -> dict:
-    """Maestra del golden con el flag B.2a encendido + las dos hojas extra
-    (no-op y cooldown) en campanias propias. M.3: politica niveles_v3 +
-    relleno de calendario."""
+    """Maestra del golden + las dos hojas extra (no-op y cooldown) en
+    campanias propias. M.3: politica niveles_v3 + relleno de calendario."""
     run_id = _run(conn)
     config_id = _config_version(
         conn,
         {
             "ads_optimizer_mode": "shadow",
-            "ads_pause_sin_cooldown_bid": True,
             "ads_bid_politica_amazon_us": "niveles_v3",
         },
     )
@@ -248,7 +246,13 @@ def _siembra_sin_target(conn) -> dict:
     peldano que resuelva (T.1 retiro cache y default): la hoja y el grupo
     se saltan con sin_target."""
     run_id = _run(conn)
-    config_id = _config_version(conn, {"ads_optimizer_mode": "shadow"})
+    config_id = _config_version(
+        conn,
+        {
+            "ads_optimizer_mode": "shadow",
+            "ads_bid_politica_amazon_us": "niveles_v3",
+        },
+    )
     _goal_plataforma_sin_target(conn)
     camp = _entidad(conn, "amazon_us", "campaign", "9501")
     ag = _entidad(conn, "amazon_us", "ad_group", "9511", parent=camp)
@@ -551,6 +555,7 @@ def test_costos_faltantes_caen_a_plataforma_con_motivo():
             conn,
             {
                 "ads_optimizer_mode": "shadow",
+                "ads_bid_politica_amazon_us": "niveles_v3",
                 "ads_target_acos_pct_amazon_us": 30,
                 "ads_target_fraccion_margen_amazon_us": "0.5",
             },

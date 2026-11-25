@@ -64,7 +64,7 @@ def _reobserva_buena_yarda(conn, ag) -> None:
 
 
 def _mundo(conn, *, reobservado=False) -> dict:
-    ids = _siembra_maestra(conn)
+    ids = _siembra_maestra(conn, settings={"ads_bid_politica_amazon_us": "niveles_v3"})
     if reobservado:
         _reobserva_buena_yarda(conn, ids["ag"])
     return ids

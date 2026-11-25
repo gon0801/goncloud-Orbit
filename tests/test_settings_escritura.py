@@ -569,7 +569,7 @@ def _filas_config(conn) -> list:
 
 @_skip_db
 def test_cli_producto_modo_escribe_quita_y_no_repite(monkeypatch):
-    """--meta shadow escribe la clave, repetirlo sale 0 sin fila nueva,
+    """--meta live escribe la clave, repetirlo sale 0 sin fila nueva,
     off la quita y off otra vez tampoco escribe; lo demas viaja intacto."""
     with _db_con_rol_admin("orbit_prod_modo") as (conn, dsn_admin, _dsn_l):
         conn.execute(
@@ -578,17 +578,17 @@ def test_cli_producto_modo_escribe_quita_y_no_repite(monkeypatch):
         )
         monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn_admin)
 
-        assert _cli_productos("--meta", "shadow") == 0
+        assert _cli_productos("--meta", "live") == 0
         filas = _filas_config(conn)
         assert len(filas) == 2
         assert filas[-1][2] == {
             "ads_optimizer_mode": "live",
             CLAVE_TARGET: "20",
-            CLAVE_META_MX: "shadow",
+            CLAVE_META_MX: "live",
         }
         assert "productos-modo" in filas[-1][1]
 
-        assert _cli_productos("--meta", "shadow") == 0
+        assert _cli_productos("--meta", "live") == 0
         assert len(_filas_config(conn)) == 2
 
         assert _cli_productos("--meta", "off") == 0

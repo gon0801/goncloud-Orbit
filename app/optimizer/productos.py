@@ -49,8 +49,9 @@ entrada congelada que la evaluacion trae dentro.
 - Simulacion (H.8): simula_pausa corre la misma regla con otros limites sobre
   las entradas de hoy y, para el costo de equivocarse, sobre las de hace 30
   dias.
-- Interruptores: ads_producto_meta_<plat> y ads_producto_pausa_<plat>
-  (ausente = off; shadow | live). Limites de la pausa (S8):
+- Interruptores: ads_producto_meta_<plat> (ausente = off; solo live desde
+  ARREGLOS 05 J) y ads_producto_pausa_<plat> (ausente = off; shadow | live).
+  Limites de la pausa (S8):
   ads_producto_pausa_clics_<plat> y ads_producto_pausa_gasto_<plat>, con
   cortes.F_PAUSE y bid.PAUSE_COST_MIN por omision; los pisos se validan en la
   frontera (app/config_write.py), no aqui.
@@ -766,20 +767,32 @@ def clave_limite(tipo: Literal["clics", "gasto"], plataforma: str) -> str:
     return f"ads_producto_pausa_{tipo}_{plataforma}"
 
 
+# ARREGLOS 05 J: la meta por producto retiro su modo practica (shadow). La
+# pausa lo conserva porque su practica sigue vigente en produccion.
+MODOS_POR_TIPO: dict[str, tuple[str, ...]] = {
+    "meta": ("live",),
+    "pausa": ("shadow", "live"),
+}
+
+
 def modos_desde_settings(settings: Mapping, plataforma: str) -> ModosProducto:
-    """Interruptores de la plataforma: ausente (o JSON null) es off; otro valor
-    que shadow o live es config corrupta y lanza ValueError."""
+    """Interruptores de la plataforma: ausente (o JSON null) es off; un valor
+    fuera de los modos disponibles del tipo es config corrupta y lanza
+    ValueError."""
     _valida_plataforma(plataforma)
     modos = {}
     for tipo in ("meta", "pausa"):
         clave = clave_modo(tipo, plataforma)
         valor = settings.get(clave)
+        permitidos = MODOS_POR_TIPO[tipo]
         if valor is None:
             modos[tipo] = "off"
-        elif valor in ("shadow", "live"):
+        elif valor in permitidos:
             modos[tipo] = valor
         else:
-            raise ValueError(f"setting {clave}: debe ser shadow o live, llego {valor!r}")
+            raise ValueError(
+                f"setting {clave}: debe ser off o {' o '.join(permitidos)}, llego {valor!r}"
+            )
     return ModosProducto(**modos)
 
 

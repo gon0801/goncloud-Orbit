@@ -306,8 +306,8 @@ def decide_pause(
     proteccion: InsumosProteccion | None = None,
     exceso_minimo: Decimal | None = None,
 ) -> ResultadoBid:
-    """Decide SOLO la PAUSE con _decide_pause (BIDS 02 M.3): la usan el
-    ciclo con la politica apagada y la revalidacion de la cola. Si pausa,
+    """Decide SOLO la PAUSE con _decide_pause (BIDS 02 M.3): la usan la
+    revalidacion de la cola, la proteccion y la politica niveles_v3. Si pausa,
     devuelve el pause con la ventana de cortes; si no, no-op con la
     primera guarda que bloqueo en orden de evaluacion (pause antes que
     bids, como decide_bid; `bids` solo aporta el motivo de bloqueo, jamas

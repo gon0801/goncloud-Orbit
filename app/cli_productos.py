@@ -36,7 +36,7 @@ def registra(sub) -> None:
         ),
     )
     p.add_argument("--platform", required=True, choices=productos.PLATAFORMAS)
-    p.add_argument("--meta", choices=("off", "shadow", "live"), default=None)
+    p.add_argument("--meta", choices=("off", "live"), default=None)
     p.add_argument("--pausa", choices=("off", "shadow", "live"), default=None)
     p.add_argument("--clics", type=int, default=None, help="clics minimos de la pausa")
     p.add_argument(

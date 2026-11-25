@@ -40,9 +40,7 @@ from app.cycle_grupos import (
 )
 from app.cycle_serializacion import (
     _Pendiente,
-    _pendiente_pause_apagada,
     _proteccion_activa,
-    _registra_proteccion,
     pendiente_bid,
 )
 from app.cycle_sombra import (
@@ -50,7 +48,6 @@ from app.cycle_sombra import (
     _anota_sombra,
     _evalua_productos,
     _insumos_pausa,
-    _juicio_hoja,
     _meta_viva,
     _pendientes_pausa_producto,
     _ProductosCiclo,
@@ -70,7 +67,7 @@ from app.cycle_temporada import (
     _pausa_sombra,
 )
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
-from app.optimizer import bid, cortes, hygiene, productos, temporada, windows
+from app.optimizer import cortes, hygiene, productos, temporada, windows
 from app.optimizer import goals as g
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
@@ -241,6 +238,12 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         contadores.skips_entidad[MOTIVO_ENTIDAD_INERTE] += 1
         tick()
         return
+    # ARREGLOS 05 J: sin politica de bids no hay permiso de mutacion. La era
+    # bandas dejo de decidir pausas en vivo; su unico uso vivo era esta rama.
+    if politica is None:
+        contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
+        tick()
+        return
     if ad_group_id not in corte_pause_por_grupo:
         corte_pause_por_grupo[ad_group_id] = evidencia_ad_groups.get(ad_group_id)
     evidencia = corte_pause_por_grupo[ad_group_id]
@@ -281,41 +284,14 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         target_margen_producto=target_margen_producto,
     )
     if target is None:
-
-        def juicio_hipotetico(t: Decimal, equilibrio: Decimal | None):
-            with conn.transaction():
-                return _juicio_hoja(
-                    conn,
-                    t,
-                    platform=platform,
-                    goal=goal,
-                    entidad_id=entidad_id,
-                    ad_group_id=ad_group_id,
-                    current_bid=current_bid,
-                    bid_currency=bid_currency,
-                    decided_at=decided_at,
-                    corte_pause=corte_pause,
-                    pause_economica=pause_economica,
-                    politica=politica,
-                    lecturas=lecturas,
-                    proteccion_cache=proteccion_cache,
-                    equilibrio_acos_pct=equilibrio,
-                )
-
         _anota_sombra(
             productos_ciclo,
             entidad_id=entidad_id,
             ad_group_id=ad_group_id,
-            goal=goal,
-            setting_target=setting_target,
-            margen_plataforma=margen_plataforma,
-            target_margen_familia=target_margen_familia,
-            previo=previo,
             meta_viva=meta_viva,
             target=None,
             procedencia=None,
             actual=Mantener(MOTIVO_SIN_TARGET),
-            decide_con=juicio_hipotetico,
         )
         contadores.skips_entidad[MOTIVO_SIN_TARGET] += 1
         tick()
@@ -344,88 +320,6 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         mult_baja=mult_live,
         cerca=cerca_live,
     )
-    if politica is None:
-        resultado = bid.decide_pause(
-            platform=platform,
-            bids=None,
-            cortes=cortes_hoja,
-            target_acos_pct=target,
-            umbral_pause=corte_pause.umbral,
-            cost_min=costo_piso,
-            policy_version=pausa.politica_economica,
-            proteccion=pausa.proteccion,
-            exceso_minimo=pausa.exceso_minimo,
-        )
-        _anota_sombra(
-            productos_ciclo,
-            entidad_id=entidad_id,
-            ad_group_id=ad_group_id,
-            goal=goal,
-            setting_target=setting_target,
-            margen_plataforma=margen_plataforma,
-            target_margen_familia=target_margen_familia,
-            previo=previo,
-            meta_viva=meta_viva,
-            target=target,
-            procedencia=procedencia,
-            actual=resultado,
-            decide_con=lambda t, _eq: bid.decide_pause(
-                platform=platform,
-                bids=None,
-                cortes=cortes_hoja,
-                target_acos_pct=t,
-                umbral_pause=corte_pause.umbral,
-                cost_min=costo_piso,
-                policy_version=pausa.politica_economica,
-                proteccion=pausa.proteccion,
-                exceso_minimo=pausa.exceso_minimo,
-            ),
-        )
-        tick()
-        if resultado.kind != "pause":
-            if resultado.proteccion is not None and resultado.motivo in (
-                subproteccion.MOTIVO_PROTEGIDA,
-                subproteccion.MOTIVO_INDETERMINADA,
-            ):
-                _registra_proteccion(
-                    contadores,
-                    proteccion_cache,
-                    entidad_id,
-                    resultado.proteccion,
-                    decidido_el=decided_at,
-                )
-                contadores.skips_entidad[resultado.motivo] += 1
-                return
-            contadores.skips_entidad[MOTIVO_POLITICA_APAGADA] += 1
-            return
-        if bloqueada:
-            contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
-            return
-        if g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause"):
-            contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
-            return
-        pendiente = _pendiente_pause_apagada(
-            entidad_id,
-            resultado,
-            platform=platform,
-            modo=modo,
-            goal=goal,
-            cortes=cortes_hoja,
-            target=target,
-            procedencia=procedencia,
-            snapshot=snapshot,
-            bid_actual=current_bid,
-            bid_moneda=bid_currency,
-            decided_at=decided_at,
-            corte=corte_pause,
-            evidencia=evidencia,
-            cost_min=costo_piso,
-            policy_version=pausa.politica_economica,
-            proteccion=pausa.proteccion,
-        )
-        pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
-        contadores.decisiones["pause"] += 1
-        return
     assert lecturas is not None
     equilibrio_hoja = (
         meta_viva.equilibrio_pct
@@ -480,32 +374,10 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         productos_ciclo,
         entidad_id=entidad_id,
         ad_group_id=ad_group_id,
-        goal=goal,
-        setting_target=setting_target,
-        margen_plataforma=margen_plataforma,
-        target_margen_familia=target_margen_familia,
-        previo=previo,
         meta_viva=meta_viva,
         target=target,
         procedencia=procedencia,
         actual=veredicto,
-        decide_con=lambda t, equilibrio: decisor(
-            replace(
-                caso,
-                economia=replace(
-                    caso.economia,
-                    target_acos_pct=t,
-                    plataforma=replace(
-                        caso.economia.plataforma,
-                        equilibrio_acos_pct=(
-                            equilibrio
-                            if equilibrio is not None
-                            else caso.economia.plataforma.equilibrio_acos_pct
-                        ),
-                    ),
-                ),
-            )
-        ),
     )
     tick()
     protegida = _proteccion_activa(
