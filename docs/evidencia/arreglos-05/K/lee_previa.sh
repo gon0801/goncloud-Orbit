@@ -14,7 +14,7 @@ for nombre in cotizacion cargo escenario politica; do
   {
     echo "# K/$nombre.sql"
     echo "# generado: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "# base: $(git rev-parse HEAD)"
+    echo "# commit de la lectura: $(git rev-parse HEAD)"
   } > "$BASE/$nombre.txt"
   awk -v dir="$TMP" '
     /^-- == / { n += 1; archivo = dir "/" n ".sql"; etiqueta = substr($0, 7); print etiqueta > (archivo ".lbl"); next }

@@ -1,11 +1,16 @@
 # K/cargo.sql
-# generado: 2026-11-25T12:57:55Z
-# base: 1191125c65841e8ec8d77448f7bbdcfeed29be1a
+# generado: 2026-11-25T13:16:05Z
+# commit de la lectura: 6b567c295621ea4ab20462cb503b8bee4c6a031a
 
--- A. Filas estimadas frente a reales por plataforma [platform|filas|estimadas]
+-- A. Filas de cargo en el libro, estimadas frente a reales [platform|filas|estimadas]
 amazon_mx|4140|325
 amazon_us|2365|108
 meli|2576|0
+
+-- A2. Comisiones referral_fee en v_ledger_cargo: reales y estimadas [platform|filas|estimadas|reales]
+amazon_mx|1745|18|1727
+amazon_us|663|3|660
+meli|1147|0|1147
 
 -- B. Tipos de cargo, moneda, signo y ventana [platform|currency|kind|fee_type|n|desde|hasta|total]
 amazon_mx|MXN|sale|(null)|1563|2026-01-01|2026-11-25|1868737.87
@@ -33,7 +38,7 @@ meli|MXN|refund|refund|35|2026-01-10|2026-11-17|-40257.90
 meli|MXN|withholding|isr_withheld|635|2026-01-03|2026-11-25|-16873.54
 meli|MXN|withholding|tax_withheld|635|2026-01-03|2026-11-25|-53995.67
 
--- C. Razon cobrada de la comision variable por pedido, plataforma y mes [platform|currency|mes|pares|mediana|pmin|pmax]
+-- C. Razon cobrada de la comision variable por pedido, solo cargos efectivos, por plataforma y mes [platform|currency|mes|pares|mediana|pmin|pmax]
 amazon_mx|MXN|2025-11-01|3|0.030000|0.029990|0.030000
 amazon_mx|MXN|2025-12-01|142|0.150000|0.140594|0.180000
 amazon_mx|MXN|2026-01-01|136|0.150000|0.140594|0.180000
@@ -44,9 +49,9 @@ amazon_mx|MXN|2026-05-01|114|0.150000|0.139622|0.185996
 amazon_mx|MXN|2026-06-01|68|0.150000|0.139622|0.186814
 amazon_mx|MXN|2026-07-01|99|0.150000|0.139622|0.205416
 amazon_mx|MXN|2026-08-01|101|0.150000|0.139622|0.201452
-amazon_mx|MXN|2026-09-01|145|0.150000|0.111474|0.185996
+amazon_mx|MXN|2026-09-01|141|0.150000|0.138314|0.185996
 amazon_mx|MXN|2026-10-01|226|0.150000|0.139316|0.185999
-amazon_mx|MXN|2026-11-01|181|0.150000|0.102798|0.180010
+amazon_mx|MXN|2026-11-01|167|0.150000|0.138314|0.180010
 amazon_us|MXN|2025-11-01|2|0.027155|0.017985|0.036325
 amazon_us|MXN|2025-12-01|39|0.168364|0.154658|0.177301
 amazon_us|MXN|2026-01-01|52|0.171735|0.161066|0.194068
@@ -57,9 +62,9 @@ amazon_us|MXN|2026-05-01|51|0.129252|0.100465|0.161504
 amazon_us|MXN|2026-06-01|41|0.130756|0.098332|0.156672
 amazon_us|MXN|2026-07-01|57|0.130757|0.111546|0.159909
 amazon_us|MXN|2026-08-01|65|0.128106|0.103053|0.157797
-amazon_us|MXN|2026-09-01|61|0.129540|0.106459|0.161543
-amazon_us|MXN|2026-10-01|44|0.128117|0.095421|0.147199
-amazon_us|MXN|2026-11-01|36|0.128273|0.095118|0.142939
+amazon_us|MXN|2026-09-01|60|0.129887|0.106459|0.161543
+amazon_us|MXN|2026-10-01|43|0.128490|0.095421|0.147199
+amazon_us|MXN|2026-11-01|35|0.128276|0.095118|0.142939
 meli|MXN|2025-03-01|29|0.195000|0.194992|0.195007
 meli|MXN|2025-04-01|74|0.195000|0.194992|0.343614
 meli|MXN|2025-05-01|64|0.195000|0.194992|0.195007
@@ -82,17 +87,17 @@ meli|MXN|2026-09-01|50|0.195004|0.195000|0.195006
 meli|MXN|2026-10-01|81|0.195004|0.195000|0.195007
 meli|MXN|2026-11-01|76|0.195004|0.097502|0.195007
 
--- D. Distribucion de la razon por pedido en la ventana de cada plataforma [platform|pares|p10|p50|p90|exactos_0150|exactos_0195]
-amazon_mx|552|0.150000|0.150000|0.150005|510|0
-amazon_us|55|0.108622|0.128270|0.135325|0|0
-meli|207|0.195000|0.195004|0.195005|0|206
+-- D. Razon por pedido en la ventana, solo cargos efectivos; las estimadas se cuentan aparte [platform|pares_reales|p10|p50|p90|exactos_0150|exactos_0195|pedidos_solo_estimada]
+amazon_mx|534|0.150000|0.150000|0.150007|510|0|18
+amazon_us|53|0.111951|0.128276|0.135426|0|0|2
+meli|207|0.195000|0.195004|0.195005|0|206|0
 
--- E. Razon cobrado/cotizado por producto y plataforma en MXN [platform|productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
-amazon_mx|169|1527|0.150000|0.129311|1.160000|0.862061|1.276003|161|0
+-- E. Razon cobrado/cotizado por producto, solo cargos efectivos, en MXN [platform|productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
+amazon_mx|168|1509|0.150000|0.129311|1.160000|1.134861|1.276003|163|0
 meli|13|72|0.195004|0.195004|1.000000|0.999978|1.000000|0|13
 
--- F. Amazon US en su ventana: razon por producto, con la cotizacion en USD y el cargo en MXN [productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
-24|55|0.128797|0.150000|0.858649|0.634122|0.940567|0|0
+-- F. Amazon US en su ventana, solo cargos efectivos: razon por producto con la cotizacion en USD y el cargo en MXN [productos|pares|mediana_cobrada|mediana_cotizada|mediana_razon|pmin|pmax|en_banda_116|en_banda_100]
+24|53|0.128797|0.150000|0.858649|0.634122|0.940567|0|0
 
 -- G. Un pedido MX con la comision cobrada al 15% y su diferencia contra la tasa cotizada 12.931% [order_id|venta|comision|tasa|razon|diferencia]
 701-6167430-7852254|2689.0000|403.3600|0.150004|1.160032|55.6454

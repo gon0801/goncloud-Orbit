@@ -7,24 +7,27 @@
 - Aviso del bloque: la estimacion explica los componentes que pudo conciliar y
   conserva desconocido lo que la fuente no permite demostrar.
 - Evidencia: el commit que contiene este archivo.
-- Lectura de produccion: 2026-11-25T12:46-12:51Z, solo lectura, por
+- Lectura de produccion: 2026-11-25T13:11-13:16Z, solo lectura, por
   `docs/evidencia/arreglos-01/lee_prod.sh`.
 
 ## Decision K.2: el bloque cierra sin cambio de calculo
 
-La fuente externa adjudica la sospecha y descarta que falte un costo:
+La fuente externa adjudica la sospecha y descarta que falte un costo. Las tasas
+cobradas usan solo cargos efectivos: se excluye la comision estimada de los
+pedidos que aun no tienen liquidacion y se cuenta aparte (18 pedidos en Amazon
+MX, 2 en Amazon US y 0 en MeLi en la ventana).
 
 - **Amazon MX: impuesto separado, ya incorporado una sola vez.** La cotizacion
-  cobra `ReferralFee` al 12.931% y el cargo real al 15.000%: la razon por
-  producto es 1.160000 y 161 de 169 productos caen en 1.16. La cotizacion no
+  cobra `ReferralFee` al 12.931% y el cargo efectivo al 15.000%: la razon por
+  producto es 1.160000 y 163 de 168 productos caen en 1.16. La cotizacion no
   trae `tax_amount`. La politica `S4` vigente desde 2026-11-21
   (`amazon_mx_fba_s4_caja_real_2026_11` y `..._fbm_...`) suma
   `ReferralFee x 0.16` una sola vez en `fee_iva_referral` y `fee_total`
-  (2,828 de 2,828 escenarios). La comision estimada con S4 contra la cobrada da
-  razon mediana 1.000000 y 161 de 169 productos dentro del 0.1%.
+  (2,830 de 2,830 escenarios). La comision estimada con S4 contra el cargo
+  efectivo da razon mediana 1.000000 y 163 de 168 productos dentro del 0.1%.
 - **MeLi: impuesto incluido en la comision.** Cotizacion y cargo coinciden en
   19.500% (razon 1.000000, 13 de 13 productos dentro del 0.1%). El multiplicador
-  `1` de `meli_s4_caja_real_2026_11` es correcto y los 191 escenarios S4 no
+  `1` de `meli_s4_caja_real_2026_11` es correcto y los 262 escenarios S4 no
   tienen `fee_iva_referral`.
 - **Amazon US: sin impuesto sobre comisiones.** La cotizacion esta en USD y el
   cargo en MXN; ningun producto cae en 1.16 y el cargo queda por debajo de la
@@ -103,7 +106,7 @@ archivos de evidencia. La politica S4 y el multiplicador siguen como estaban.
   12.8797% en la ventana) queda anotada, no adjudicada. Podria venir de la
   categoria o de la base de conversion; no es un impuesto y no es un costo
   omitido. Su dueno es la estimacion y la ingesta, no K.
-- 8 de 169 productos de Amazon MX caen fuera del 0.1% de la razon 1.16
+- 5 de 168 productos de Amazon MX caen fuera del 0.1% de la razon 1.16
   (promociones, cambios de categoria o devoluciones). No cambian la mediana.
 - `test_r4_g8_barrido_float_entra_a_subpaquetes` falla solo en Windows por el
   separador de ruta. Mejora de prueba para su dueno.

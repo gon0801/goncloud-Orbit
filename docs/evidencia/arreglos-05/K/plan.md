@@ -39,7 +39,10 @@ Contrato vigente que se lee antes de proponer nada:
 - Cargo externo: los reportes de liquidacion de Amazon (SP-API Finances) y los
   cargos de MeLi ya ingestados en `ledger_event`; la vista `v_ledger_cargo`
   (migracion `0086`) quita la comision estimada cuando ya llego la real del
-  mismo pedido y es la fuente de cargos del margen.
+  mismo pedido y es la fuente de cargos del margen. Como la vista deja la
+  estimada cuando no hay real, la conciliacion exige ademas
+  `split_part(coalesce(source_event_id, ''), '|', 2) <> 'fee_estimate'` y cuenta
+  las estimadas aparte: una estimacion no es un cargo.
 - Cotizacion integra: `estimacion_fee_observation` con `estado = 'success'`
   (Product Fees para Amazon y `CotizadorMeli` para MeLi, ambos con
   `fee_details` completo, `quoted_price_amount`, moneda y `fees_estimated_at`).

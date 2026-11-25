@@ -65,6 +65,7 @@ WITH cob AS (
               FROM v_ledger_cargo
              WHERE kind = 'fee' AND fee_type = 'referral_fee' AND order_id IS NOT NULL
                AND platform = 'amazon_mx'
+               AND split_part(coalesce(source_event_id, ''), '|', 2) <> 'fee_estimate'
              GROUP BY 1, 2
            ) c ON c.platform = v.platform AND c.order_id = v.order_id
      WHERE v.sale > 0 AND c.fee > 0
@@ -107,6 +108,7 @@ WITH cob AS (
               FROM v_ledger_cargo
              WHERE kind = 'fee' AND fee_type = 'referral_fee' AND order_id IS NOT NULL
                AND platform = 'meli'
+               AND split_part(coalesce(source_event_id, ''), '|', 2) <> 'fee_estimate'
              GROUP BY 1, 2
            ) c ON c.platform = v.platform AND c.order_id = v.order_id
      WHERE v.sale > 0 AND c.fee > 0

@@ -1,6 +1,6 @@
 # K/escenario.sql
-# generado: 2026-11-25T12:58:18Z
-# base: 1191125c65841e8ec8d77448f7bbdcfeed29be1a
+# generado: 2026-11-25T13:16:31Z
+# commit de la lectura: 6b567c295621ea4ab20462cb503b8bee4c6a031a
 
 -- A. Escenarios por plataforma, formula y estado [platform|formula|estado|n|desde|hasta]
 amazon_mx|S3|disponible|42174|2026-09-08|2026-11-21
@@ -49,7 +49,7 @@ meli|S3|oferta_desactualizada|3341
 262|0
 
 -- E. La comision estimada con S4 contra la cobrada, por producto en Amazon MX [productos|pares|mediana_tasa_s4|mediana_razon|productos_a_1pct|productos_a_01pct]
-169|1527|0.150001|1.000000|161|161
+168|1509|0.150001|1.000000|163|163
 
 -- F. MeLi: la comision cotizada contra la cobrada, por producto [productos|mediana_razon|productos_a_01pct]
 13|1.000000|13

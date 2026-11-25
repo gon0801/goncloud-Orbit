@@ -1,6 +1,6 @@
 # K/cotizacion.sql
-# generado: 2026-11-25T12:57:38Z
-# base: 1191125c65841e8ec8d77448f7bbdcfeed29be1a
+# generado: 2026-11-25T13:15:48Z
+# commit de la lectura: 6b567c295621ea4ab20462cb503b8bee4c6a031a
 
 -- A. Volumen por plataforma, moneda y estado [platform|currency|estado|n|desde|hasta]
 amazon_mx|MXN|success|86130|2026-09-08|2026-11-25
