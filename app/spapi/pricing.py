@@ -48,6 +48,7 @@ from app.spapi._ingesta import (
     AvanceEntidad as _Avance,
 )
 from app.spapi._ingesta import (
+    FalloHttp,
     abrir_run_spapi,
     dia_utc,
     ejecutar_cli_spapi,
@@ -359,16 +360,43 @@ def _universo(conn: psycopg.Connection, platform: str) -> list[str]:
     return [r[0] for r in filas if isinstance(r[0], str) and r[0].strip()]
 
 
+def _es_asin_invalido_mp(exc: FalloHttp, asin: str) -> bool:
+    """True solo si SP-API devolvio 400 InvalidInput por ASIN invalido en el marketplace."""
+    if exc.status != 400 or not isinstance(exc.cuerpo, dict):
+        return False
+    errores = exc.cuerpo.get("errors")
+    if not isinstance(errores, list) or not errores:
+        return False
+    asin_low = asin.lower()
+    for err in errores:
+        if not isinstance(err, dict):
+            return False
+        if err.get("code") != "InvalidInput":
+            return False
+        msg = err.get("message")
+        if not isinstance(msg, str):
+            return False
+        msg_low = msg.lower()
+        if asin_low not in msg_low or "invalid asin" not in msg_low:
+            return False
+    return True
+
+
 def _llamar(client: SpapiClient, cubo: CuboTasa, *, path: str, params: dict, asin: str) -> Any:
-    return llamar_json_spapi(
-        client,
-        cubo,
-        path=path,
-        params=params,
-        fuente="pricing",
-        clave=asin,
-        error_cls=IngestaPricingError,
-    )
+    try:
+        return llamar_json_spapi(
+            client,
+            cubo,
+            path=path,
+            params=params,
+            fuente="pricing",
+            clave=asin,
+            error_cls=IngestaPricingError,
+        )
+    except FalloHttp as exc:
+        if _es_asin_invalido_mp(exc, asin):
+            raise PrecioOmitido("asin_invalido_mp") from exc
+        raise
 
 
 def _vigilar_umbral(

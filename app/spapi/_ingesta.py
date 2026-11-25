@@ -39,10 +39,11 @@ _MAX_DECIMALES = Decimal("0.0001")
 class FalloHttp(Exception):
     """Una llamada SP-API volvio status != 200; el pase decide por codigo (F2)."""
 
-    def __init__(self, fuente: str, clave: str, status: int) -> None:
+    def __init__(self, fuente: str, clave: str, status: int, *, cuerpo: Any = None) -> None:
         super().__init__(f"{fuente} {clave} status={status}")
         self.clave = clave
         self.status = status
+        self.cuerpo = cuerpo
 
 
 @dataclass
@@ -139,7 +140,11 @@ def llamar_json_spapi(
     """GET con limitador + verificacion de status 200 + saneamiento JSON."""
     resp = client.get(path, params=params, limitador=cubo)
     if resp.status_code != 200:
-        raise FalloHttp(fuente, clave, resp.status_code)
+        try:
+            cuerpo_err = resp.json()
+        except ValueError:
+            cuerpo_err = None
+        raise FalloHttp(fuente, clave, resp.status_code, cuerpo=cuerpo_err)
     try:
         return sanear(resp.json(), fuente)
     except ValueError:
