@@ -1,0 +1,29 @@
+# Lectura previa de produccion del bloque G (solo SELECT). SHA 2825fb036be82d118acfeb4e53e07e490cdd4557
+
+== momento
+2026-11-25 03:18:34.570048|160015
+
+== lotes_por_estado_modo
+live|done|179
+off|skipped|2
+shadow|done|30
+
+== lotes_mixtos
+21|23|141|143
+
+== decisiones_por_kind
+bid|2788
+pause|69
+negative|54
+harvest|16
+
+== reobservaciones_posteriores
+45244|70
+
+== decisiones_harvest_dato_mayor
+16|0|0
+
+== sello_violaciones_historicas
+0
+
+# bloques procesados: 7 de 7; con error: 0
