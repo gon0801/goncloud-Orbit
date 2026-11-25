@@ -291,6 +291,22 @@ el resto del archivo falla por la misma causa en esta PC y el selector
   maximo 45 por ciclo (p90 10) y ninguno sobre 150; 179 live+done, 30
   shadow+done y 2 off+skipped; `app_decide` puede INSERT el desenlace y
   `app_read` no, con SELECT.
+- **Recibo de esquema y huella (`esquema-ro.txt`).** Consulta propia con
+  `lee_prod.sh` (mas `lee_esquema_ro.sh` y `esquema-ro.sql`): la 0099 queda
+  como CHECK `decision_sin_aplicar_motivo_check` validado (`convalidated=True`)
+  con los 16 motivos y `tope_ciclo` al final; el conteo del esquema publico es
+  **98 tablas y 27 vistas** por `pg_class` (y 97 por `information_schema`
+  bajo `orbit_read`, que oculta la tabla privada de 0087); la historia no se
+  toco: 211 ciclos, **503** intentos bid normales, **11** reversas bid y **193**
+  desenlaces `sin_aplicar`, identicos a la foto previa (`previa.txt`), **cero**
+  filas nuevas en ciclos, decisiones, intentos, desenlaces y aplicaciones desde
+  el inicio del despliegue (06:08 UTC), maximos de id y de fecha anteriores a
+  ese momento, y `app_decide` sin DELETE/UPDATE sobre las tablas de historia.
+  La huella del codigo desplegado va en el mismo archivo: `despliegue/sha =
+  889fe5ca`, `/health` 200, md5 identico de `app/apply.py`,
+  `app/apply_cuota.py` y `app/apply_estados.py` entre servidor y arbol local, y
+  los simbolos de H dentro del contenedor (`tope=150`, `motivo=tope_ciclo`,
+  evento/estado `cupo_ciclo_agotado`, clasificador y helper de exencion).
 - **Conteo y privilegios.** `information_schema.tables` bajo `orbit_read`
   devuelve 97 porque la tabla privada de 0087
   (`arreglos03_devoluciones_meli_ids`) no tiene privilegios para ese rol;
@@ -313,5 +329,10 @@ el resto del archivo falla por la misma causa en esta PC y el selector
   `tope_ciclo` para no reescribir historia.
 - Recibo completo: `despliegue.txt`, `checklist.txt`, `prueba-real.txt`,
   `prueba-real-fase1.txt`, `previa-fase2.txt`, `previa-fase2.sql`,
-  `lee_previa_fase2.sh`, `tablas-produccion-vs-canonico.txt` y
+  `lee_previa_fase2.sh`, `esquema-ro.txt`, `esquema-ro.sql`,
+  `lee_esquema_ro.sh`, `tablas-produccion-vs-canonico.txt` y
   `huella-codigo.txt`.
+- Higiene de la evidencia: `sanea_evidencia.py` deja las rutas como
+  `<checkout>`/`<venv>`, el usuario como `<usuario>` y el host como `<host>`;
+  despues de pasar por el, en `H/` no queda ninguna ruta local ni nombre de
+  usuario (solo el propio script contiene los patrones que sustituye).

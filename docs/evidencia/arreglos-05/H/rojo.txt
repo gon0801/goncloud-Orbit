@@ -480,7 +480,7 @@ params = (1, 2), prepare = None, binary = False
 E           psycopg.errors.CheckViolation: new row for relation "decision_sin_aplicar" violates check constraint "decision_sin_aplicar_motivo_check"
 E           DETAIL:  Failing row contains (1, 2, tope_ciclo, null, 2026-11-25 05:14:33.691288+00).
 
-<checkout>goncloud-orbit-45\.venv\Lib\site-packages\psycopg\connection.py:300: CheckViolation
+<venv>\Lib\site-packages\psycopg\connection.py:300: CheckViolation
 ____ test_arreglos05_h_migracion_roles_reales_insertan_el_motivo_y_read_no ____
 
     @_skip_db
@@ -542,7 +542,7 @@ binary = False
 E           psycopg.errors.CheckViolation: new row for relation "decision_sin_aplicar" violates check constraint "decision_sin_aplicar_motivo_check"
 E           DETAIL:  Failing row contains (1, 2, tope_ciclo, {"tope": 150, "usados": 150}, 2026-11-25 05:14:33.902457+00).
 
-<checkout>goncloud-orbit-45\.venv\Lib\site-packages\psycopg\connection.py:300: CheckViolation
+<venv>\Lib\site-packages\psycopg\connection.py:300: CheckViolation
 =========================== short test summary info ===========================
 FAILED tests/test_arreglos05_h_tope_ciclo.py::test_arreglos05_h_151_ordinarias_intentan_150_y_la_151_lleva_el_motivo
 FAILED tests/test_arreglos05_h_tope_ciclo.py::test_arreglos05_h_149_confirmadas_mas_una_ambigua_agotan_el_cupo
