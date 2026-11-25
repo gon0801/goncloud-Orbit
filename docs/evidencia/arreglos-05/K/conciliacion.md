@@ -41,10 +41,11 @@ aprobada en ARREGLOS 02 D.
 | Amazon US | USD | ReferralFee | 16,300 | 0.150000 | 0.149944 | 0.150073 |
 | MeLi | MXN | SaleFee | 2,032 | 0.195003 | 0.195000 | 0.195007 |
 
-- La cotizacion de Amazon MX trae el arbol completo: `ReferralFee` mas
-  `FBAFees` con su hijo `FBAPickAndPack`, sin `tax_amount` en ningun nivel. La
-  de MeLi trae `SaleFee`, `SaleFeeFixed` y `ListingFee`. La de Amazon US trae
-  `ReferralFee`, `PerItemFee` y `VariableClosingFee` (`escenario.txt`, bloque G).
+- La cotizacion de un listing FBA de Amazon MX trae el arbol completo:
+  `ReferralFee` mas `FBAFees` con su hijo `FBAPickAndPack`, sin `tax_amount` en
+  ningun nivel; la de un listing FBM trae solo `ReferralFee`. La de MeLi trae
+  `SaleFee`, `SaleFeeFixed` y `ListingFee`. La de Amazon US trae `ReferralFee`,
+  `PerItemFee` y `VariableClosingFee` (`escenario.txt`, bloque G).
 
 ## Cargo externo
 

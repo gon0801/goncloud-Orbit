@@ -30,7 +30,7 @@ La fuente externa adjudica la sospecha y descarta que falte un costo:
   cargo en MXN; ningun producto cae en 1.16 y el cargo queda por debajo de la
   cotizacion. La politica `amazon_us/fbm` usa `iva_divisor = 1` y
   `precio_incluye_iva = false`.
-- **`impuesto_fee_pendiente` no se disparo nunca** (0 casos en 108 mil
+- **`impuesto_fee_pendiente` no se disparo nunca** (0 casos en mas de 112 mil
   escenarios), porque ninguna cotizacion ha traido impuesto explicito. Se
   conserva la abstencion tal como esta.
 
