@@ -248,7 +248,7 @@
     {
       "name": "arreglos-05",
       "path": "plans/arreglos-05.md",
-      "description": "ARREGLOS 05 — ACTIVO desde BASE, sobre master 33844bb3. BASE entregado (docs/evidencia/arreglos-05/BASE): 31 casos, 26 verdes y 5 rojos de producto (03, 10, 11, 12, 13). Sigue en serie A ciclo; B reversas 03/10; C reposicion 11; D frontera Ads; E shadow; F target 12; G sello 13; H tope 150; I settings; J modos; K fees; Z aceptacion global."
+      "description": "ARREGLOS 05 - BASE y A-K integrados y Z publicado sobre 7b06778d (docs/evidencia/arreglos-05/Z). Aceptacion integrada 31/31, regresiones N a-j verdes y mapa UI sin fallo de producto. Veredicto PARCIAL: K queda abierto para Amazon US porque la fuente no permite demostrar el impuesto sobre comisiones; MX y MeLi adjudicados con la politica S4. El plan no recibe pase global hasta adjudicar US."
     }
   ],
   "active": "arreglos-05"

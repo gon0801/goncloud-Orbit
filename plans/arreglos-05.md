@@ -1,7 +1,12 @@
 # ARREGLOS 05: ciclo, escrituras y cierre de la revisión completa
 
-Estado: **diseñado, por implementar**. Fecha: 15-nov-2026. Base del diagnóstico:
-`ff03ed61f7a847ab190b1695c2efe8d785baa364`. Este documento no acredita arreglos hechos.
+Estado: **implementado; Z publicado con veredicto PARCIAL**. Fecha: 15-nov-2026;
+cierre Z el 25-nov-2026 sobre `7b06778d`. Base del diagnóstico:
+`ff03ed61f7a847ab190b1695c2efe8d785baa364`. La evidencia de cada bloque vive en
+`docs/evidencia/arreglos-05/<BLOQUE>/` y el cierre en
+`docs/evidencia/arreglos-05/Z/`: aceptación integrada 31/31, regresiones N a-j y
+mapa UI. **K queda abierto para Amazon US** (la fuente no permite demostrar el
+impuesto sobre comisiones), así que el plan no recibe pase global.
 Orden de integración: [ORDEN-IMPLEMENTACION.md](ORDEN-IMPLEMENTACION.md).
 Dependencias externas: ARREGLOS 03/04 ampliados y TEMPORADA 01 terminados; 01/02 ya
 están integrados. Al cerrar H de TEMPORADA, abrir BASE desde el master integrado. En el PR de BASE, actualizar `plans/manifest.json` a `active: arreglos-05`.
