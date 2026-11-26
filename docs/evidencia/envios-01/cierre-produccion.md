@@ -2,7 +2,7 @@
 
 Recibo saneado de la Task 6 del [plan](../../superpowers/plans/2026-11-25-envios-01.md). Sonda previa: [sonda.md](sonda.md).
 
-Estado: integrado, desplegado y conciliado con lecturas. La primera corrida automática del cron no está verificada. Quedan pendientes al final.
+Estado: `#780` y `#782` integrados, desplegados (`0102`), conciliados y con primera corrida automática del cron verificada en verde (runs `1908`–`1910`). Seguimiento `#783` (`0103`) pendiente de despliegue. Quedan pendientes al final.
 
 ## Integración
 
@@ -50,23 +50,32 @@ Las cifras de pruebas, `ai-review`, las corridas bajo `flock`, las cifras "antes
 
 ## Hallazgo en producción
 
+Esta sección describe `52cb4b02` y ya no es la regla: ver [Cambio posterior: #782 y #783](#cambio-posterior-782-y-783). La regla vigente es `in_hub` e `in_packing_list` = En camino.
+
 - Mercado Libre reporta `ready_to_ship/in_packing_list` (4) y `ready_to_ship/in_hub` (1). La sonda no los vio.
-- Por spec se muestran como Por despachar.
+- En `52cb4b02`, por el spec de entonces, ambos se mostraban como Por despachar.
 - Su historia trae `date_handling` y `date_ready_to_ship`, sin `date_shipped` ni plazo de despacho.
 - El catálogo `/shipment_statuses` los nombra "In hub" e "In packing list".
-- Que ya salieron de manos del vendedor es una inferencia por confirmar.
-- La sonda vio 5 envíos `ready_to_ship/dropped_off`. Producción muestra 0 `dropped_off` y 5 entre `in_hub` e `in_packing_list`. Que sean etapas posteriores a la entrega en agencia es inferencia.
-- En esos dos subestados no se genera ninguna atención: no hay plazo de despacho y `entrega_vencida` exige en camino o en reparto. Un paquete atorado ahí no se resaltaría.
+- En la primera corrida automática (2026-11-26 06:40 UTC, run `1910`), `48622258880` pasó de `in_hub` a `in_packing_list` y tres envíos (`48621392332`, `48621988669`, `48624926311`) pasaron de `in_packing_list` a `shipped`, confirmando que `in_packing_list` ocurre después de `in_hub` dentro de la red de Mercado Libre.
+
+## Cambio posterior: #782 y #783
+
+Posterior a las lecturas de arriba, que describen `52cb4b02`.
+
+Comparación histórica previa a la decisión: [comparacion-782-783.md](comparacion-782-783.md).
+
+- **#782 (`3c5e53fb`)** desplegado el 2026-11-26 UTC: `in_hub` e `in_packing_list` en En camino, tolerancia a envíos antiguos sin leer (>30 días) sin bajar `ok`, y enlace a `/envios` en la barra móvil con contador.
+- **Primera corrida automática del cron (2026-11-26 06:25–06:40 UTC):** verificada en verde en las tres fuentes (`run 1908` `spapi_orders` MX `ok=true`, `run 1909` `spapi_orders` US `ok=true`, `run 1910` `envios_meli` `ok=true`).
+- **#783 (`feat/envios-01-vencimiento`):** conserva `in_hub` e `in_packing_list` en En camino, la barra móvil y la tolerancia >30 días (extendida a `envio_viejo_ilegible`), y agrega tabla única de estados, cierre por vencimiento configurable (`0103`, `envios_meli_dias_cierre = 90`, `envios-ventana`, `--releer`), y que respuestas ilegibles o sin estado en envíos recientes fallen la corrida sin pisar el estado previo.
 
 ## Pendientes
 
-1. **Decisión del dueño:** mostrar `in_hub` e `in_packing_list` como En camino o dejarlos Por despachar.
-2. **Decisión del dueño:** tope de relectura de envíos de Mercado Libre que nunca cierran. Propuesta: 90 días desde `pedido_creado_el`, y que el fallo de un envío con más de 30 días no baje `ok`.
-3. Verificar la primera corrida automática del cron (2026-11-26 06:25-06:40 UTC), en especial que el pase de Mercado Libre siga vigente. La revisa David o el coordinador: si falla el candado o la redirección del log, `cron-avisa` no se entera y la señal sería "Atrasada" en `/envios` tras 8 h.
+1. **Resuelto (#782 + #783):** `in_hub` e `in_packing_list` en En camino (comprobado por transición real `in_hub` → `in_packing_list` → `shipped`); substatus desconocidos pasan a Sin clasificar.
+2. **Resuelto (#783):** cierre por vencimiento configurable a 90 días (migración `0103`), `--releer` y respuestas ilegibles en envíos recientes marcan fallo sin bajar `ok` en envíos >30 días fuera de búsqueda.
+3. **Resuelto (2026-11-26 06:25–06:40 UTC):** primera corrida automática del cron verificada en verde (runs `1908`, `1909`, `1910`).
 4. La pantalla muestra 30 días: un problema sin resolver sale de la vista.
-5. En teléfono no hay enlace a `/envios`.
+5. **Resuelto (#782):** enlace a `/envios` con contador en barra móvil.
 6. Notas menores abiertas:
    - El vigilante de las 07:30 UTC puede tapar un fallo de pedidos de las 05:00.
-   - Un envío ilegible de Mercado Libre no marca la corrida como fallida.
    - `spapi_order_observation` crece más rápido por las 6 corridas diarias.
    - Los enviados sin confirmación de entrega nunca salen de En curso (por spec).

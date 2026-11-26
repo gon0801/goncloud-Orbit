@@ -1,4 +1,4 @@
-"""Lector unico de envios (ENVIOS 01 §4): pantalla, API y contador leen de aqui.
+"""Lector unico de envios (ENVIOS 01 §4): ingesta, pantalla, API y contador.
 
 Solo SELECT. Cada envio se clasifica al vuelo y se juzga al instante de la
 ultima lectura correcta de su plataforma: una lectura atrasada no inventa demoras.
@@ -13,13 +13,14 @@ from typing import Literal, get_args
 
 import psycopg
 
-from app.db import cursor_dict
+from app.db import cursor_dict, settings_vigentes
 from app.envios.estado import (
     ESTADOS_CERRADOS,
     Clasificacion,
     Estado,
     Tipo,
     clasificar,
+    dias_cierre_desde_settings,
     fecha_limite,
 )
 from app.envios.modelo import (
@@ -75,6 +76,8 @@ SELECT * FROM v_envio_actual
  ORDER BY pedido_creado_el DESC NULLS LAST, platform, envio_ref
 """
 
+_SQL_MELI = "SELECT * FROM v_envio_actual WHERE platform = 'meli'"
+
 _SQL_PAQUETES = "SELECT * FROM envio_paquete_observation WHERE envio_obs_id = ANY(%s) ORDER BY id"
 
 
@@ -93,6 +96,40 @@ def _armar(clase: type, fila: dict, **ya_armados: object):
     return clase(**{n: ya_armados[n] if n in ya_armados else fila[n] for n in nombres})
 
 
+def _observados(
+    conn: psycopg.Connection, consulta: str, parametros: tuple = ()
+) -> list[tuple[datetime, EnvioObservado]]:
+    """`(observed_at, envio con sus paquetes)` de cada fila de `v_envio_actual`."""
+    with cursor_dict(conn) as cur:
+        filas = cur.execute(consulta, parametros).fetchall()
+        paquetes: dict[int, list[PaqueteObservado]] = {}
+        for fila in cur.execute(_SQL_PAQUETES, ([f["id"] for f in filas],)).fetchall():
+            paquetes.setdefault(fila["envio_obs_id"], []).append(_armar(PaqueteObservado, fila))
+    return [
+        (
+            fila["observed_at"],
+            _armar(
+                EnvioObservado,
+                fila,
+                pedidos=tuple(fila["pedidos"]),
+                articulos=tuple(Articulo(**articulo) for articulo in fila["articulos"]),
+                paquetes=tuple(paquetes.get(fila["id"], ())),
+            ),
+        )
+        for fila in filas
+    ]
+
+
+def envios_meli(conn: psycopg.Connection) -> dict[str, EnvioObservado]:
+    """Ultima observacion de todos los envios de Mercado Libre, sin ventana."""
+    return {envio.envio_ref: envio for _, envio in _observados(conn, _SQL_MELI)}
+
+
+def dias_cierre(conn: psycopg.Connection) -> int:
+    """Dias para el cierre por vencimiento segun la config vigente."""
+    return dias_cierre_desde_settings(settings_vigentes(conn) or {})
+
+
 def _orden(vista: EnvioVista) -> tuple:
     """Atencion primero, luego el plazo mas proximo; sin plazo al final."""
     limite = fecha_limite(vista.envio, vista.clasificacion.estado)
@@ -102,26 +139,28 @@ def _orden(vista: EnvioVista) -> tuple:
 def envios_actuales(conn: psycopg.Connection, *, ahora: datetime) -> list[EnvioVista]:
     """Ultima observacion de cada envio de la ventana, clasificada y ordenada."""
     lecturas = ultimas_lecturas(conn)
-    with cursor_dict(conn) as cur:
-        desde = ahora - timedelta(days=DIAS_SEGUIMIENTO)
-        filas = cur.execute(_SQL_VENTANA, (desde,)).fetchall()
-        paquetes: dict[int, list[PaqueteObservado]] = {}
-        for fila in cur.execute(_SQL_PAQUETES, ([f["id"] for f in filas],)).fetchall():
-            paquetes.setdefault(fila["envio_obs_id"], []).append(_armar(PaqueteObservado, fila))
+    dias = dias_cierre(conn)
+    desde = ahora - timedelta(days=DIAS_SEGUIMIENTO)
 
     vistas: list[EnvioVista] = []
-    for fila in filas:
-        envio = _armar(
-            EnvioObservado,
-            fila,
-            pedidos=tuple(fila["pedidos"]),
-            articulos=tuple(Articulo(**articulo) for articulo in fila["articulos"]),
-            paquetes=tuple(paquetes.get(fila["id"], ())),
-        )
+    for observed_at, envio in _observados(conn, _SQL_VENTANA, (desde,)):
         ultima_ok = lecturas[envio.platform]
-        juzgado_al = fila["observed_at"] if ultima_ok is None else min(ahora, ultima_ok)
-        vistas.append(EnvioVista(envio, clasificar(envio, juzgado_al=juzgado_al), juzgado_al))
+        juzgado_al = observed_at if ultima_ok is None else min(ahora, ultima_ok)
+        clasificacion = clasificar(envio, juzgado_al=juzgado_al, ahora=ahora, dias_cierre=dias)
+        vistas.append(EnvioVista(envio, clasificacion, juzgado_al))
     return sorted(vistas, key=_orden)
+
+
+def cierre_por_vencimiento(conn: psycopg.Connection, *, ahora: datetime) -> dict[str, int]:
+    """Dias vigentes y envios cerrados por vencimiento en toda la historia, no
+    solo en la ventana de la pantalla. Solo Mercado Libre vence."""
+    dias = dias_cierre(conn)
+    estados = (
+        clasificar(envio, juzgado_al=ahora, ahora=ahora, dias_cierre=dias).estado
+        for envio in envios_meli(conn).values()
+    )
+    cerrados = sum(estado == "cerrado_sin_confirmar" for estado in estados)
+    return {"dias_cierre": dias, "cerrados": cerrados}
 
 
 def _buscables(envio: EnvioObservado) -> Iterator[str]:

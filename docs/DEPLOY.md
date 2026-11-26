@@ -1033,9 +1033,81 @@ docker exec orbit-app-1 python -m app.cli ingest envios_meli
 tail -n 20 /mnt/data/appdata/orbit/logs/envios.log   # corridas del cron
 ```
 
-Cada comando sale 0 si la lectura quedó completa y distinto de 0 si no. La
-pantalla `/envios` muestra la última lectura correcta por mercado y la marca
+Cada comando sale 0 si la lectura quedó completa y distinto de 0 si no. En
+Mercado Libre, un envío sin leer o con respuesta ilegible deja la corrida como
+fallida (los demás se guardan igual). La excepción es un envío abierto que ya
+no vino en la búsqueda y se compró antes de su ventana de 30 días: queda en
+`skip_reason` como `envio_viejo_no_leido` o `envio_viejo_ilegible`, pinta aviso
+en `/salud` y por sí solo no hace fallar la corrida. Un 401 la aborta siempre.
+La pantalla `/envios` muestra la última lectura correcta por mercado y la marca
 `Atrasada` cuando pasan más de 8 h.
+
+#### Cierre por vencimiento (Mercado Libre)
+
+Un envío sin estado final (entregado, devuelto o cancelado) con más de N días
+desde la compra se muestra como `Cerrado por vencimiento, sin confirmar
+entrega` y deja de releerse. No se borra nada. N vive en `config_version`
+(`envios_meli_dias_cierre`, de 30 a 365; sin la clave, 90). La migración
+`0103_envios01_ventana_cierre.sql` la siembra en 90 con una config nueva
+(reversa `0103_reversa_envios01_ventana_cierre.sql`); la aplica `desplegar.sh`
+en el paso (4). Un valor presente e inválido hace fallar `envios_meli` y deja
+`/envios` y `/api/envios` en 503 con el motivo.
+
+```bash
+# cambiar N (config_version nueva; si ya es el vigente no escribe nada)
+docker exec orbit-app-1 python -m app.cli envios-ventana --dias 90
+# releer envíos concretos aunque estén cerrados o vencidos (repetible);
+# REF es el id del envío (shipment.id), no el del pedido
+docker exec orbit-app-1 python -m app.cli ingest envios_meli --releer REF --releer OTRA_REF
+```
+
+`--releer` corre la ingesta normal y además lee esas referencias; si una de
+ellas falla o llega ilegible, la corrida sale 1 sea cual sea su edad. Si la
+fuente informa la entrega, queda una observación nueva y gana ese estado. Una
+referencia que no está en la base sale 2 sin consultar nada.
+
+Cuántos van cerrados por vencimiento, en toda la historia (solo lectura; el
+mismo número que `/envios` y `vencimiento.cerrados` en `GET /api/envios`):
+
+```sql
+WITH ventana AS (
+    SELECT COALESCE(
+        (SELECT settings ->> 'envios_meli_dias_cierre'
+           FROM config_version ORDER BY id DESC LIMIT 1), '90')::int AS dias
+)
+SELECT v.dias, count(e.envio_ref) AS cerrados_por_vencimiento
+  FROM ventana v
+  LEFT JOIN v_envio_actual e
+    ON e.platform = 'meli'
+   AND e.pedido_creado_el < now() - make_interval(hours => 24 * v.dias)
+   AND NOT COALESCE(
+           e.estado_fuente IN ('delivered', 'cancelled')
+           OR (e.estado_fuente = 'not_delivered' AND e.devuelto_el IS NOT NULL),
+           false)
+ GROUP BY v.dias;
+```
+
+Cuáles son esas referencias, para pasarlas a `--releer` (solo lectura; la misma
+regla que el conteo, de la compra más antigua a la más reciente; `envio_ref` es
+el REF):
+
+```sql
+WITH ventana AS (
+    SELECT COALESCE(
+        (SELECT settings ->> 'envios_meli_dias_cierre'
+           FROM config_version ORDER BY id DESC LIMIT 1), '90')::int AS dias
+)
+SELECT e.envio_ref, e.pedidos, e.estado_fuente, e.subestado_fuente, e.pedido_creado_el
+  FROM ventana v
+  JOIN v_envio_actual e
+    ON e.platform = 'meli'
+   AND e.pedido_creado_el < now() - make_interval(hours => 24 * v.dias)
+   AND NOT COALESCE(
+           e.estado_fuente IN ('delivered', 'cancelled')
+           OR (e.estado_fuente = 'not_delivered' AND e.devuelto_el IS NOT NULL),
+           false)
+ ORDER BY e.pedido_creado_el, e.envio_ref;
+```
 
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 

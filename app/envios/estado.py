@@ -1,19 +1,21 @@
 """Clasificador unico de envios (ENVIOS 01 §3, puro).
 
 Deriva estado unificado, tipo logistico y motivo de atencion de los hechos de
-la fuente; nada de esto se persiste. El reloj entra como `juzgado_al` para que
-una lectura atrasada no invente demoras. Un estado que no esta en las tablas es
-`sin_clasificar` y un tipo logistico desconocido es `None`; ninguno genera
-atencion.
+la fuente; nada de esto se persiste. El reloj entra como argumento: `juzgado_al`
+mide las demoras, para que una lectura atrasada no las invente, y `ahora` mide el
+cierre por vencimiento. Un estado que no esta en las tablas es `sin_clasificar`
+y un tipo logistico desconocido es `None`; ninguno genera atencion.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import Literal
 
-from app.envios.modelo import EnvioObservado, PaqueteObservado
+from app.envios.modelo import DIAS_SEGUIMIENTO, EnvioObservado, PaqueteObservado
 
 Estado = Literal[
     "pendiente",
@@ -27,6 +29,7 @@ Estado = Literal[
     "en_devolucion",
     "devuelto",
     "cancelado",
+    "cerrado_sin_confirmar",
     "sin_clasificar",
 ]
 Tipo = Literal["amazon_fba", "amazon_fbm", "meli_full", "meli_flex", "meli_envios"]
@@ -40,7 +43,40 @@ class Clasificacion:
     motivo: Motivo | None
 
 
-ESTADOS_CERRADOS: frozenset[Estado] = frozenset({"entregado", "devuelto", "cancelado"})
+_TERMINALES_DE_LA_FUENTE: frozenset[Estado] = frozenset({"entregado", "devuelto", "cancelado"})
+# Cerrado no se relee ni cuenta como en curso.
+ESTADOS_CERRADOS: frozenset[Estado] = _TERMINALES_DE_LA_FUENTE | {"cerrado_sin_confirmar"}
+
+# Cierre por vencimiento de Mercado Libre, en dias desde el pedido (config_version).
+CLAVE_DIAS_CIERRE = "envios_meli_dias_cierre"
+DIAS_CIERRE_POR_OMISION = 90
+DIAS_CIERRE_MAXIMO = 365
+
+
+class DiasCierreInvalidos(ValueError):
+    """La clave existe y no sirve. El mensaje es para el operador y no repite el
+    valor guardado: sale por la API y por stderr."""
+
+
+def dias_cierre_desde_settings(settings: Mapping) -> int:
+    """Sin la clave rige el valor por omision; presente, solo texto entero entre
+    la ventana de busqueda y el maximo."""
+    if CLAVE_DIAS_CIERRE not in settings:
+        return DIAS_CIERRE_POR_OMISION
+    crudo = settings[CLAVE_DIAS_CIERRE]
+    if (
+        isinstance(crudo, str)
+        and crudo.isascii()
+        and crudo.isdigit()
+        and DIAS_SEGUIMIENTO <= int(crudo) <= DIAS_CIERRE_MAXIMO
+    ):
+        return int(crudo)
+    raise DiasCierreInvalidos(
+        f"Configuración inválida: {CLAVE_DIAS_CIERRE} debe ser un número entero de"
+        f" {DIAS_SEGUIMIENTO} a {DIAS_CIERRE_MAXIMO}. Se ajusta con:"
+        " python -m app.cli envios-ventana --dias N"
+    )
+
 
 # Sonda 2026-11-25: solo estos pares reportan DELIVERED. Con el resto, SHIPPED
 # es lo ultimo que Amazon dice y esperar la entrega daria demoras falsas.
@@ -94,39 +130,47 @@ _SEVERIDAD_AMAZON: tuple[Estado, ...] = (
     "entregado",
 )
 
-# status -> (estado sin substatus conocido, estado por substatus)
-_MELI: dict[str, tuple[Estado, dict[str, Estado]]] = {
-    "pending": ("pendiente", {}),
-    "handling": ("por_despachar", {}),
-    "ready_to_ship": (
+
+class _Regla(Enum):
+    """Entradas de la tabla de Mercado Libre que no son un substatus literal."""
+
+    CON_DEVOLUCION = "la fuente trae devuelto_el"
+    CUALQUIERA = "cualquier substatus, tambien ninguno"
+
+
+# (status, substatus que lo producen, estado). `None` es "sin substatus". Un par
+# que no esta aqui es `sin_clasificar`.
+_MELI_TABLA: tuple[tuple[str, tuple[str | _Regla | None, ...], Estado], ...] = (
+    ("pending", (_Regla.CUALQUIERA,), "pendiente"),
+    ("handling", (None,), "por_despachar"),
+    (
+        "ready_to_ship",
+        (None, "ready_to_print", "printed", "delayed", "stale"),
         "por_despachar",
-        {
-            "dropped_off": "en_camino",
-            "picked_up": "en_camino",
-            "in_packing_list": "en_camino",
-            "in_hub": "en_camino",
-        },
     ),
-    "shipped": (
-        "en_camino",
-        {
-            "out_for_delivery": "en_reparto",
-            "soon_deliver": "en_reparto",
-            "at_the_door": "en_reparto",
-            "in_delivery_zone": "en_reparto",
-            "waiting_for_withdrawal": "esperando_recoleccion",
-            "bad_address": "problema",
-            "refused_delivery": "problema",
-            "not_localized": "problema",
-            "contact_with_carrier_required": "problema",
-        },
+    ("ready_to_ship", ("dropped_off", "picked_up", "in_hub", "in_packing_list"), "en_camino"),
+    ("shipped", (None, "delayed"), "en_camino"),
+    (
+        "shipped",
+        ("out_for_delivery", "soon_deliver", "at_the_door", "in_delivery_zone"),
+        "en_reparto",
     ),
-    "delivered": ("entregado", {}),
-    "not_delivered": (
+    ("shipped", ("waiting_for_withdrawal",), "esperando_recoleccion"),
+    (
+        "shipped",
+        ("bad_address", "refused_delivery", "not_localized", "contact_with_carrier_required"),
         "problema",
-        {"returning_to_sender": "en_devolucion", "returned_to_hub": "en_devolucion"},
     ),
-    "cancelled": ("cancelado", {}),
+    ("delivered", (_Regla.CUALQUIERA,), "entregado"),
+    ("not_delivered", (_Regla.CON_DEVOLUCION,), "devuelto"),
+    ("not_delivered", ("returning_to_sender", "returned_to_hub"), "en_devolucion"),
+    ("not_delivered", (_Regla.CUALQUIERA,), "problema"),
+    ("cancelled", (_Regla.CUALQUIERA,), "cancelado"),
+)
+_MELI: dict[tuple[str, str | _Regla | None], Estado] = {
+    (status, substatus): estado
+    for status, substatuses, estado in _MELI_TABLA
+    for substatus in substatuses
 }
 _MELI_DESPACHO_ATRASADO = frozenset({"delayed", "stale"})
 
@@ -153,10 +197,25 @@ def _estado_amazon(envio: EnvioObservado) -> Estado:
 
 
 def _estado_meli(envio: EnvioObservado) -> Estado:
-    if envio.estado_fuente == "not_delivered" and envio.devuelto_el is not None:
-        return "devuelto"
-    sin_subestado, por_subestado = _MELI.get(envio.estado_fuente, ("sin_clasificar", {}))
-    return por_subestado.get(envio.subestado_fuente, sin_subestado)
+    # De la entrada mas especifica a la mas general.
+    entradas = [envio.subestado_fuente, _Regla.CUALQUIERA]
+    if envio.devuelto_el is not None:
+        entradas.insert(0, _Regla.CON_DEVOLUCION)
+    claves = ((envio.estado_fuente, entrada) for entrada in entradas)
+    return next((_MELI[clave] for clave in claves if clave in _MELI), "sin_clasificar")
+
+
+def _vence_sin_confirmar(
+    envio: EnvioObservado, estado: Estado, *, ahora: datetime, dias_cierre: int
+) -> bool:
+    """Solo Mercado Libre: sin estado terminal y con mas de `dias_cierre` dias
+    desde el pedido. Sin fecha de pedido no vence."""
+    return (
+        envio.platform == "meli"
+        and estado not in _TERMINALES_DE_LA_FUENTE
+        and envio.pedido_creado_el is not None
+        and ahora - envio.pedido_creado_el > timedelta(days=dias_cierre)
+    )
 
 
 def fecha_limite(envio: EnvioObservado, estado: Estado) -> datetime | None:
@@ -194,7 +253,11 @@ def _motivo(
     return None
 
 
-def clasificar(envio: EnvioObservado, *, juzgado_al: datetime) -> Clasificacion:
+def clasificar(
+    envio: EnvioObservado, *, juzgado_al: datetime, ahora: datetime, dias_cierre: int
+) -> Clasificacion:
     estado = _estado_meli(envio) if envio.platform == "meli" else _estado_amazon(envio)
+    if _vence_sin_confirmar(envio, estado, ahora=ahora, dias_cierre=dias_cierre):
+        estado = "cerrado_sin_confirmar"
     tipo = _TIPO.get(envio.logistica_fuente)
     return Clasificacion(estado, tipo, _motivo(envio, estado, tipo, juzgado_al))

@@ -10,8 +10,12 @@ import pytest
 
 from app.envios.estado import (
     AMAZON_CONFIRMA_ENTREGA,
+    DIAS_CIERRE_POR_OMISION,
+    ESTADOS_CERRADOS,
     Clasificacion,
+    DiasCierreInvalidos,
     clasificar,
+    dias_cierre_desde_settings,
     fecha_limite,
 )
 from app.envios.modelo import (
@@ -65,8 +69,12 @@ def _paquete(estado=None, detalle=None, transportista="AMZMX", ref="PKG-1") -> P
     )
 
 
+def _clasifica(envio, juzgado_al=AHORA, *, dias_cierre=90) -> Clasificacion:
+    return clasificar(envio, juzgado_al=juzgado_al, ahora=AHORA, dias_cierre=dias_cierre)
+
+
 def _juzga(**cambios) -> Clasificacion:
-    return clasificar(envio_de_prueba(**cambios), juzgado_al=AHORA)
+    return _clasifica(envio_de_prueba(**cambios))
 
 
 def _meli(status, substatus=None, **cambios) -> Clasificacion:
@@ -81,6 +89,13 @@ def _meli(status, substatus=None, **cambios) -> Clasificacion:
 
 def test_constantes_del_spec():
     assert DIAS_SEGUIMIENTO == 30
+    assert DIAS_CIERRE_POR_OMISION == 90
+    assert sorted(ESTADOS_CERRADOS) == [
+        "cancelado",
+        "cerrado_sin_confirmar",
+        "devuelto",
+        "entregado",
+    ]
     assert sorted(AMAZON_CONFIRMA_ENTREGA) == [("amazon_mx", "AMZMX"), ("amazon_mx", "DHLC")]
 
 
@@ -357,14 +372,24 @@ def test_amazon_sin_paquetes(estado_fuente, estado):
     ("status", "substatus", "estado", "motivo"),
     [
         ("pending", "buffered", "pendiente", None),
+        ("pending", None, "pendiente", None),
+        ("pending", "algo_nuevo", "pendiente", None),
         ("handling", None, "por_despachar", None),
+        ("handling", "algo_nuevo", "sin_clasificar", None),
+        ("handling", "delayed", "sin_clasificar", None),
+        ("ready_to_ship", "in_packing_list", "en_camino", None),
+        ("ready_to_ship", "in_hub", "en_camino", None),
+        ("ready_to_ship", "algo_nuevo", "sin_clasificar", None),
+        ("shipped", "algo_nuevo", "sin_clasificar", None),
+        ("shipped", "stale", "sin_clasificar", None),
+        ("delivered", "algo_nuevo", "entregado", None),
+        ("cancelled", "algo_nuevo", "cancelado", None),
+        ("not_delivered", "algo_nuevo", "problema", "problema_entrega"),
         ("ready_to_ship", "ready_to_print", "por_despachar", None),
         ("ready_to_ship", "printed", "por_despachar", None),
         ("ready_to_ship", None, "por_despachar", None),
         ("ready_to_ship", "dropped_off", "en_camino", None),
         ("ready_to_ship", "picked_up", "en_camino", None),
-        ("ready_to_ship", "in_packing_list", "en_camino", None),
-        ("ready_to_ship", "in_hub", "en_camino", None),
         ("ready_to_ship", "delayed", "por_despachar", "despacho_vencido"),
         ("ready_to_ship", "stale", "por_despachar", "despacho_vencido"),
         ("shipped", None, "en_camino", None),
@@ -393,7 +418,7 @@ def test_meli_estados_y_excepciones(status, substatus, estado, motivo):
 
 
 def test_meli_entregado_a_agencia_ignora_plazo_de_despacho_vencido():
-    for subestado in ("dropped_off", "in_packing_list", "in_hub"):
+    for subestado in ("dropped_off", "in_hub", "in_packing_list"):
         assert _meli(
             "ready_to_ship", subestado, despachar_antes_de=VENCIDO, entrega_prometida_el=VIGENTE
         ) == Clasificacion("en_camino", "meli_envios", None)
@@ -491,6 +516,7 @@ def test_meli_full_nunca_pide_atencion(status, substatus):
         ("entregado", None),
         ("devuelto", None),
         ("cancelado", None),
+        ("cerrado_sin_confirmar", None),
     ],
 )
 def test_fecha_limite_solo_donde_corre_un_plazo(estado, limite):
@@ -519,6 +545,113 @@ def test_desconocido_fechas_none_y_reloj_congelado():
     )
     for envio, motivo in ((por_despachar, "despacho_vencido"), (en_camino, "entrega_vencida")):
         un_segundo = timedelta(seconds=1)
-        assert clasificar(envio, juzgado_al=AHORA - un_segundo).motivo is None
-        assert clasificar(envio, juzgado_al=AHORA).motivo is None
-        assert clasificar(envio, juzgado_al=AHORA + un_segundo).motivo == motivo
+        assert _clasifica(envio, AHORA - un_segundo).motivo is None
+        assert _clasifica(envio, AHORA).motivo is None
+        assert _clasifica(envio, AHORA + un_segundo).motivo == motivo
+
+
+# ---------------------------------------------------------------------------
+# Cierre por vencimiento sin confirmacion (Mercado Libre)
+# ---------------------------------------------------------------------------
+
+
+def _antiguo(dias: int, status="shipped", substatus=None, *, segundos=0, **cambios):
+    return _meli(
+        status,
+        substatus,
+        pedido_creado_el=AHORA - timedelta(days=dias, seconds=segundos),
+        despachar_antes_de=VENCIDO,
+        entrega_prometida_el=VENCIDO,
+        **cambios,
+    )
+
+
+def test_vence_solo_despues_de_los_n_dias_exactos():
+    abierto = Clasificacion("en_camino", "meli_envios", "entrega_vencida")
+    cerrado = Clasificacion("cerrado_sin_confirmar", "meli_envios", None)
+    assert _antiguo(89) == abierto
+    assert _antiguo(90) == abierto
+    assert _antiguo(90, segundos=1) == cerrado
+    assert _antiguo(91) == cerrado
+
+
+@pytest.mark.parametrize(
+    ("status", "substatus"),
+    [
+        ("pending", None),
+        ("handling", None),
+        ("ready_to_ship", "delayed"),
+        ("shipped", "waiting_for_withdrawal"),
+        ("shipped", "bad_address"),
+        ("not_delivered", None),
+        ("not_delivered", "returning_to_sender"),
+        ("estado_nuevo", None),
+        (None, None),
+    ],
+)
+def test_todo_estado_no_terminal_vence_sin_atencion(status, substatus):
+    assert _antiguo(91, status, substatus) == Clasificacion(
+        "cerrado_sin_confirmar", "meli_envios", None
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "devuelto_el", "estado"),
+    [
+        ("delivered", None, "entregado"),
+        ("cancelled", None, "cancelado"),
+        ("not_delivered", VENCIDO, "devuelto"),
+    ],
+)
+def test_un_estado_terminal_de_la_fuente_no_vence(status, devuelto_el, estado):
+    assert _antiguo(200, status, devuelto_el=devuelto_el).estado == estado
+
+
+def test_sin_fecha_de_pedido_o_en_amazon_no_vence():
+    sin_fecha = _meli("shipped", pedido_creado_el=None, fuente_actualizado_el=VENCIDO)
+    assert sin_fecha.estado == "en_camino"
+    for platform in ("amazon_mx", "amazon_us"):
+        viejo = _juzga(
+            platform=platform,
+            estado_fuente="UNSHIPPED",
+            pedido_creado_el=AHORA - timedelta(days=400),
+        )
+        assert viejo.estado == "por_despachar"
+
+
+def test_el_plazo_de_cierre_es_el_que_se_le_pasa():
+    envio = envio_de_prueba(
+        platform="meli", estado_fuente="shipped", pedido_creado_el=AHORA - timedelta(days=31)
+    )
+    assert _clasifica(envio, dias_cierre=30).estado == "cerrado_sin_confirmar"
+    assert _clasifica(envio, dias_cierre=31).estado == "en_camino"
+
+
+def test_el_vencimiento_usa_ahora_y_no_el_instante_de_la_lectura():
+    envio = envio_de_prueba(
+        platform="meli", estado_fuente="shipped", pedido_creado_el=AHORA - timedelta(days=91)
+    )
+    lectura_vieja = AHORA - timedelta(days=60)
+    assert _clasifica(envio, lectura_vieja).estado == "cerrado_sin_confirmar"
+
+
+@pytest.mark.parametrize(
+    ("settings", "dias"),
+    [
+        ({}, 90),
+        ({"envios_meli_dias_cierre": "30"}, 30),
+        ({"envios_meli_dias_cierre": "120"}, 120),
+        ({"envios_meli_dias_cierre": "365"}, 365),
+    ],
+)
+def test_dias_de_cierre_desde_settings(settings, dias):
+    assert dias_cierre_desde_settings(settings) == dias
+
+
+@pytest.mark.parametrize(
+    "crudo",
+    ["29", "366", "0", "-45", "45.0", " 45", "abc", "", "\N{SUPERSCRIPT TWO}", None, 45, True],
+)
+def test_dias_de_cierre_invalidos_no_se_ignoran(crudo):
+    with pytest.raises(DiasCierreInvalidos, match="envios_meli_dias_cierre"):
+        dias_cierre_desde_settings({"envios_meli_dias_cierre": crudo})

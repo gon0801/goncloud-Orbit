@@ -38,6 +38,7 @@ from decimal import Decimal
 
 from app import (
     cli_bids,
+    cli_envios,
     cli_productos,
     cobertura,
     costs,
@@ -645,6 +646,7 @@ def _construye_parser() -> argparse.ArgumentParser:
     cli_precio.registra(sub)
     cli_bids.registra(sub)
     cli_productos.registra(sub)
+    cli_envios.registra(sub)
 
     return parser
 
@@ -696,13 +698,18 @@ def main(argv: list[str] | None = None) -> int:
         from app import bloqueo_dueno_efecto
 
         return bloqueo_dueno_efecto.main(rest)
-    if args.comando in ("precio", "productos-modo"):
+    escritores = {
+        "precio": _precio,
+        "productos-modo": cli_productos.corre,
+        "envios-ventana": cli_envios.corre,
+    }
+    if args.comando in escritores:
         # Escriben decisiones, cambios o config: tokens extra SIEMPRE error
         # del operador (patron cycle).
         if rest:
             print(f"argumentos desconocidos para '{args.comando}': {rest}", file=sys.stderr)
             return 2
-        return _precio(args) if args.comando == "precio" else cli_productos.corre(args)
+        return escritores[args.comando](args)
     if args.comando in cli_bids.COMANDOS:
         return cli_bids.despacha(args.comando, rest)
     return _ingest(args, rest)

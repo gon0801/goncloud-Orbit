@@ -6,6 +6,7 @@
   - **1B:** Sin alertas por Telegram en v1 (solo consulta, filtros, contador y resaltado en `/envios`). No se construye tabla ni sender de alertas de envíos en v1 (Regla 1).
   - **2B:** Actualización automática cada **4 horas** para Amazon MX, Amazon US y Mercado Libre.
   - Solo lectura contra APIs externas. Cero PII almacenada o registrada en logs.
+  - **2026-11-26 UTC (confirmado con producción):** `ready_to_ship/in_hub` y `ready_to_ship/in_packing_list` clasifican como `en_camino` (transición real observada en `envio_observation`: `in_hub` → `in_packing_list` → `shipped`).
 
 ## 1. Arquitectura elegida (Forma B: modelo unificado + clasificador puro)
 
@@ -13,7 +14,8 @@ Dos tablas append-only (`envio_observation` y `envio_paquete_observation`) guard
 
 ### Límites de responsabilidad
 - **Amazon SP-API:** entra por la misma llamada `GET /orders/2026-01-01/orders` en `app/spapi/orders.py` ampliando `includedData` a `FULFILLMENT,PROCEEDS,PACKAGES` y la ventana a `min(ultimo_observado - 1d, ahora - 30d)`. `spapi_order_observation` recibe exactamente el mismo conjunto de resúmenes que hoy (`corte_resumen`); `envio_observation` se alimenta en la misma transacción vía `app/envios/amazon.py` + `app/envios/store.py`. Ningún consumidor de `spapi_order_observation` (Repricing, ledger, salud, vigilante) cambia.
-- **Mercado Libre:** ingesta dedicada `app/envios/meli_ingesta.py` (CLI `python -m app.cli ingest envios_meli`, `ingest_run.source = 'envios_meli'`, `platform = 'meli'`) con `ClienteMeli` solo GET. Descubre órdenes de los últimos 30 días por `/orders/search`, agrupa packs por `shipping.id`, y relee `/shipments/{id}` para envíos nuevos o abiertos (`status` distinto de `delivered`/`cancelled`). Si un envío abierto ya salió de la ventana de 30 días de `/orders/search`, conserva `pedidos`, `pack_ref`, `articulos` y `pedido_creado_el` de su última fila en `v_envio_actual` para no violar `cardinality(pedidos) >= 1` ni perder sus artículos.
+- **Mercado Libre:** ingesta dedicada `app/envios/meli_ingesta.py` (CLI `python -m app.cli ingest envios_meli`, `ingest_run.source = 'envios_meli'`, `platform = 'meli'`) con `ClienteMeli` solo GET. Descubre órdenes de los últimos 30 días por `/orders/search`, agrupa packs por `shipping.id`, y relee `/shipments/{id}` para envíos nuevos o abiertos (su última observación no clasifica como cerrada, ver §3; un cerrado no se relee aunque siga en la búsqueda). Si un envío abierto ya salió de la ventana de 30 días de `/orders/search`, conserva `pedidos`, `pack_ref`, `articulos` y `pedido_creado_el` de su última fila en `v_envio_actual` para no violar `cardinality(pedidos) >= 1` ni perder sus artículos. `--releer REF` (repetible) suma envíos conocidos aunque estén cerrados; una referencia ausente de la base sale 2 sin consultar nada. Un envío sin leer (`envio_no_leido`) o ilegible (`envio_ilegible`: sin `id`, con otro `id` o sin `status` de texto; no se escribe y la observación previa queda) sella la corrida como fallida y los válidos se escriben igual; `orden_ilegible` y `orden_sin_envio` no la bajan. **Excepción (envío antiguo):** si el envío abierto ya no vino en la búsqueda y su `pedido_creado_el` es anterior a la ventana de 30 días, que es lo que la pantalla ya no muestra, el fallo queda en `skip_reason` como `envio_viejo_no_leido` o `envio_viejo_ilegible` (aviso en `/salud`) sin bajar `ok`. Una compra de hace 30 días exactos o sin `pedido_creado_el` cuenta como reciente. Un fallo sobre una referencia pedida con `--releer` baja `ok` siempre, y un 401 aborta la corrida.
+- **Amazon no tiene ventana de cierre:** no hay relectura por envío, así que nada puede quedar releyéndose para siempre. Un pedido deja de venir en la búsqueda cuando lleva 30 días sin actualizarse en Amazon (`lastUpdatedAfter`) y sale de la pantalla a los 30 días de su compra. Una plataforma futura que relea envío por envío y pueda no llegar nunca a un estado final debe adoptar el mismo cierre por vencimiento (§3), con su propia ventana configurable. Subir N vuelve a poner en relectura los envíos que quedan dentro de la ventana nueva.
 - **Cero PII (dos capas):**
   1. `app/spapi/client.py`: agregar `"shipfromaddress"` a `_PII_GLOBAL` para que `sanear()` descarte el objeto completo (incluyendo `name`).
   2. Lista cerrada de lectura en `app/envios/amazon.py` y `app/envios/meli.py`: nunca leen `shipFromAddress`, `buyer`, `recipient`, `receiver_address`, `sender_address`, `receiver_id`, `sender_id`, `destination`, `origin`, `comments` ni montos.
@@ -70,7 +72,7 @@ Compatible con `tools/despliegue/comun.sh`: sin `BEGIN/COMMIT`, cabecera `-- son
 ## 3. Reglas de clasificación (`app/envios/estado.py`, puro)
 
 Vocabularios cerrados:
-- `Estado`: `"pendiente"`, `"por_despachar"`, `"en_camino"`, `"en_reparto"`, `"esperando_recoleccion"`, `"entregado"`, `"enviado_sin_confirmacion"`, `"problema"`, `"en_devolucion"`, `"devuelto"`, `"cancelado"`, `"sin_clasificar"`.
+- `Estado`: `"pendiente"`, `"por_despachar"`, `"en_camino"`, `"en_reparto"`, `"esperando_recoleccion"`, `"entregado"`, `"enviado_sin_confirmacion"`, `"problema"`, `"en_devolucion"`, `"devuelto"`, `"cancelado"`, `"cerrado_sin_confirmar"`, `"sin_clasificar"`.
 - `Tipo`: `"amazon_fba"`, `"amazon_fbm"`, `"meli_full"`, `"meli_flex"`, `"meli_envios"`.
 - `Motivo`: `"problema_entrega"`, `"despacho_vencido"`, `"entrega_vencida"`.
 - `AMAZON_CONFIRMA_ENTREGA = frozenset({("amazon_mx", "AMZMX"), ("amazon_mx", "DHLC")})`.
@@ -100,21 +102,31 @@ Vocabularios cerrados:
   - otro → `sin_clasificar`
 
 ### Estado Mercado Libre (`status`, `substatus`, `devuelto_el`)
-- `pending` → `pendiente`
-- `handling` → `por_despachar`
-- `ready_to_ship`: `dropped_off`, `picked_up` → `en_camino`; resto (`ready_to_print`, `printed`, `delayed`, `stale`, `None`, etc.) → `por_despachar`
-- `shipped`:
-  - `out_for_delivery`, `soon_deliver`, `at_the_door`, `in_delivery_zone` → `en_reparto`
-  - `waiting_for_withdrawal` → `esperando_recoleccion`
-  - `bad_address`, `refused_delivery`, `not_localized`, `contact_with_carrier_required` → `problema`
-  - resto (`None`, `delayed`, etc.) → `en_camino`
-- `delivered` → `entregado`
-- `not_delivered`:
-  - si `devuelto_el is not None` → `devuelto`
-  - `returning_to_sender`, `returned_to_hub` → `en_devolucion`
-  - resto → `problema`
-- `cancelled` → `cancelado`
-- otro → `sin_clasificar`
+Una sola tabla en `app/envios/estado.py`. "Cualquiera" es una entrada explícita de la tabla; "ninguno" es `substatus` ausente.
+
+| `status` | `substatus` | Estado |
+|---|---|---|
+| `pending` | cualquiera | `pendiente` |
+| `handling` | ninguno | `por_despachar` |
+| `ready_to_ship` | ninguno, `ready_to_print`, `printed`, `delayed`, `stale` | `por_despachar` |
+| `ready_to_ship` | `dropped_off`, `picked_up`, `in_hub`, `in_packing_list` | `en_camino` |
+| `shipped` | ninguno, `delayed` | `en_camino` |
+| `shipped` | `out_for_delivery`, `soon_deliver`, `at_the_door`, `in_delivery_zone` | `en_reparto` |
+| `shipped` | `waiting_for_withdrawal` | `esperando_recoleccion` |
+| `shipped` | `bad_address`, `refused_delivery`, `not_localized`, `contact_with_carrier_required` | `problema` |
+| `delivered` | cualquiera | `entregado` |
+| `not_delivered` | con `devuelto_el` | `devuelto` |
+| `not_delivered` | `returning_to_sender`, `returned_to_hub` | `en_devolucion` |
+| `not_delivered` | cualquier otro | `problema` |
+| `cancelled` | cualquiera | `cancelado` |
+
+Un par que no está en la tabla es `sin_clasificar` (visible), nunca `por_despachar` por omisión. Una fecha que la fuente no manda se ve como `—`; no se estima ni se rellena con la del pedido.
+
+### Cierre por vencimiento sin confirmación (solo Mercado Libre)
+- `cerrado_sin_confirmar` (`Cerrado por vencimiento, sin confirmar entrega`) cuando el estado de la tabla no es `entregado`, `devuelto` ni `cancelado`, hay `pedido_creado_el` y `ahora - pedido_creado_el > N días`. A los N días exactos sigue abierto; sin `pedido_creado_el` no vence. `ahora` entra como argumento (no es `juzgado_al`).
+- Cuenta como cerrado (`ESTADOS_CERRADOS`), no genera atención y nunca se presenta como entregado ni cancelado.
+- N es `config_version.settings.envios_meli_dias_cierre`: texto entero de 30 (la ventana de búsqueda) a 365; sin la clave, 90. Un valor presente e inválido es error visible (`envios_meli` sale 1; API y pantalla, 503). La migración `0103` siembra `"90"`; se ajusta con `python -m app.cli envios-ventana --dias N` (por `config_write.guarda_config`).
+- Nada se borra ni se reescribe. El vencido solo deja de ser elegible para relectura, salvo `--releer`; si entonces la fuente informa un estado terminal, gana la fuente con una observación nueva.
 
 ### Motivo de atención (`vendedor` = `tipo in {"amazon_fbm", "meli_flex", "meli_envios"}`)
 Se devuelve el primero que aplique (o `None`):
@@ -127,7 +139,8 @@ Con esto: **FBA, Full, US-DHL, MX-DHL y `esperando_recoleccion` jamás producen 
 ## 4. API, pantalla `/envios` y cron
 
 - **Ventana única:** `DIAS_SEGUIMIENTO = 30`. `HORAS_LECTURA_ATRASADA = 8` (2 ciclos de 4 h).
-- **Vistas de `/api/envios` y `/envios`:** `atencion`, `en_curso` (defecto; incluye `pendiente`, `por_despachar`, `en_camino`, `en_reparto`, `esperando_recoleccion`, `enviado_sin_confirmacion`, `problema`, `en_devolucion`, `sin_clasificar`), `cerrados` (`entregado`, `devuelto`, `cancelado`), `todos`.
-- **Rutas:** `GET /api/envios` (filtros `vista`, `plataforma`, `tipo`, `estado`, `q`, `page`, 50/pág, 422 ante vocabulario inválido), `GET /api/envios/contador` (`{"atencion": N}`), `GET /envios` (SSR sin JS propio + contador en `shell.js` / `base.html`).
+- **Vistas de `/api/envios` y `/envios`:** `atencion`, `en_curso` (defecto; incluye `pendiente`, `por_despachar`, `en_camino`, `en_reparto`, `esperando_recoleccion`, `enviado_sin_confirmacion`, `problema`, `en_devolucion`, `sin_clasificar`), `cerrados` (`entregado`, `devuelto`, `cancelado`, `cerrado_sin_confirmar`), `todos`.
+- **Contador de vencidos:** `vencimiento = {"dias_cierre": N, "cerrados": M}` en `GET /api/envios` y en `/envios` (`#envios-vencimiento`). M cuenta los `cerrado_sin_confirmar` sobre toda la última observación de Mercado Libre, sin la ventana de 30 días. Como N es al menos 30, un vencido ya está fuera de la ventana y no aparece en la lista: el contador es donde se ve. La consulta SQL equivalente está en `docs/DEPLOY.md`.
+- **Rutas:** `GET /api/envios` (filtros `vista`, `plataforma`, `tipo`, `estado`, `q`, `page`, 50/pág, 422 ante vocabulario inválido), `GET /api/envios/contador` (`{"atencion": N}`), `GET /envios` (SSR sin JS propio + contador en `shell.js` / `base.html`: en el sidebar y en el destino `Envíos` de la barra móvil).
 - **Etiquetas:** en `app/etiquetas.py` (`estado_envio`, `tipo_envio`, `motivo_envio`, `FUENTE_INGESTA["envios_meli"]`), subiendo `ALLOWLIST_TAMANO_TECHO["app/etiquetas.py"]` en `tests/test_architecture.py` con razón explícita.
 - **Cron cada 4 h** en `tools/despliegue/crontab-orbit.txt` (02:25/06:25/10:25/14:25/18:25/22:25 UTC escalonados para `amazon_mx`, `amazon_us`, `envios_meli`, con `cron-avisa --cada 4` y `flock -n -E 75`).

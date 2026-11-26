@@ -4,7 +4,8 @@ Lista cerrada: de la orden se leen `id`, `pack_id`, `date_created`, `shipping.id
 y producto y cantidad de `order_items`; del envio, `id`, tipo logistico, estados,
 guia, `last_updated`, `status_history` y los plazos de `shipping_option`.
 Comprador, direcciones, emisor, receptor, comentarios y montos no se leen aunque
-vengan. Un dato ausente o ilegible es `None`; sin identidad no hay envio.
+vengan. Un dato ausente o ilegible es `None`; sin identidad o sin estado no hay
+envio.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ _texto = texto_de_fuente
 
 
 class EnvioIlegible(ValueError):
-    """Sin id de envio o sin ningun pedido con id. El mensaje no lleva datos."""
+    """Sin id de envio, sin estado o sin ningun pedido con id. El mensaje no lleva datos."""
 
 
 def _objeto(valor: object) -> dict:
@@ -82,13 +83,17 @@ def _hechos_del_envio(envio: dict) -> dict:
     ref = _id(envio.get("id"))
     if ref is None:
         raise EnvioIlegible("envio sin id")
+    estado = _texto(envio.get("status"))
+    if estado is None:
+        # Guardarlo reemplazaria el ultimo estado confirmado por uno vacio.
+        raise EnvioIlegible("envio sin estado")
     historia = _objeto(envio.get("status_history"))
     opcion = _objeto(envio.get("shipping_option"))
     entrega = _objeto(opcion.get("estimated_delivery_time"))
     return {
         "envio_ref": ref,
         "logistica_fuente": _texto(envio.get("logistic_type")),
-        "estado_fuente": _texto(envio.get("status")),
+        "estado_fuente": estado,
         "subestado_fuente": _texto(envio.get("substatus")),
         "fuente_actualizado_el": _fecha(envio.get("last_updated")),
         "despachar_antes_de": _fecha(_objeto(opcion.get("estimated_handling_limit")).get("date")),
