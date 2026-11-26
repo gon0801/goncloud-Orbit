@@ -2,8 +2,10 @@
 
 Descubre las ordenes de los ultimos 30 dias, agrupa por `shipping.id` y lee
 `/shipments/{id}` de los envios nuevos y de los abiertos, aunque estos ya hayan
-salido de la busqueda. Escribe por `app.envios.store` y sella su ingest_run en
-la misma transaccion. Runbook: `python -m app.cli ingest envios_meli`.
+salido de la busqueda. Un envio cerrado (estado terminal o vencido sin
+confirmacion, `app.envios.estado`) no se relee salvo que se pida con `--releer`.
+Escribe por `app.envios.store` y sella su ingest_run en la misma transaccion.
+Runbook: `python -m app.cli ingest envios_meli`.
 """
 
 from __future__ import annotations
@@ -14,14 +16,16 @@ import logging
 import os
 import sys
 from collections import Counter
-from collections.abc import Callable
-from dataclasses import dataclass, fields
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 import httpx
 import psycopg
 
-from app.db import connect, cursor_dict
+from app.db import connect
+from app.envios import lectura
 from app.envios import store as envios_store
+from app.envios.estado import ESTADOS_CERRADOS, DiasCierreInvalidos, clasificar
 from app.envios.meli import (
     EnvioIlegible,
     creada_el,
@@ -30,7 +34,7 @@ from app.envios.meli import (
     envio_ref_de_orden,
     pedido_ref_de_orden,
 )
-from app.envios.modelo import DIAS_SEGUIMIENTO, Articulo, EnvioObservado, PaqueteObservado
+from app.envios.modelo import DIAS_SEGUIMIENTO, EnvioObservado
 from app.ingest_run import (
     SALTO_ENVIO_SIN_CAMBIO,
     abrir_run,
@@ -49,22 +53,6 @@ PLATAFORMA = "meli"
 LIMITE_PAGINA = 50
 MAX_PAGINAS_DEFAULT = 100
 
-# Regla unica de envio terminal (no se relee). Un `not_delivered` sin
-# devolucion, un estado nulo o uno desconocido siguen abiertos.
-_SQL_TERMINAL = """coalesce(
-    estado_fuente IN ('delivered', 'cancelled')
-    OR (estado_fuente = 'not_delivered' AND devuelto_el IS NOT NULL),
-    false)"""
-_SQL_ABIERTOS = f"""
-SELECT * FROM v_envio_actual
- WHERE platform = 'meli' AND NOT {_SQL_TERMINAL}
-"""
-_SQL_CERRADOS = f"""
-SELECT envio_ref FROM v_envio_actual
- WHERE platform = 'meli' AND envio_ref = ANY(%s) AND {_SQL_TERMINAL}
-"""
-_SQL_PAQUETES = "SELECT * FROM envio_paquete_observation WHERE envio_obs_id = ANY(%s) ORDER BY id"
-
 
 @dataclass(frozen=True)
 class Descubrimiento:
@@ -73,6 +61,10 @@ class Descubrimiento:
     envios: dict[str, list[dict]]
     saltos: Counter
     aviso: str | None
+
+
+class ReferenciaDesconocida(ValueError):
+    """`--releer` pide envios que no estan en la base."""
 
 
 @dataclass(frozen=True)
@@ -152,40 +144,6 @@ def descubrir_ordenes(
     return Descubrimiento(envios, saltos, aviso)
 
 
-def _armar(clase: type, fila: dict, **ya_armados: object):
-    nombres = (campo.name for campo in fields(clase))
-    return clase(**{n: ya_armados[n] if n in ya_armados else fila[n] for n in nombres})
-
-
-def envios_abiertos(conn: psycopg.Connection) -> dict[str, EnvioObservado]:
-    """Ultima observacion de cada envio de Mercado Libre que aun se relee.
-
-    Solo la fuente mueve un envio a terminal: al reportar en una lectura que se
-    guarda `delivered`, `cancelled`, o `not_delivered` con fecha de devolucion.
-    No hay tope por antiguedad ni por numero de relecturas.
-    """
-    with conn.transaction(), cursor_dict(conn) as cur:
-        filas = cur.execute(_SQL_ABIERTOS).fetchall()
-        paquetes: dict[int, list[PaqueteObservado]] = {}
-        for fila in cur.execute(_SQL_PAQUETES, ([f["id"] for f in filas],)).fetchall():
-            paquetes.setdefault(fila["envio_obs_id"], []).append(_armar(PaqueteObservado, fila))
-    return {
-        fila["envio_ref"]: _armar(
-            EnvioObservado,
-            fila,
-            pedidos=tuple(fila["pedidos"]),
-            articulos=tuple(Articulo(**articulo) for articulo in fila["articulos"]),
-            paquetes=tuple(paquetes.get(fila["id"], ())),
-        )
-        for fila in filas
-    }
-
-
-def _envios_cerrados(conn: psycopg.Connection, refs: list[str]) -> set[str]:
-    with conn.transaction():
-        return {fila[0] for fila in conn.execute(_SQL_CERRADOS, (refs,)).fetchall()}
-
-
 def _leer_envios(
     cliente: ClienteMeli,
     refs: list[str],
@@ -215,8 +173,21 @@ def _leer_envios(
 
 
 def _causa(exc: BaseException) -> str:
-    """Solo el cliente MeLi arma mensajes sin datos; del resto va la clase."""
-    return scrub(str(exc)) if isinstance(exc, ReputacionError) else type(exc).__name__
+    """El cliente MeLi y la config arman mensajes sin datos; del resto va la clase."""
+    con_mensaje = (ReputacionError, DiasCierreInvalidos)
+    return scrub(str(exc)) if isinstance(exc, con_mensaje) else type(exc).__name__
+
+
+def _exige_conocidos(conn: psycopg.Connection, refs: Sequence[str]) -> None:
+    """Antes de abrir corrida y de llamar a Mercado Libre."""
+    with conn.transaction():
+        conocidos = lectura.envios_meli(conn)
+    desconocidos = [ref for ref in dict.fromkeys(refs) if ref not in conocidos]
+    if desconocidos:
+        raise ReferenciaDesconocida(
+            f"No hay envíos de Mercado Libre con estas referencias: {', '.join(desconocidos)}."
+            " No se consultó nada."
+        )
 
 
 def ejecutar_ingesta(
@@ -225,28 +196,40 @@ def ejecutar_ingesta(
     *,
     ahora: dt.datetime | None = None,
     max_paginas: int = MAX_PAGINAS_DEFAULT,
+    releer: Sequence[str] = (),
 ) -> ResultadoIngestaMeli:
-    """Una corrida completa. `ok=False` si quedo algun envio sin leer o la
-    busqueda incompleta; lo que si se leyo queda escrito."""
+    """Una corrida completa. `ok=False` si quedo algun envio sin leer o ilegible,
+    o la busqueda incompleta; lo que si se leyo queda escrito. `releer` suma
+    envios conocidos aunque esten cerrados."""
     momento = ahora or dt.datetime.now(dt.UTC)
+    if releer:
+        _exige_conocidos(conn, releer)
     with conn.transaction():
         run_id = abrir_run(conn, SOURCE, platform=PLATAFORMA)
     saltos: Counter = Counter()
     try:
+        with conn.transaction():
+            dias = lectura.dias_cierre(conn)
+            conocidos = lectura.envios_meli(conn)
+        cerrados = {
+            ref
+            for ref, envio in conocidos.items()
+            if clasificar(envio, juzgado_al=momento, ahora=momento, dias_cierre=dias).estado
+            in ESTADOS_CERRADOS
+        }
         hallado = descubrir_ordenes(
             cliente,
             desde=momento - dt.timedelta(days=DIAS_SEGUIMIENTO),
             max_paginas=max_paginas,
         )
         saltos.update(hallado.saltos)
-        abiertos = envios_abiertos(conn)
-        cerrados = _envios_cerrados(conn, list(hallado.envios))
-        por_leer = sorted((hallado.envios.keys() - cerrados) | abiertos.keys())
+        pendientes = (hallado.envios.keys() | conocidos.keys()) - cerrados
+        por_leer = sorted(pendientes | set(releer))
 
         def traducir(ref: str, crudo: dict) -> EnvioObservado:
             if ref in hallado.envios:
                 return envio_desde_meli(hallado.envios[ref], crudo)
-            return envio_actualizado_desde_meli(abiertos[ref], crudo)
+            return envio_actualizado_desde_meli(conocidos[ref], crudo)
 
         envios = _leer_envios(cliente, por_leer, traducir, saltos)
         with conn.transaction():
@@ -254,7 +237,8 @@ def ejecutar_ingesta(
                 conn, envios, observed_at=momento, run_id=run_id
             )
             saltos[SALTO_ENVIO_SIN_CAMBIO] += sin_cambio
-            ok = hallado.aviso is None and saltos["envio_no_leido"] == 0
+            sin_certificar = saltos["envio_no_leido"] + saltos["envio_ilegible"]
+            ok = hallado.aviso is None and sin_certificar == 0
             omitidos = sum(saltos.values())
             motivo = formato_skip_reason(saltos)
             if hallado.aviso is not None:
@@ -299,13 +283,21 @@ def _sella_caida_temprana(conn: psycopg.Connection, exc: Exception) -> None:
 
 
 def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None = None) -> int:
-    """Exit 0 completa, 1 fallida o incompleta, 2 sin DSN. `transport` es para tests."""
+    """Exit 0 completa, 1 fallida o incompleta, 2 sin DSN o con un `--releer`
+    desconocido. `transport` es para tests."""
     parser = argparse.ArgumentParser(
         prog="python -m app.cli ingest envios_meli",
         description="Ingiere envios de Mercado Libre. Solo lectura contra Mercado Libre.",
     )
     parser.add_argument(
         "--max-paginas", type=int, default=MAX_PAGINAS_DEFAULT, help="tope de paginas de ordenes"
+    )
+    parser.add_argument(
+        "--releer",
+        action="append",
+        default=[],
+        metavar="REF",
+        help="relee ese envio aunque este cerrado o vencido (repetible)",
     )
     args = parser.parse_args(argv)
     dsn = os.environ.get("ORBIT_DSN_INGEST")
@@ -325,11 +317,16 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                 _sella_caida_temprana(conn, exc)
                 raise
             try:
-                resultado = ejecutar_ingesta(conn, cliente, max_paginas=args.max_paginas)
+                resultado = ejecutar_ingesta(
+                    conn, cliente, max_paginas=args.max_paginas, releer=args.releer
+                )
             finally:
                 cliente.close()
         finally:
             conn.close()
+    except ReferenciaDesconocida as exc:
+        print(scrub(str(exc)), file=sys.stderr)
+        return 2
     except Exception as exc:
         print(f"ingesta {SOURCE} fallo: {_causa(exc)}", file=sys.stderr)
         return 1

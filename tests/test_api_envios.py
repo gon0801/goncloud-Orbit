@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import get_args
 
 import pytest
@@ -447,6 +448,9 @@ def test_etiquetas_de_envios_en_espanol():
     assert etiquetas.etiqueta("esperando_recoleccion", "estado_envio") == (
         "Esperando recolección en agencia"
     )
+    assert etiquetas.etiqueta("cerrado_sin_confirmar", "estado_envio") == (
+        "Cerrado por vencimiento, sin confirmar entrega"
+    )
     assert etiquetas.FUENTE_INGESTA["envios_meli"] == "Envíos de Mercado Libre"
 
 
@@ -564,6 +568,141 @@ def test_pantalla_sin_atraso_no_pinta_aviso(monkeypatch):
         html = cliente.get("/envios").text
         assert 'id="envios-atraso"' not in html
         assert "Mercado Libre: 25 nov, 05:00" in _bloque(html, "envios-lecturas")
+
+
+# ---------------------------------------------------------------------------
+# Cierre por vencimiento sin confirmacion
+# ---------------------------------------------------------------------------
+
+
+def _siembra_vencimiento(conn, ahora: datetime) -> None:
+    """Dos vencidos a 90 dias (uno solo en la ultima observacion), uno a 30 y
+    los que nunca cuentan: terminales, sin fecha y Amazon."""
+    run = _corrida(conn, "envios_meli", "meli", 1 * H)
+    hace = {dias: ahora - dias * D for dias in (31, 91, 200)}
+    viejo = _meli("100", "1100", "shipped", pedido_creado_el=hace[200])
+    cerrado_despues = _meli("200", "1200", "shipped", pedido_creado_el=hace[200])
+    guardar(conn, [viejo, cerrado_despues], observed_at=ahora - 100 * D, run_id=run)
+    envios = [
+        _meli("200", "1200", "delivered", pedido_creado_el=hace[200]),
+        _meli("300", "1300", "not_delivered", pedido_creado_el=hace[91]),
+        _meli("400", "1400", "ready_to_ship", "delayed", pedido_creado_el=hace[31]),
+        _meli("500", "1500", "cancelled", pedido_creado_el=hace[200]),
+        _meli(
+            "600",
+            "1600",
+            "not_delivered",
+            pedido_creado_el=hace[200],
+            devuelto_el=ahora - 150 * D,
+        ),
+        _meli("700", "1700", "shipped", pedido_creado_el=None),
+        _envio("701-0000007", estado_fuente="UNSHIPPED", pedido_creado_el=hace[200]),
+    ]
+    guardar(conn, envios, observed_at=ahora - H, run_id=run)
+
+
+def _fija_dias(conn, valor: str) -> None:
+    conn.execute(
+        "INSERT INTO config_version (label, settings)"
+        " SELECT 'prueba envios', settings || jsonb_build_object('envios_meli_dias_cierre',"
+        " %s::text) FROM config_version ORDER BY id DESC LIMIT 1",
+        (valor,),
+    )
+
+
+@_skip_db
+def test_contador_de_vencidos_sobre_toda_la_historia_en_api_y_pantalla(monkeypatch):
+    with _base(monkeypatch) as (conn, cliente):
+        _siembra_vencimiento(conn, AHORA)
+        conn.execute("SET ROLE app_read")
+
+        cuerpo = cliente.get("/api/envios?vista=todos").json()
+        assert cuerpo["vencimiento"] == {"dias_cierre": 90, "cerrados": 2}
+        # Vencidos hace mas de 30 dias: cuentan aunque la lista ya no los muestre.
+        assert sorted(e["envio_ref"] for e in cuerpo["envios"]) == ["700"]
+        assert _bloque(cliente.get("/envios").text, "envios-vencimiento") == (
+            "Mercado Libre, en toda la historia: 2 en Cerrado por vencimiento, sin confirmar"
+            " entrega (pasaron más de 90 días desde la compra sin un estado final)."
+        )
+
+        conn.execute("RESET ROLE")
+        _fija_dias(conn, "30")
+        conn.execute("SET ROLE app_read")
+        assert cliente.get("/api/envios").json()["vencimiento"] == {
+            "dias_cierre": 30,
+            "cerrados": 3,
+        }
+        assert "más de 30 días" in _bloque(cliente.get("/envios").text, "envios-vencimiento")
+        opciones = cliente.get("/envios").text
+        assert (
+            '<option value="cerrado_sin_confirmar">'
+            "Cerrado por vencimiento, sin confirmar entrega</option>"
+        ) in opciones
+
+
+@_skip_db
+@pytest.mark.parametrize("ruta", ["/api/envios", "/envios", "/api/envios/contador"])
+def test_dias_de_cierre_invalidos_son_un_error_visible(monkeypatch, ruta):
+    with _base(monkeypatch) as (conn, cliente):
+        _fija_dias(conn, "noventa")
+        conn.execute("SET ROLE app_read")
+        resp = cliente.get(ruta)
+        assert resp.status_code == 503
+        detalle = resp.json()["detail"]
+        assert "envios_meli_dias_cierre" in detalle and "'noventa'" in detalle
+        assert "envios-ventana --dias" in detalle
+
+
+def _consulta_documentada() -> str:
+    texto = (Path(__file__).resolve().parents[1] / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+    bloques = [
+        b for b in re.findall(r"```sql\n(.*?)```", texto, re.S) if "cerrados_por_vencimiento" in b
+    ]
+    assert len(bloques) == 1
+    return bloques[0]
+
+
+@_skip_db
+def test_la_consulta_documentada_cuenta_lo_mismo_que_el_contador(monkeypatch):
+    # La consulta usa now(): aqui todo se siembra contra el reloj real.
+    ahora = datetime.now(UTC)
+    consulta = _consulta_documentada()
+    with _base(monkeypatch) as (conn, cliente):
+        monkeypatch.setattr(api_envios, "ahora_utc", lambda: ahora)
+        _siembra_vencimiento(conn, ahora)
+        for dias, esperados in (("90", 2), ("30", 3), ("365", 0)):
+            _fija_dias(conn, dias)
+            conn.execute("SET ROLE app_read")
+            assert conn.execute(consulta).fetchone() == (int(dias), esperados)
+            assert cliente.get("/api/envios").json()["vencimiento"] == {
+                "dias_cierre": int(dias),
+                "cerrados": esperados,
+            }
+            conn.execute("RESET ROLE")
+        # Sin la clave en la config vigente, ambos usan el valor por omision.
+        conn.execute(
+            "INSERT INTO config_version (label, settings)"
+            " SELECT 'sin clave', settings - 'envios_meli_dias_cierre'"
+            " FROM config_version ORDER BY id DESC LIMIT 1"
+        )
+        assert conn.execute(consulta).fetchone() == (90, 2)
+        assert cliente.get("/api/envios").json()["vencimiento"]["cerrados"] == 2
+
+
+@_skip_db
+def test_pantalla_una_fecha_ausente_se_ve_como_raya(monkeypatch):
+    with _base(monkeypatch) as (conn, cliente):
+        run = _corrida(conn, "envios_meli", "meli", 1 * H)
+        sin_fechas = _meli("800", "1800", "ready_to_ship", "in_hub", paquetes=(_paquete("800"),))
+        guardar(conn, [sin_fechas], observed_at=AHORA - H, run_id=run)
+        tarjeta = _tarjeta(cliente.get("/envios").text, "800")
+        assert "En camino" in tarjeta
+        assert "Comprado: 20 nov, 06:00" in tarjeta
+        assert "Despachar antes de: —" in tarjeta
+        assert "Entrega prometida: —" in tarjeta
+        assert "Despachado: —" in tarjeta
+        # La fecha de compra no rellena ninguna otra.
+        assert tarjeta.count("20 nov") == 1
 
 
 # ---------------------------------------------------------------------------

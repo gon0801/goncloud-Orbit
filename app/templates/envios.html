@@ -11,6 +11,7 @@
   <span>{{ plataforma | etiqueta("plataforma") }}: {{ lectura.ultima_ok | fecha_hora if lectura.ultima_ok else "sin lectura correcta" }}{% if lectura.atrasada %} <span class="chip aviso">Atrasada</span>{% endif %}</span>{% if not loop.last %} · {% endif %}
   {% endfor %}
 </p>
+<p class="leyenda" id="envios-vencimiento">Mercado Libre, en toda la historia: <strong>{{ datos.vencimiento.cerrados | numero }}</strong> en {{ 'cerrado_sin_confirmar' | etiqueta("estado_envio") }} (pasaron más de {{ datos.vencimiento.dias_cierre }} días desde la compra sin un estado final).</p>
 
 <nav class="paginador" aria-label="Vistas">
   {% for v in vistas %}

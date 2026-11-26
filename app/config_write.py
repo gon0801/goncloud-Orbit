@@ -47,6 +47,7 @@ from psycopg.types.json import Json
 
 from app.apply_cuota import KINDS_QUOTA, cap_desde_settings
 from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
+from app.envios.estado import CLAVE_DIAS_CIERRE, dias_cierre_desde_settings
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
 from app.optimizer import productos
@@ -545,6 +546,22 @@ def _aplica_recuperacion(
         nuevo[clave] = valor
 
 
+def _aplica_envios_dias_cierre(nuevo: dict, cambios: list[str], dias: int | None) -> None:
+    """Dias para cerrar por vencimiento un envio de Mercado Libre (global; None =
+    no tocar). Solo se valida el valor entrante: asi corrige uno ilegible."""
+    if dias is None:
+        return
+    texto = str(dias)
+    try:
+        dias_cierre_desde_settings({CLAVE_DIAS_CIERRE: texto})
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+    if nuevo.get(CLAVE_DIAS_CIERRE) != texto:
+        antes = _antes(nuevo.get(CLAVE_DIAS_CIERRE))
+        cambios.append(f"dias de cierre de envios {antes} -> {texto}")
+        nuevo[CLAVE_DIAS_CIERRE] = texto
+
+
 def _valida_resultante_temporada(nuevo: Mapping) -> None:
     """TEMPORADA 01 A: la resultante se relee con los lectores del motor
     (temporada, criterio de campana y modos de LAS DOS plataformas, porque la
@@ -586,6 +603,7 @@ def proxima_config(
     meta_alta: Mapping[str, str | int | Decimal] | None = None,
     recuperacion_modo: str | None = None,
     recuperacion_memoria_dias: int | float | str | None = None,
+    envios_dias_cierre: int | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -676,6 +694,7 @@ def proxima_config(
     _aplica_temporada_modo(nuevo, cambios, temporada_modo)
     _aplica_meta_alta(nuevo, cambios, meta_alta)
     _aplica_recuperacion(nuevo, cambios, platform, recuperacion_modo, recuperacion_memoria_dias)
+    _aplica_envios_dias_cierre(nuevo, cambios, envios_dias_cierre)
 
     for kind, cap in (caps or {}).items():
         if kind not in KINDS_QUOTA:
@@ -695,9 +714,11 @@ def proxima_config(
         g.confianza_subida_desde_settings(nuevo, platform)
         g.politica_bid_desde_settings(nuevo, platform)
         g.version_economia_cambio_desde_settings(nuevo, platform)
-        productos.modos_desde_settings(nuevo, platform)
-        productos.economia_desde_settings(nuevo, platform)
-        productos.limites_pausa_desde_settings(nuevo, platform)
+        # Mercado Libre no tiene decisiones por producto que releer.
+        if platform in productos.PLATAFORMAS:
+            productos.modos_desde_settings(nuevo, platform)
+            productos.economia_desde_settings(nuevo, platform)
+            productos.limites_pausa_desde_settings(nuevo, platform)
         subproteccion.activa_desde_settings(nuevo)
         exige_limites_guardados(nuevo, platform)
         for kind in KINDS_QUOTA:

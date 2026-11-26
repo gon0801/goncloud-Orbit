@@ -912,6 +912,7 @@ ESTADO_ENVIO: dict[str, str] = {
     "en_devolucion": "En devolución",
     "devuelto": "Devuelto",
     "cancelado": "Cancelado",
+    "cerrado_sin_confirmar": "Cerrado por vencimiento, sin confirmar entrega",
     "sin_clasificar": "Sin clasificar",
 }
 
