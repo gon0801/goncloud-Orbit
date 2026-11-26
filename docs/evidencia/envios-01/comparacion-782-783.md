@@ -1,5 +1,7 @@
 # ENVIOS 01: comparación entre #782 y #783
 
+> **Fotografía histórica (resuelta el 2026-11-26 UTC):** la primera corrida automática (run `1910`, `06:40 UTC`) probó la transición real `in_hub` → `in_packing_list` → `shipped` en producción (`48622258880` y tres envíos adicionales). Con esa evidencia, David decidió integrar `#783` manteniendo `in_packing_list` en `en_camino` (commit `2aec1632`).
+
 Qué versión gana lo decide David. **La decisión está pendiente.** Este documento describe qué ve y qué tiene que hacer el dueño con cada versión. No recomienda ninguna.
 
 - **#782** es el commit `3c5e53fb`, comparado contra `07fae18c`. Se integró el 2026-11-26 a las 04:09 UTC y es lo que corre en producción.

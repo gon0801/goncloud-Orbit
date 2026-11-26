@@ -2,7 +2,7 @@
 
 Recibo saneado de la Task 6 del [plan](../../superpowers/plans/2026-11-25-envios-01.md). Sonda previa: [sonda.md](sonda.md).
 
-Estado: integrado, desplegado y conciliado con lecturas. La primera corrida automática del cron no está verificada. Quedan pendientes al final.
+Estado: `#780` y `#782` integrados, desplegados (`0102`), conciliados y con primera corrida automática del cron verificada en verde (runs `1908`–`1910`). Seguimiento `#783` (`0103`) pendiente de despliegue. Quedan pendientes al final.
 
 ## Integración
 
