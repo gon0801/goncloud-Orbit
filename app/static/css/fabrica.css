@@ -3,6 +3,10 @@
 .fabrica [hidden] { display: none; }
 .fabrica fieldset { min-width: 0; border: 1px solid var(--o-borde); border-radius: 8px; padding: 1rem; }
 .fabrica #fabrica-configuracion { border: 0; padding: 0; }
+.fabrica-seccion { padding-top: 20px; margin-top: 20px; border-top: 1px solid var(--o-borde); }
+.fabrica-seccion > h3 { margin-top: 0; }
+.fabrica-resumen { background: var(--o-card); border: 1px solid var(--o-borde); border-radius: var(--o-radio); box-shadow: var(--o-sombra); padding: 20px; margin-bottom: 16px; }
+.fabrica-resumen > h3:first-child { margin-top: 0; }
 .fabrica legend { color: var(--o-ink); padding: 0; margin-bottom: 14px; font-size: 14px; font-weight: 600; }
 .fabrica label { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .fabrica input, .fabrica select { max-width: 100%; min-width: 0; }

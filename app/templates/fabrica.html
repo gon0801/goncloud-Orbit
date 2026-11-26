@@ -53,7 +53,8 @@
             No se completa automáticamente.</span>
         </label>
       </div>
-      <h3>Publicaciones</h3>
+      <section class="fabrica-seccion fabrica-seleccion" aria-labelledby="fabrica-publicaciones-titulo">
+      <h3 id="fabrica-publicaciones-titulo">Publicaciones</h3>
       <p>El nombre interno y el SKU de Odoo identifican tu producto. Debajo aparecen
         todas sus publicaciones vinculadas, con ASIN, SKU de Amazon y enlace.
         El título de Amazon se consulta al abrir la publicación.</p>
@@ -75,7 +76,9 @@
         <div id="fabrica-productos" class="fabrica-productos" role="region"
              aria-label="Publicaciones agrupadas por producto" tabindex="0"></div>
       </div>
-      <h3>Presupuesto diario y puja inicial por campaña</h3>
+      </section>
+      <section class="fabrica-seccion fabrica-parametros" aria-labelledby="fabrica-presupuestos-titulo">
+      <h3 id="fabrica-presupuestos-titulo">Presupuesto diario y puja inicial por campaña</h3>
       <p>Moneda: <strong id="fabrica-moneda">—</strong>. Captura importes con punto decimal.
         Orbit puede consultar la recomendación vigente de Amazon y conserva su procedencia en el plan.</p>
       <button id="fabrica-bids-amazon" type="button">Usar pujas sugeridas por Amazon</button>
@@ -106,6 +109,7 @@
       </table>
       </div>
       <p class="fabrica-total">Presupuesto diario total <output id="fabrica-presupuesto-total" aria-live="polite">Completa los cinco presupuestos</output></p>
+      </section>
       <button id="fabrica-previsualizar" type="submit" disabled>Revisar plan</button>
     </fieldset>
   </form>
@@ -150,7 +154,7 @@
 
   <p id="fabrica-estado" role="status" aria-live="polite" tabindex="-1"></p>
 
-  <section id="fabrica-preview" class="tarjeta" aria-labelledby="fabrica-preview-titulo" hidden>
+  <section id="fabrica-preview" class="fabrica-resumen" aria-labelledby="fabrica-preview-titulo" hidden>
     <h3 id="fabrica-preview-titulo" tabindex="-1"><span class="fabrica-paso" aria-hidden="true">2</span> Revisar las cinco campañas</h3>
     <div id="fabrica-preview-datos"></div>
     <p>Cualquier cambio en la configuración exige revisar de nuevo el plan.</p>

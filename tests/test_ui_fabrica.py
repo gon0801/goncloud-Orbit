@@ -60,6 +60,16 @@ def test_entrada_crear_desde_campanas(monkeypatch):
     assert re.search(r'href="/campanas/nuevas"[^>]*>Crear campañas</a>', respuesta.text)
 
 
+def test_fabrica_conserva_flujo_con_accion_principal_unica():
+    html = TestClient(app).get("/campanas/nuevas").text
+    assert 'id="fabrica-plan"' in html
+    assert 'id="fabrica-productos"' in html
+    assert 'id="fabrica-comparador"' in html
+    assert 'class="fabrica-resumen"' in html
+    assert html.count("Crear las cinco campañas") == 1
+    assert "Hola, David" not in html
+
+
 def test_pantalla_sin_db_con_semantica_de_gasto_y_activos_locales():
     respuesta = TestClient(app).get("/campanas/nuevas")
     assert respuesta.status_code == 200

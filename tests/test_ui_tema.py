@@ -144,6 +144,18 @@ def test_fecha_hora_sin_microsegundos_en_hora_de_mexico():
     assert fecha_hora(None) == "—"
 
 
+def test_campanas_a2_tiene_una_accion_principal_y_conserva_filtros(monkeypatch):
+    html = _html_sin_db(
+        monkeypatch, "/campanas", campanas=lambda conn, platform=None: {"items": []}
+    )
+    assert html.count('href="/campanas/nuevas"') == 1
+    assert "campanas-resumen" in html
+    assert 'class="filtros"' in html
+    assert 'class="filtros-avanzados"' in html
+    assert 'class="tabla-scroll"' in html
+    assert 'aria-label="Vista rápida"' in html
+
+
 def test_campanas_html_dinero_a_2_decimales_clicks_enteros(monkeypatch):
     item = {
         "ad_entity_id": 1,

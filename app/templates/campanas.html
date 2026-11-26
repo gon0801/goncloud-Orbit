@@ -3,12 +3,12 @@
 <link rel="stylesheet" href="/static/css/campanas.css?v={{ asset_version }}">
 {% endblock %}
 {% block cabecera_accion %}
-<a class="btn-crear" href="/campanas/nuevas">Crear campañas</a>
+<a class="btn-crear accion-primaria" href="/campanas/nuevas">Crear campañas</a>
 {% endblock %}
 {% block contenido %}
 <p class="aviso-inmaduro">La ventana 30d incluye siempre días inmaduros (D-8..D-1): los totales y el ACoS aún maduran.</p>
 
-<section class="bloque-targets" aria-labelledby="h-plat">
+<section class="bloque-targets campanas-resumen" aria-labelledby="h-plat">
   <div class="seccion-cabeza">
     <h2 id="h-plat">Campañas contra su target</h2>
     <span class="mutado">Suma de las campañas de esta tabla · ventana 30d</span>
@@ -42,7 +42,7 @@
   </div>
 </section>
 
-<section class="lista-campanas" aria-labelledby="h-lista">
+<section class="lista-campanas campanas-lista superficie" aria-labelledby="h-lista">
   <div class="lista-cabeza">
     <h2 id="h-lista">Lista de campañas</h2>
     <div role="tablist" aria-label="Vista rápida">
