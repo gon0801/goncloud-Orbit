@@ -3,11 +3,14 @@
    el JS de G.3 cuelga del boton por `data-liberar-corrida` (la ruta
    POST /api/precios/compuerta/{id}/liberar la cablea G.2). #}
 {% if plataformas is defined and not error %}
-<h2>Seguridad — compuerta del motor de precios</h2>
+<div class="seccion-encabezado">
+  <h2>Seguridad — compuerta del motor de precios</h2>
+</div>
 <div class="salud-grid">
 {% for plataforma, datos in plataformas.items() %}
 {% set seg = datos.seguridad %}
-<div class="tarjeta">
+{% set rec = datos.recuadro %}
+<div>
   <section id="bloque-seguridad-{{ plataforma }}" aria-label="Seguridad de {{ plataforma | etiqueta('plataforma') }}">
   <h3>{{ plataforma | etiqueta("plataforma") }}: compuerta</h3>
   {% if seg.modo_global is none or seg.modo_universo is none %}
@@ -38,6 +41,44 @@
   {% endif %}
   {% if seg.liberable_corrida_id is not none %}
   <button type="button" data-liberar-corrida="{{ seg.liberable_corrida_id }}">Soltar</button>
+  {% endif %}
+  </section>
+
+  <section id="bloque-cobertura-{{ plataforma }}" aria-label="Cobertura">
+  <h3>Cobertura</h3>
+  {% if rec.activas == 0 %}
+  <p class="mutado">Sin publicaciones activas hoy.</p>
+  {% else %}
+  {% set n_noev = rec.no_evaluadas | sum(attribute="count") %}
+  {% set n_fuera = rec.fuera_de_alcance | sum(attribute="count") %}
+  <p>{{ rec.activas | numero }} activa{{ "s" if rec.activas != 1 }} = {{ rec.evaluadas | numero }} evaluada{{ "s" if rec.evaluadas != 1 }} + {{ n_noev | numero }} no evaluada{{ "s" if n_noev != 1 }} + {{ rec.sin_goal | length | numero }} sin objetivo + {{ n_fuera | numero }} fuera de alcance</p>
+  {% endif %}
+  <p class="mutado">Puente del bridge: {% if datos.puente is none %}contraste no disponible{% else %}{{ datos.puente | numero }} frente a {{ rec.activas | numero }} canónicas{% endif %}{% if datos.aviso_puente %} · <span class="chip alerta">{{ datos.aviso_puente }}</span>{% endif %}</p>
+  {% if rec.avisos %}
+  <ul>
+    {% for aviso in rec.avisos %}
+    <li class="alerta">{{ aviso }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if rec.sin_goal %}
+  <div class="tabla-scroll" role="region" aria-label="Publicaciones sin goal" tabindex="0">
+  <table>
+    <thead><tr><th>SKU sin goal</th><th class="num">Precio</th><th>Moneda</th><th>Canal</th></tr></thead>
+    <tbody>
+      {% for d in rec.sin_goal %}
+      <tr><td class="mono" data-dato-libre>{{ d.sku }}</td><td class="num">{{ d.precio | dinero }}</td><td>{{ d.moneda or "—" }}</td><td>{{ d.canal or "—" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+  {% if rec.fuera_de_alcance %}
+  <ul>
+    {% for item in rec.fuera_de_alcance %}
+    <li>{{ item.count | numero }} fuera de alcance ({{ item.fase | etiqueta("motivo_precio") }})</li>
+    {% endfor %}
+  </ul>
   {% endif %}
   </section>
 </div>

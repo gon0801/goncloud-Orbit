@@ -112,6 +112,10 @@ html[data-tema="noche"] {
 .grupo-metricas { display: grid; gap: 15px; }
 .seccion-encabezado { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .oportunidad-resumen { padding: 20px; }
+.catalogo-resumen,
+.sistema-resumen { padding: 20px; margin-bottom: 20px; }
+.catalogo-resumen > .seccion-encabezado,
+.sistema-resumen > .seccion-encabezado { margin-bottom: 14px; }
 .historial-resumen,
 .rendimiento-resumen.superficie { padding: 20px; margin-bottom: 20px; }
 .oportunidad-contenido { margin-top: 20px; }

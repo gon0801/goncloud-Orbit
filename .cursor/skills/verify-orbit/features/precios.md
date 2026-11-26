@@ -1,6 +1,6 @@
 # Precios (`/precios`)
 
-Precios muestra, por plataforma de Amazon (amazon_us, amazon_mx), la compuerta del motor de precios, los goals por unidad, la Cobertura del catalogo y lo que el motor decidio hoy. En el baseline de esta skill solo se verifica la lectura: sembrar goals y Soltar escriben con `x-orbit-token`.
+Precios muestra, por plataforma de Amazon (amazon_us, amazon_mx), la compuerta del motor de precios, los goals por unidad, la Cobertura del catalogo y lo que el motor decidio hoy. `section.catalogo-resumen.superficie` agrupa primero la compuerta y la Cobertura; los goals y el detalle quedan despues. Si la configuracion es ilegible, el resumen no se renderiza vacio y queda solo el error existente. En el baseline de esta skill solo se verifica la lectura: sembrar goals y Soltar escriben con `x-orbit-token`.
 
 ## Sub-features
 

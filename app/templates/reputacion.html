@@ -5,6 +5,11 @@
 {% block contenido %}
 {% set kpi_rating = resumen.kpi_rating_meli %}
 {% set sev = resumen.alertas_por_severidad %}
+<section class="catalogo-resumen superficie" aria-label="Resumen de reputación">
+  <div class="seccion-encabezado">
+    <h2>Reputación</h2>
+    <span class="mutado">{{ resumen.total_alertas | numero }} alertas abiertas</span>
+  </div>
 <div class="kpis">
   <section class="kpi" aria-label="Rating MeLi">
     <p class="kpi-etiqueta">Rating MeLi</p>
@@ -27,12 +32,13 @@
     <div class="kpi-contexto">{{ sev.critica }} crítica{{ "s" if sev.critica != 1 }} · {{ sev.aviso }} aviso{{ "s" if sev.aviso != 1 }}{% if sev.info %} · {{ sev.info }} info{% endif %}</div>
   </section>
 </div>
+</section>
 
 <section class="tarjeta-lista" aria-label="Alertas abiertas">
   <div class="rep-cab">
     <span class="dot dot-mal" aria-hidden="true"></span>
     <h3>Alertas abiertas</h3>
-    <span class="mutado">· {{ resumen.total_alertas | numero }} sin resolver · críticas primero</span>
+    <span class="mutado">· críticas primero</span>
   </div>
   {% for al in resumen.alertas_abiertas %}
   <div class="rep-fila">
@@ -68,7 +74,7 @@
         <option value="{{ t[0] }}"{% if filtros.tendencia == t[0] %} selected{% endif %}>{{ t[1] }}</option>
         {% endfor %}
       </select>
-      <button type="submit">Filtrar</button>
+      <button type="submit" class="accion-primaria">Filtrar</button>
     </form>
     <span class="rep-nota">{{ resumen.listings | length }} listings · tendencia MeLi contra hace 7 días, Amazon contra el snapshot anterior</span>
   </div>

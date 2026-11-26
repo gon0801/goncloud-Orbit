@@ -1714,7 +1714,8 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=salud": 'data-pantalla="salud"' in texto,
-        "tarjeta_por_plataforma": 'class="tarjeta salud-tarjeta"' in texto,
+        "tarjeta_por_plataforma": 'class="sistema-resumen superficie"' in texto
+        and 'class="salud-tarjeta"' in texto,
         "checks_por_plataforma": 'class="salud-checks"' in texto,
         "tab_amazon_us": 'href="/salud?plataforma=amazon_us"' in texto,
         "tab_amazon_mx": 'href="/salud?plataforma=amazon_mx"' in texto,
@@ -2085,7 +2086,7 @@ def cmd_drive_settings(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=settings": 'data-pantalla="settings"' in texto,
-        "h1_settings": "<h1>Settings</h1>" in texto,
+        "h1_settings": "<h1>Configuración</h1>" in texto,
         "h2_settings": "<h2>Settings</h2>" in texto,
         "nav_aria_current": 'href="/settings"' in texto and 'aria-current="page"' in texto,
         "token_input": 'id="settings-token"' in texto,
