@@ -8,6 +8,7 @@ Presenta rating y reviews verificadas de MeLi, preguntas pendientes, alertas, li
 - `reputacion-resumen` conserva `section.catalogo-resumen.superficie`, los cuatro KPI, `.rep-estrellas`, alertas y severidades.
 - `reputacion-filtros` es `form.rep-toolbar[action="/reputacion"][method="get"]` con `input[name="q"]`, `select[name="plataforma"]`, `select[name="tendencia"]` y Filtrar. La tabla usa `.tabla-reputacion` dentro de `.tabla-scroll[tabindex="0"]`.
 - `reputacion-listas` mantiene `.tarjeta-lista`, `.rep-fila`, `.rep-vacio`, reviews recientes, preguntas y cuenta MeLi. Sin observaciones, las regiones muestran `Sin datos`; es el estado baseline.
+- `reputacion-texto-extensible` mensajes de alertas y reviews usan `details.texto-extensible` con tres líneas máximo en móvil y expansión nativa «Ver más/menos».
 
 ## Driving it with curl
 

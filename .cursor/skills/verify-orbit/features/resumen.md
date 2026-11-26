@@ -38,6 +38,8 @@ Preconditions:
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/resumen?canal=amazon_us"`. Status 200. En `canales.amazon_us`, `plataforma` es `amazon_us`, `moneda` es `USD`, y en `canales.amazon_us.series` el día sembrado tiene `cost` `12.3400` y `ad_revenue` `45.6700`. Un hueco sigue en `null`.
 - **Proof.** Guarda el HTML de `/`, los filtros, el JSON de la serie y las capturas (1280, 7, 90, rango, Mercado Libre, 390 px y tema noche) bajo `evidence/<run_id>/resumen/`. A 390 px CDP afirma `window.innerWidth === 390`, los cinco controles de `.tab-bar` dentro del viewport, el body sin desplazamiento y `.tabla-scroll` con scroll propio. El foco de teclado en esa tabla deja el outline visible. `10-foco.json` registra color calculado normal/hover de `.accion-primaria` en día y noche, color y fondo del subtítulo, y tamaño del H1.
 
+- `resumen-texto-extensible` la evidencia secundaria usa `details.texto-extensible`: hasta tres líneas a 390 px, con `summary` de 44 px y «Ver más/menos» nativo, sin JavaScript. Advertencias de madurez, cifras y acciones no se recortan.
+
 ## Gotchas
 
 - Sin `ORBIT_DSN_READ` esta ruta es 503: no es un fallo de template, es fail-closed de conexion.
