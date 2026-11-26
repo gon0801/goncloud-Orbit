@@ -65,7 +65,7 @@ def test_css_tokens_noche_y_celdas_envuelven():
     assert 'data-tema="noche"' in css
     assert "overflow-wrap" in css
     assert "--color-borde" in css
-    assert "--color-acento: #9385f8" in css
+    assert "--color-acento: #a8afff" in css
     tokens = (
         "--color-texto",
         "--color-mutado",
@@ -85,6 +85,52 @@ def test_css_tokens_noche_y_celdas_envuelven():
     assert tarjeta is not None
     assert "overflow-x: auto" not in tarjeta.group(0)
     assert "overflow-x: visible" in tarjeta.group(0)
+
+
+def test_css_a2_define_tokens_y_componentes_compartidos():
+    css = (_RAIZ / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+    assert "--o-bg: #f6f7fb" in css
+    assert "--o-ac: #6673e8" in css
+    assert "--o-ac2: #7c68e9" in css
+    assert "--o-radio: 18px" in css
+    assert "--o-sombra: 0 8px 30px rgba(44, 49, 83, .055)" in css
+    assert ".accion-primaria" in css
+    assert ".grupo-metricas" in css
+    assert ".superficie" in css
+    assert ".seccion-encabezado" in css
+    dia, noche = css.split('html[data-tema="noche"]', 1)
+    assert "--o-bg: #f6f7fb" in dia
+    assert "--o-bg: #171820" in noche
+    assert "--o-card: #20222c" in noche
+    assert "--o-ac: #a8afff" in noche
+
+
+def test_css_a2_aplica_radio_sombra_y_objetivos_moviles():
+    css = (_RAIZ / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
+    for clase in ("tarjeta", "kpi", "grafica"):
+        bloque = re.search(rf"\.{clase}\s*\{{([^}}]+)\}}", css)
+        assert bloque is not None
+        assert "border-radius: var(--o-radio)" in bloque.group(1)
+        assert "box-shadow: var(--o-sombra)" in bloque.group(1)
+
+    bloques_moviles = re.findall(
+        r"@media\s*\(\s*max-width:\s*40rem\s*\)\s*\{(?:[^{}]|\{[^{}]*\})*\}",
+        css,
+    )
+    assert any(
+        all(
+            selector in bloque
+            for selector in (
+                ".accion-primaria",
+                ".seg-btn",
+                ".nav-mas-toggle",
+                "#btn-tema",
+                "#nav-toggle",
+                "min-height: 44px",
+            )
+        )
+        for bloque in bloques_moviles
+    )
 
 
 def test_dinero_presentacion_sin_inventar():
