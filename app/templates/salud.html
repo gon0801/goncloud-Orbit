@@ -4,10 +4,11 @@
 {% endblock %}
 {% block subtitulo_pagina %}Último ciclo, los 14 anteriores y lo que se saltó{% endblock %}
 {% block contenido %}
+<section class="sistema-resumen superficie" aria-label="Resumen del sistema">
 <section class="salud-plataformas" aria-label="Estado por plataforma">
 {% for p in vista.plataformas %}
-  <article class="tarjeta salud-tarjeta">
-    <div class="salud-cab">
+  <article class="salud-tarjeta">
+    <div class="salud-cab seccion-encabezado">
       <h2>{{ p.nombre }}</h2>
       <span class="salud-chips">
         {% if p.estado_label %}<span class="{{ p.estado_clase }}">{{ p.estado_label }}</span>{% endif %}
@@ -27,11 +28,12 @@
   </article>
 {% endfor %}
 </section>
+</section>
 
 {% if vista.plataformas %}
 <section class="salud-detalle-cab" aria-labelledby="h-det">
   <h2 id="h-det">Detalle de {{ vista.activa_nombre }}</h2>
-  <nav class="seg salud-tabs" role="tablist" aria-label="Plataforma">
+  <nav class="salud-tabs seg" role="tablist" aria-label="Plataforma">
     {% for p in vista.plataformas %}
     <a class="seg-btn{% if p.id == vista.activa %} active{% endif %}" role="tab" aria-selected="{{ 'true' if p.id == vista.activa else 'false' }}" href="/salud?plataforma={{ p.id }}">{{ p.nombre }}</a>
     {% endfor %}

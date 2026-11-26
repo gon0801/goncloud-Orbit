@@ -3,6 +3,7 @@
 {% block contenido %}
 {% set nombres_vista = {'atencion': 'Requieren atención', 'en_curso': 'En curso', 'cerrados': 'Cerrados', 'todos': 'Todos'} %}
 {% set atrasadas = datos.lecturas.items() | selectattr("1.atrasada") | map(attribute="0") | map("etiqueta", "plataforma") | join(", ") %}
+<section class="catalogo-resumen superficie" aria-label="Resumen de envíos">
 {% if atrasadas %}
 <p class="aviso" id="envios-atraso">Lectura atrasada: {{ atrasadas }}. Lo que ves de ahí puede estar viejo, y las demoras se calculan solo hasta lo último que se leyó.</p>
 {% endif %}
@@ -12,6 +13,7 @@
   {% endfor %}
 </p>
 <p class="leyenda" id="envios-vencimiento">Mercado Libre, en toda la historia: <strong>{{ datos.vencimiento.cerrados | numero }}</strong> en {{ 'cerrado_sin_confirmar' | etiqueta("estado_envio") }} (pasaron más de {{ datos.vencimiento.dias_cierre }} días desde la compra sin un estado final).</p>
+</section>
 
 <nav class="paginador" aria-label="Vistas">
   {% for v in vistas %}

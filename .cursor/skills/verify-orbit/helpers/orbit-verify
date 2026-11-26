@@ -13,6 +13,7 @@ Subcomandos:
   drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
   drive-settings  Receta curl de Settings + evidencia (HTML y JSON)
   drive-productos Receta curl de Productos sin clics (meta, pausa, limites y encendido)
+  drive-secundarias Recorre las pantallas de subnavegacion sin drive especifico
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
   maintain-verification-skill
                  Orquesta launch + doctor + drives y hace teardown al final
@@ -68,6 +69,17 @@ DEFAULT_PORT = 18010
 ADMIN_DSN = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1:5432/postgres")
 FORBIDDEN_HOSTS = ("10.13.13.1",)
 FORBIDDEN_PORTS = {8010}
+SECUNDARIAS = {
+    "/gasto-sin-venta": "gasto-sin-venta",
+    "/busquedas-sin-venta": "busquedas-sin-venta",
+    "/keywords-danadas": "keywords-danadas",
+    "/ruido": "ruido",
+    "/donde-poner-el-dinero": "donde-poner-el-dinero",
+    "/reputacion": "reputacion",
+    "/envios": "envios",
+    "/familias": "familias",
+    "/precios": "precios",
+}
 
 # Migraciones de DATOS (no esquema): exigen filas de produccion (SKU, costos).
 # La base desechable no las tiene — misma excepcion que test_schema.py (0011
@@ -230,7 +242,20 @@ def _sembrar(conn) -> dict:
     ).fetchone()[0]
     config_id = conn.execute(
         "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
-        ("verify-orbit", Json({"ads_optimizer_mode": "shadow"})),
+        (
+            "verify-orbit",
+            Json(
+                {
+                    "ads_optimizer_mode": "shadow",
+                    "precio_aviso_dias_sin_evaluar": 3,
+                    "precio_catalogo_max_dias_sin_reportar": 7,
+                    "precio_cap_amazon_mx": 7,
+                    "precio_cap_amazon_us": 7,
+                    "precio_modo_global": "live",
+                    "precio_modo_universo": {"amazon_mx/fba": "live", "amazon_mx/fbm": "off"},
+                }
+            ),
+        ),
     ).fetchone()[0]
     camp_id = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, name)"
@@ -762,8 +787,73 @@ def _ws_leer(sock: socket.socket, pendiente: bytes) -> tuple[int, bytes, bytes]:
     return buf[0] & 0x0F, buf[i : i + largo], buf[i + largo :]
 
 
-def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
-    """Foco de teclado en la tabla y desborde real a 390 px, via el navegador."""
+def _auditar_estilos(llamar) -> dict:
+    """Lee accion, subtitulo y H1 en ambos temas por CDP."""
+    tema_original = llamar(
+        "Runtime.evaluate",
+        {"expression": "document.documentElement.dataset.tema", "returnByValue": True},
+    )["result"]["result"].get("value", "dia")
+    expresion = """(() => {
+      const accion = document.querySelector('.accion-primaria');
+      const subtitulo = document.querySelector('.pagina-header p');
+      const header = document.querySelector('.pagina-header');
+      const h1 = document.querySelector('h1');
+      if (!accion || !subtitulo || !h1) return null;
+      const muestra = document.createElement('span');
+      muestra.style.color = 'var(--o-on-ac)';
+      accion.appendChild(muestra);
+      const colorOnAc = getComputedStyle(muestra).color;
+      muestra.remove();
+      const rect = accion.getBoundingClientRect();
+      return {
+        color: getComputedStyle(accion).color,
+        colorOnAc,
+        hover: accion.matches(':hover'),
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2,
+        h1: parseFloat(getComputedStyle(h1).fontSize),
+        subtituloColor: getComputedStyle(subtitulo).color,
+        subtituloFondo: getComputedStyle(header).backgroundColor
+      };
+    })()"""
+    estilos = {}
+    for tema in ("dia", "noche"):
+        llamar(
+            "Runtime.evaluate",
+            {"expression": f"document.documentElement.dataset.tema = '{tema}'"},
+        )
+        llamar("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+        normal = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+            "result"
+        ]["result"].get("value")
+        hover = None
+        if normal:
+            llamar(
+                "Input.dispatchMouseEvent",
+                {"type": "mouseMoved", "x": normal["x"], "y": normal["y"]},
+            )
+            hover = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+                "result"
+            ]["result"].get("value")
+        estilos[tema] = {"normal": normal, "hover": hover}
+    llamar(
+        "Runtime.evaluate",
+        {"expression": f"document.documentElement.dataset.tema = '{tema_original}'"},
+    )
+    llamar("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+    return estilos
+
+
+def _foco_y_ancho(
+    url: str,
+    png: Path,
+    detalle: Path,
+    *,
+    con_foco: bool = True,
+    auditar_estilos: bool = False,
+    alto: int = 844,
+) -> dict:
+    """Mide foco, estilos y geometria real a 390 px, via el navegador."""
     proc = None
     perfil = None
     try:
@@ -847,6 +937,7 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         llamar("Runtime.enable")
         llamar("Page.navigate", {"url": url})
         time.sleep(1.2)
+        estilos = _auditar_estilos(llamar) if auditar_estilos else {}
         llamar(
             "Runtime.evaluate",
             {
@@ -862,7 +953,7 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
             "windowsVirtualKeyCode": 9,
             "nativeVirtualKeyCode": 9,
         }
-        for _ in range(80):
+        for _ in range(80 if con_foco else 0):
             estado = llamar(
                 "Runtime.evaluate",
                 {
@@ -891,12 +982,14 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
             outlineColor: estilo.outlineColor
           };
         })()"""
-        foco = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
-            "result"
-        ]["result"]["value"]
+        foco = None
+        if con_foco:
+            foco = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+                "result"
+            ]["result"]["value"]
         llamar(
             "Emulation.setDeviceMetricsOverride",
-            {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True},
+            {"width": 390, "height": alto, "deviceScaleFactor": 1, "mobile": True},
         )
         time.sleep(0.3)
         anchos = llamar(
@@ -905,10 +998,40 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
                 "expression": """(() => {
                   const tabla = document.querySelector('.tabla-scroll');
                   const body = document.body;
+                  const controles = [...document.querySelectorAll(
+                    '.tab-bar > a.tab, .tab-bar > button#nav-mas-toggle'
+                  )];
+                  const dentro = controles.map(control => {
+                    const r = control.getBoundingClientRect();
+                    return r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth &&
+                      r.bottom <= window.innerHeight;
+                  });
                   return {
                     ancho: window.innerWidth,
                     bodyScroll: body.scrollWidth > body.clientWidth + 1,
-                    tablaScroll: !!(tabla && tabla.scrollWidth > tabla.clientWidth + 1)
+                    tablaScroll: !!(tabla && tabla.scrollWidth > tabla.clientWidth + 1),
+                    h1: parseFloat(getComputedStyle(document.querySelector('h1')).fontSize),
+                    menuMovil: {
+                      cantidad: controles.length,
+                      todosDentro: controles.length === 5 && dentro.every(Boolean)
+                    },
+                    subnavegacion: [...document.querySelectorAll('.subnavegacion a')].map(
+                      enlace => enlace.getBoundingClientRect().height
+                    ),
+                    senal: [...document.querySelectorAll('.senal-bloque .action-row')].map(fila => {
+                      const cuerpo = fila.querySelector('.action-body');
+                      if (!cuerpo) return {contenido: 0, disponible: 0, ok: false};
+                      const estilo = getComputedStyle(fila);
+                      const disponible = fila.clientWidth - parseFloat(estilo.paddingLeft) -
+                        parseFloat(estilo.paddingRight);
+                      const contenido = cuerpo.getBoundingClientRect().width;
+                      return {
+                        contenido,
+                        disponible,
+                        columnas: estilo.gridTemplateColumns,
+                        ok: Math.abs(contenido - disponible) <= 1
+                      };
+                    })
                   };
                 })()""",
                 "returnByValue": True,
@@ -916,7 +1039,15 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         )["result"]["result"]["value"]
         toma = llamar("Page.captureScreenshot", {"format": "png"})
         png.write_bytes(base64.b64decode(toma["result"]["data"]))
-        salida = {"foco": foco, "ancho390": anchos, "png": png.is_file() and png.stat().st_size > 0}
+        salida = {
+            "foco": foco,
+            "estilos": estilos,
+            "ancho390": anchos,
+            "menuMovil": anchos.get("menuMovil", {}),
+            "subnavegacion": anchos.get("subnavegacion", []),
+            "senal": anchos.get("senal", []),
+            "png": png.is_file() and png.stat().st_size > 0,
+        }
         detalle.write_text(json.dumps(salida, indent=2) + "\n", encoding="utf-8")
         sock.close()
         return salida
@@ -937,12 +1068,20 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
 def _chrome_screenshot(
     url: str, png: Path, stderr_path: Path, timeout_s: int = 30, ancho: int = 1280, alto: int = 900
 ) -> bool:
-    """Toma screenshot con Chrome headless.
-
-    Retorna true solo si el png existe y tiene tamano > 0.
-    """
+    """Toma screenshot; en movil exige viewport y controles medidos por CDP."""
 
     png.unlink(missing_ok=True)
+    if ancho == 390:
+        resultado = _foco_y_ancho(url, png, stderr_path, con_foco=False, alto=alto)
+        movil = resultado.get("ancho390") or {}
+        menu = resultado.get("menuMovil") or {}
+        return (
+            resultado.get("png") is True
+            and movil.get("ancho") == 390
+            and menu.get("cantidad") == 5
+            and menu.get("todosDentro") is True
+            and all(alto_enlace >= 44 for alto_enlace in resultado.get("subnavegacion", []))
+        )
     chrome = _navegador()
     try:
         shot = subprocess.run(
@@ -1274,7 +1413,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "http_200": st == 200,
         "data-pantalla=campanas": 'data-pantalla="campanas"' in texto,
         "h2_campanas": "Campañas contra su target" in texto and "Lista de campañas" in texto,
-        "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
+        "nav_aria_current": _nav_activa(texto, "/campanas"),
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,
         "plataforma_usd": "Amazon US · USD" in texto,
@@ -1366,6 +1505,14 @@ def _get_html(base_url: str, path: str, timeout_s: float = 5.0) -> tuple[int, by
     return st, body
 
 
+def _nav_activa(html: str, href: str) -> bool:
+    for etiqueta in re.findall(r"<a\b[^>]*>", html, flags=re.IGNORECASE):
+        atributos = dict(re.findall(r'([\w:-]+)\s*=\s*"([^"]*)"', etiqueta))
+        if atributos.get("href") == href and atributos.get("aria-current") == "page":
+            return True
+    return False
+
+
 def _tramo(texto: str, inicio: str, fin: str = "<h2>") -> str:
     """Tramo del HTML entre dos marcas; vacio si falta la marca inicial."""
     if inicio not in texto:
@@ -1415,9 +1562,16 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "h1_resumen": "<h1>Resumen</h1>" in texto,
         "sidebar": 'class="sidebar"' in texto,
         "nav_resumen_activa": 'href="/"' in texto and 'aria-current="page"' in texto,
-        "nav_inertes": 'href="/inertes"' in texto,
-        "nav_fabrica": 'href="/campanas/nuevas"' in texto,
+        "nav_oportunidades": 'href="/cortes"' in texto,
+        "nav_decisiones": 'href="/decisiones"' in texto,
+        "nav_rendimiento": 'href="/contribucion"' in texto,
+        "nav_catalogo": 'href="/precios"' in texto,
+        "nav_salud": 'href="/salud"' in texto,
         "nav_settings": 'href="/settings"' in texto,
+        "menu_movil_mas": 'id="nav-mas-toggle"' in texto and 'id="nav-mas"' in texto,
+        "accion_crear_campanas": (
+            'class="accion-primaria" href="/campanas/nuevas"' in texto
+        ),
         "tema_dia": 'data-tema="dia"' in texto,
         "btn_tema": 'id="btn-tema"' in texto,
         "resumen_publicidad": "Resumen de publicidad" in texto,
@@ -1425,8 +1579,21 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "filtro_periodo_30": 'value="30" selected' in texto,
         "datos_resumen": 'id="datos-resumen"' in texto,
         "tabla_canal": "Tabla por canal" in texto,
-        "como_va_cada_canal": "Cómo va cada canal" in texto,
-        "que_revisar": "Qué revisar" in texto,
+        "pendientes_revision": "Pendientes de revisión" in texto,
+        "monedas_principales": 'class="resumen-monedas-principales"' in texto,
+        "canales": "Canales" in texto,
+        "grid_a2": (
+            'class="resumen-principal"' in texto
+            and '<aside class="resumen-canales">' in texto
+        ),
+        "orden_a2": (
+            'class="resumen-pendientes superficie"' in texto
+            and 'class="resumen-monedas-principales"' in texto
+            and 'class="chart-card"' in texto
+            and texto.index("resumen-pendientes") < texto.index("resumen-monedas-principales")
+            and texto.index("resumen-monedas-principales") < texto.index("chart-card")
+        ),
+        "sin_footer_antiguo": 'class="footer-links"' not in texto,
         "meta_acos": "Meta ACoS:" in texto,
         "totales_por_moneda": "Totales por moneda" in texto,
         "detalle_plegado": 'class="detail-box"' in texto,
@@ -1545,15 +1712,22 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         timeout_s=30,
     )
     st_css, _, raw_css = _http(f"{base}/static/css/dashboard.css")
+    st_css_resumen, _, raw_css_resumen = _http(f"{base}/static/css/resumen.css")
     css = raw_css.decode("utf-8", errors="replace")
-    checks["css_200"] = st_css == 200
-    css_390 = _bloque_css(css, "@media (max-width: 390px)")
+    css_resumen = raw_css_resumen.decode("utf-8", errors="replace")
+    checks["css_200"] = st_css == 200 and st_css_resumen == 200
+    css_390 = _bloque_css(css_resumen, "@media (max-width: 390px)")
     checks["css_390"] = (
         'body[data-pantalla="resumen"] .tabla-scroll' in css_390 and "overflow-x: auto" in css_390
     )
     checks["css_foco"] = "tabla-scroll:focus-visible" in css
     checks["tabla_enfocable"] = 'class="tabla-scroll" tabindex="0"' in texto
-    foco = _foco_y_ancho(base + "/", evidence / "10-foco-390.png", evidence / "10-foco.json")
+    foco = _foco_y_ancho(
+        base + "/",
+        evidence / "10-foco-390.png",
+        evidence / "10-foco.json",
+        auditar_estilos=True,
+    )
     foco_datos = foco.get("foco") or {}
     ancho_datos = foco.get("ancho390") or {}
     checks["foco_tabla"] = (
@@ -1575,8 +1749,8 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "action": (
             "GET /, filtros ?canal=meli&periodo=7, ?periodo=90 y "
             "?desde=2026-10-01&hasta=2026-10-07; GET /api/dashboard/resumen "
-            "(?canal=amazon_us, ?canal=amazon_mx); CSS /static/css/dashboard.css y capturas y foco "
-            "en navegador headless"
+            "(?canal=amazon_us, ?canal=amazon_mx); CSS /static/css/dashboard.css y "
+            "/static/css/resumen.css; capturas y foco en navegador headless"
         ),
         "checks": checks,
         "ok": all(checks.values()),
@@ -1692,7 +1866,8 @@ def cmd_drive_salud(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=salud": 'data-pantalla="salud"' in texto,
-        "tarjeta_por_plataforma": 'class="tarjeta salud-tarjeta"' in texto,
+        "tarjeta_por_plataforma": 'class="sistema-resumen superficie"' in texto
+        and 'class="salud-tarjeta"' in texto,
         "checks_por_plataforma": 'class="salud-checks"' in texto,
         "tab_amazon_us": 'href="/salud?plataforma=amazon_us"' in texto,
         "tab_amazon_mx": 'href="/salud?plataforma=amazon_mx"' in texto,
@@ -1796,7 +1971,7 @@ def cmd_drive_contribucion(args: argparse.Namespace) -> None:
         "data-pantalla=contribucion": 'data-pantalla="contribucion"' in texto,
         "h1_contribucion": "Contribución por campaña" in texto,
         "tarjetas_plataforma": "contribucion-plataformas" in texto
-        and texto.count('class="tarjeta contribucion-tarjeta"') == 2,
+        and len(re.findall(r'class="tarjeta contribucion-tarjeta(?:\s[^"]*)?"', texto)) == 2,
         "no_hay_filas": "Sin campañas con actividad madura en la ventana." in texto,
         "sin_estilos_inline": "style=" not in texto,
     }
@@ -1904,6 +2079,19 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
     checks["api_sin_asesoria"] = "asesoria_disponible" not in data and not any(
         "asesoria" in i for i in items
     )
+    if 'class="senal-bloque"' in texto:
+        captura = _foco_y_ancho(
+            base + "/cortes",
+            evidence / "04-senal-390.png",
+            evidence / "04-senal.json",
+            con_foco=False,
+        )
+        medidas = captura.get("senal") or []
+        checks["senal_ancho_calculado"] = (
+            captura.get("png") is True
+            and bool(medidas)
+            and all(medida.get("ok") is True for medida in medidas)
+        )
 
     prueba = {
         "feature": "cortes",
@@ -2004,7 +2192,7 @@ def cmd_drive_fabrica(args: argparse.Namespace) -> None:
         and 'class="fabrica-catalogo"' in texto,
         "comparador_publicaciones": 'id="fabrica-comparador"' in texto
         and 'id="fabrica-comparador-datos"' in texto,
-        "nav_aria_current": 'href="/campanas/nuevas"' in texto and 'aria-current="page"' in texto,
+        "nav_aria_current": _nav_activa(texto, "/campanas"),
         "form_plan": 'id="fabrica-plan"' in texto,
         "select_plataforma": 'id="fabrica-plataforma"' in texto,
         "input_token": 'id="fabrica-token"' in texto,
@@ -2063,7 +2251,7 @@ def cmd_drive_settings(args: argparse.Namespace) -> None:
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
         "data-pantalla=settings": 'data-pantalla="settings"' in texto,
-        "h1_settings": "<h1>Settings</h1>" in texto,
+        "h1_settings": "<h1>Configuración</h1>" in texto,
         "h2_settings": "<h2>Settings</h2>" in texto,
         "nav_aria_current": 'href="/settings"' in texto and 'aria-current="page"' in texto,
         "token_input": 'id="settings-token"' in texto,
@@ -2333,10 +2521,10 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
     evidence = _evidence_dir(run_id) / "productos"
     evidence.mkdir(parents=True, exist_ok=True)
 
-    st0, html0 = _get_html(base, "/")
-    (evidence / "01-resumen.html").write_bytes(html0)
+    st0, html0 = _get_html(base, "/cortes")
+    (evidence / "01-oportunidades.html").write_bytes(html0)
     if st0 != 200 or 'href="/productos-sin-clics"' not in html0.decode("utf-8", errors="replace"):
-        _die(f"punto de partida GET / sin enlace a Productos sin clics: {st0}")
+        _die(f"punto de partida GET /cortes sin enlace a Productos sin clics: {st0}")
 
     st_mx, html_mx = _get_html(base, "/productos-sin-clics?plataforma=amazon_mx")
     (evidence / "02-productos-mx.html").write_bytes(html_mx)
@@ -2554,6 +2742,39 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         _die("drive-productos FALLA: " + ", ".join(fallaron))
 
 
+def cmd_drive_secundarias(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+    evidence = _evidence_dir(run_id) / "secundarias"
+    evidence.mkdir(parents=True, exist_ok=True)
+    resultados = {}
+    for ruta, pantalla in SECUNDARIAS.items():
+        status, raw = _get_html(base, ruta)
+        (evidence / f"{pantalla}.html").write_bytes(raw)
+        html = raw.decode("utf-8", errors="replace")
+        resultados[pantalla] = {
+            "status": status,
+            "nav_activa": f'data-pantalla="{pantalla}"' in html and _nav_activa(html, ruta),
+        }
+    prueba = {
+        "feature": "secundarias",
+        "entry_point": "subnavegacion",
+        "base_url": base,
+        "pantallas": resultados,
+        "ok": all(
+            item["status"] == 200 and item["nav_activa"] for item in resultados.values()
+        ),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        _die("drive-secundarias FALLA")
+
+
 def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
     run_id = args.run_id or _run_id()
     port = args.port
@@ -2580,6 +2801,7 @@ def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
             cmd_drive_fabrica,
             cmd_drive_settings,
             cmd_drive_productos,
+            cmd_drive_secundarias,
         ):
             try:
                 drive(drive_args)
@@ -2708,6 +2930,12 @@ def main() -> None:
     p_drive = sub.add_parser("drive-campanas", help="Conduce la pantalla Campanas")
     p_drive.add_argument("--run-id", default=None)
     p_drive.set_defaults(func=cmd_drive_campanas)
+
+    p_secundarias = sub.add_parser(
+        "drive-secundarias", help="Conduce las pantallas sin drive especifico"
+    )
+    p_secundarias.add_argument("--run-id", default=None)
+    p_secundarias.set_defaults(func=cmd_drive_secundarias)
 
     p_maint = sub.add_parser(
         "maintain-verification-skill",

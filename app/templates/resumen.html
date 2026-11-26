@@ -2,6 +2,9 @@
 {% block estilos %}
 <link rel="stylesheet" href="/static/css/resumen.css?v={{ asset_version }}">
 {% endblock %}
+{% block cabecera_accion %}
+<a class="accion-primaria" href="/campanas/nuevas">Crear campañas</a>
+{% endblock %}
 {% block contenido %}
 {% set vista = contrato | vista_resumen %}
 {% set metricas = [
@@ -93,10 +96,93 @@
   </details>
 </div>
 
+<section class="resumen-pendientes superficie" aria-labelledby="sec-revisar">
+  <div class="seccion-encabezado"><h2 id="sec-revisar">Pendientes de revisión</h2></div>
+  <div class="actions-card">
+    {% for item in vista.que_revisar %}
+    <div class="action-row">
+      <span class="action-rank">{{ loop.index }}</span>
+      <div class="action-body">
+        <div class="action-title">{{ item.titulo }}</div>
+        <div class="action-desc">{{ item.evidencia }}</div>
+        {% if item.caveat %}<div class="action-caveat">{{ item.caveat }}</div>{% endif %}
+      </div>
+      <div class="action-links">
+        {% for texto_link, href_link in item.enlaces %}
+        <a class="action-link" href="{{ href_link }}">{{ texto_link }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <p class="mutado">Sin alertas en la ventana seleccionada.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="resumen-monedas-principales" aria-label="Métricas por moneda">
+  {% for grupo in contrato.totales_por_moneda %}
+  <article class="resumen-moneda" data-moneda="{{ grupo.moneda }}">
+    <h2>Totales {{ grupo.moneda }}</h2>
+    <div class="grupo-metricas">
+      {% for clave, etiqueta, tipo in metricas %}
+      <div class="kpi">
+        <span class="kpi-etiqueta">{{ etiqueta }}</span>
+        <strong class="kpi-valor">{{ cifra(grupo[clave], tipo) }}</strong>
+        {% if tipo == 'dinero' %}<span class="kpi-contexto">{{ grupo.moneda }}</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </article>
+  {% endfor %}
+</section>
+
+<div class="resumen-principal">
+
+<section class="resumen-seccion" aria-labelledby="sec-tendencia">
+  <div class="sec-head">
+    <h3 id="sec-tendencia" class="sec-title">Tendencia · ventas vs gasto</h3>
+    <span class="sec-sub">La linea fina es el dia. La linea gruesa es la media de 7 dias que ya trae el contrato. Un hueco es un dato desconocido. El cero se queda en cero.</span>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-toolbar">
+      <div class="chart-tabs" role="tablist" aria-label="Canal de la grafica de tendencia">
+        {% for nombre, bloque in contrato.canales.items() %}
+        <button type="button" class="chart-tab{% if loop.first %} active{% endif %}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" data-tab-canal="{{ nombre }}">
+          {{ nombre | etiqueta('plataforma') }} <span class="curr-tag">· {{ bloque.moneda }}</span>
+        </button>
+        {% endfor %}
+      </div>
+      <div class="chart-legend" aria-hidden="true">
+        <span class="leg-item"><span class="leg-swatch ventas-ma7"></span>Ventas media 7d</span>
+        <span class="leg-item"><span class="leg-swatch ventas-dia"></span>Ventas dia</span>
+        <span class="leg-item"><span class="leg-swatch gasto-ma7"></span>Gasto media 7d</span>
+        <span class="leg-item"><span class="leg-swatch gasto-dia"></span>Gasto dia</span>
+      </div>
+    </div>
+
+    {% for nombre, bloque in contrato.canales.items() %}
+    <div class="chart-panel" data-panel-canal="{{ nombre }}"{% if not loop.first %} hidden{% endif %}>
+      <div class="lienzo">
+        <canvas id="tendencia-{{ nombre }}" data-canal="{{ nombre }}" role="img" aria-describedby="serie-{{ nombre }}" aria-label="Gasto y ventas de {{ nombre | etiqueta('plataforma') }} en {{ bloque.moneda }}"></canvas>
+      </div>
+      <div class="chart-note">
+        {% if bloque.maduracion.aplica %}
+        <span><strong>Maduracion {{ nombre | etiqueta('plataforma') }}:</strong> cifras inmaduras del {{ bloque.maduracion.ventana_inmaduros.desde }} al {{ bloque.maduracion.ventana_inmaduros.hasta }}. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
+        {% elif bloque.maduracion.motivo %}
+        <span><strong>Maduracion {{ nombre | etiqueta('plataforma') }}:</strong> {{ bloque.maduracion.motivo }}</span>
+        {% endif %}
+        <span>Moneda: <strong>{{ bloque.moneda }}</strong> · Cobertura: <strong>{{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias</strong></span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<aside class="resumen-canales">
 <section class="resumen-seccion" aria-labelledby="sec-canales">
   <div class="sec-head">
-    <span class="sec-num">1</span>
-    <h3 id="sec-canales" class="sec-title">Cómo va cada canal</h3>
+    <h3 id="sec-canales" class="sec-title">Canales</h3>
     <span class="sec-sub">Moneda nativa por canal · comparado contra los {{ contrato.dias }} dias previos</span>
   </div>
 
@@ -175,92 +261,17 @@
     {% endfor %}
   </div>
 </section>
+</aside>
+</div>
 
-<section class="resumen-seccion" aria-labelledby="sec-revisar">
+<section class="resumen-seccion" aria-labelledby="sec-detalle">
   <div class="sec-head">
-    <span class="sec-num">2</span>
-    <h3 id="sec-revisar" class="sec-title">Qué revisar</h3>
-    <span class="sec-sub">Ordenado por impacto con las cifras del periodo elegido ({{ contrato.desde }} .. {{ contrato.hasta }})</span>
+    <h3 id="sec-detalle" class="sec-title">Tablas detalladas y series diarias</h3>
+    <span class="sec-sub">Plegadas por defecto · clic para abrir</span>
   </div>
-
-  {% if vista.que_revisar %}
-  <div class="actions-card">
-    {% for item in vista.que_revisar %}
-    <div class="action-row">
-      <span class="action-rank">{{ loop.index }}</span>
-      <div class="action-body">
-        <div class="action-title">{{ item.titulo }}</div>
-        <div class="action-desc">{{ item.evidencia }}</div>
-        {% if item.caveat %}
-        <div class="action-caveat">{{ item.caveat }}</div>
-        {% endif %}
-      </div>
-      <div class="action-links">
-        {% for texto_link, href_link in item.enlaces %}
-        <a class="action-link" href="{{ href_link }}">{{ texto_link }}</a>
-        {% endfor %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="actions-card">
-    <div class="action-row">
-      <span class="action-rank">—</span>
-      <div class="action-body">
-        <div class="action-title">Sin alertas en la ventana seleccionada</div>
-        <div class="action-desc">No se detectaron dias con gasto sin venta, caidas de media movil ni variaciones semanales con los datos disponibles.</div>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-</section>
-
-<section class="resumen-seccion" aria-labelledby="sec-tendencia">
-  <div class="sec-head">
-    <span class="sec-num">3</span>
-    <h3 id="sec-tendencia" class="sec-title">Tendencia · ventas vs gasto</h3>
-    <span class="sec-sub">La linea fina es el dia. La linea gruesa es la media de 7 dias que ya trae el contrato. Un hueco es un dato desconocido. El cero se queda en cero.</span>
-  </div>
-
-  <div class="chart-card">
-    <div class="chart-toolbar">
-      <div class="chart-tabs" role="tablist" aria-label="Canal de la grafica de tendencia">
-        {% for nombre, bloque in contrato.canales.items() %}
-        <button type="button" class="chart-tab{% if loop.first %} active{% endif %}" role="tab" aria-selected="{{ 'true' if loop.first else 'false' }}" data-tab-canal="{{ nombre }}">
-          {{ nombre | etiqueta('plataforma') }} <span class="curr-tag">· {{ bloque.moneda }}</span>
-        </button>
-        {% endfor %}
-      </div>
-      <div class="chart-legend" aria-hidden="true">
-        <span class="leg-item"><span class="leg-swatch ventas-ma7"></span>Ventas media 7d</span>
-        <span class="leg-item"><span class="leg-swatch ventas-dia"></span>Ventas dia</span>
-        <span class="leg-item"><span class="leg-swatch gasto-ma7"></span>Gasto media 7d</span>
-        <span class="leg-item"><span class="leg-swatch gasto-dia"></span>Gasto dia</span>
-      </div>
-    </div>
-
-    {% for nombre, bloque in contrato.canales.items() %}
-    <div class="chart-panel" data-panel-canal="{{ nombre }}"{% if not loop.first %} hidden{% endif %}>
-      <div class="lienzo">
-        <canvas id="tendencia-{{ nombre }}" data-canal="{{ nombre }}" role="img" aria-describedby="serie-{{ nombre }}" aria-label="Gasto y ventas de {{ nombre | etiqueta('plataforma') }} en {{ bloque.moneda }}"></canvas>
-      </div>
-      <div class="chart-note">
-        {% if bloque.maduracion.aplica %}
-        <span><strong>Maduracion {{ nombre | etiqueta('plataforma') }}:</strong> cifras inmaduras del {{ bloque.maduracion.ventana_inmaduros.desde }} al {{ bloque.maduracion.ventana_inmaduros.hasta }}. La atribucion de ventas y el cierre de gasto siguen ajustandose en esa ventana.</span>
-        {% elif bloque.maduracion.motivo %}
-        <span><strong>Maduracion {{ nombre | etiqueta('plataforma') }}:</strong> {{ bloque.maduracion.motivo }}</span>
-        {% endif %}
-        <span>Moneda: <strong>{{ bloque.moneda }}</strong> · Cobertura: <strong>{{ bloque.coverage.dias_con_dato }}/{{ bloque.dias }} dias</strong></span>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</section>
 
 <section class="resumen-seccion" aria-labelledby="sec-monedas">
   <div class="sec-head">
-    <span class="sec-num">4</span>
     <h3 id="sec-monedas" class="sec-title">Totales por moneda</h3>
     <span class="sec-sub">Sin mezclar divisas · las metricas que un canal no publica quedan con raya</span>
   </div>
@@ -305,13 +316,6 @@
     {% endfor %}
   </div>
 </section>
-
-<section class="resumen-seccion" aria-labelledby="sec-detalle">
-  <div class="sec-head">
-    <span class="sec-num">5</span>
-    <h3 id="sec-detalle" class="sec-title">Tablas detalladas y series diarias</h3>
-    <span class="sec-sub">Plegadas por defecto · clic para abrir</span>
-  </div>
 
   <div class="details-stack">
     <details class="detail-box">
@@ -458,16 +462,6 @@
     {% endfor %}
   </div>
 </section>
-
-<footer class="footer-links" aria-label="Accesos rapidos">
-  <a href="/">Resumen</a>
-  <a href="/contribucion">Contribucion</a>
-  <a href="/reputacion">Reputacion</a>
-  <a href="/decisiones">Decisiones</a>
-  <a href="/campanas">Campañas</a>
-  <a href="/settings">Settings</a>
-  <a href="/cortes">Propuestas</a>
-</footer>
 
 <script type="application/json" id="datos-resumen">{{ contrato | tojson }}</script>
 {% endblock %}

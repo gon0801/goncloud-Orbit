@@ -1,6 +1,6 @@
 /* DISENOS 01 C: Contribucion con tarjeta por plataforma y barra de rango SVG (CSP-safe). */
 .contribucion-intro { max-width: 720px; font-size: 13px; line-height: 1.55; color: var(--o-ink2); margin: 0 0 18px; }
-.contribucion-plataformas {
+.contribucion-plataformas.rendimiento-resumen {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(460px, 100%), 1fr));
   gap: 16px;
@@ -70,7 +70,7 @@ html[data-tema="noche"] .contribucion-linea-base { stroke: #2C2C36; }
 html[data-tema="noche"] .contribucion-linea-cero { stroke: #6B7280; }
 
 @media (max-width: 720px) {
-  .contribucion-plataformas { grid-template-columns: 1fr; }
+  .contribucion-plataformas.rendimiento-resumen { grid-template-columns: 1fr; }
   .contribucion-cab { align-items: flex-start; }
   .contribucion-cab > .num { flex: 1 1 100%; }
   .contribucion-tabla-tarjeta .leyenda { max-width: 100%; }

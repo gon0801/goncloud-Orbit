@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Productos sin clics</h2>
+<section class="oportunidad-resumen superficie" aria-label="Productos sin clics">
 <p class="mutado">
   Venden y casi no reciben clics de anuncios. Márcalos, escribe la subfamilia
   de búsqueda de cada uno y lanza su impulso: dos campañas por producto que
@@ -18,7 +19,9 @@
   {% for sf in subfamilias %}<option value="{{ sf }}"></option>{% endfor %}
 </datalist>
 {% set ejemplo_subfamilia = "ej. " ~ (subfamilias[0] if subfamilias else "kit_arras") %}
+</section>
 
+<section class="oportunidad-contenido" aria-label="Productos sin clics">
 <div class="tarjeta">
   <h3>Candidatos a impulsar <span class="chip">{{ candidatos | length }}</span></h3>
   <p class="mutado">2 pedidos o más en 3 meses y menos de 20 clics de anuncios en 60 días.</p>
@@ -211,6 +214,8 @@
   {% endif %}
 </div>
 
+</section>
+<section class="oportunidad-detalle" aria-label="Productos sin clics">
 {% if dp and dp.cycle_id and dp.productos %}
 {% set pz = dp.pausa %}
 <div class="tarjeta" id="pausa-producto" data-modo-pausa="{{ pz.modo or 'off' }}">
@@ -371,6 +376,7 @@
     <span data-estado class="mutado"></span>
   </form>
 </div>
+</section>
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/productos.js?v={{ asset_version }}"></script>

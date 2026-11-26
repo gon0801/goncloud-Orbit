@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Búsquedas que gastan sin vender</h2>
+<section class="oportunidad-resumen superficie" aria-label="Búsquedas que gastan sin vender">
 <p class="mutado">
   Solo campañas encendidas, 90 días que terminan el {{ hasta | fecha_corta }}. Los últimos 10 días se dejan fuera porque sus ventas todavía llegan, igual que hace Orbit antes de cortar. Esta pantalla no niega nada en Amazon: los negatives los agregas a mano.
 </p>
@@ -13,6 +14,8 @@
 {% else %}
 <p>Sin pedidos o sin clics en estos 90 días: no hay referencia de azar.</p>
 {% endif %}
+</section>
+<section class="oportunidad-contenido" aria-label="Búsquedas que gastan sin vender">
 <div class="tarjeta">
   <h3>Páginas de producto ajenas</h3>
   {% if asins %}
@@ -73,6 +76,8 @@
   <p>Ninguna palabra pasó el mínimo sin vender.</p>
   {% endif %}
 </div>
+</section>
+<section class="oportunidad-detalle" aria-label="Búsquedas que gastan sin vender">
 <div class="tarjeta">
   <h3>A medio camino</h3>
   <p>
@@ -81,4 +86,5 @@
     sin vender.
   </p>
 </div>
+</section>
 {% endblock %}

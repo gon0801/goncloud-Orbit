@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block contenido %}
-{% include "_precios_seguridad.html" %}
+{% if plataformas is defined and not error %}
+<section class="catalogo-resumen superficie" aria-label="Compuerta y cobertura de precios">
+  {% include "_precios_seguridad.html" %}
+</section>
+{% endif %}
 {% include "_precios_goals.html" %}
 {% endblock %}
 {% block scripts %}<script src="/static/js/precios.js?v={{ asset_version }}"></script>{% endblock %}

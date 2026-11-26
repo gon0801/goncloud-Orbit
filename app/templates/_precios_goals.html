@@ -6,8 +6,11 @@
 <div class="salud-grid">
 {% for plataforma, datos in plataformas.items() %}
 {% set rec = datos.recuadro %}
-<div class="tarjeta">
-  <h2>{{ plataforma | etiqueta("plataforma") }} <span class="chip">{{ datos.hoy }}</span></h2>
+<div class="tarjeta superficie">
+  <div class="seccion-encabezado">
+    <h2>{{ plataforma | etiqueta("plataforma") }}</h2>
+    <span class="chip">{{ datos.hoy }}</span>
+  </div>
 
   <section id="bloque-goals-{{ plataforma }}" aria-label="Objetivos de {{ plataforma | etiqueta('plataforma') }}">
   <h3>Goals — siembra y cambio</h3>
@@ -55,51 +58,13 @@
       <input type="checkbox" name="sin_goal" value="true">
       todos los sin goal
     </label>
-    <button type="submit" data-plan>Planear</button>
+    <button type="submit" class="accion-primaria" data-plan>Planear</button>
     <button type="button" data-aplicar disabled>Aplicar</button>
     <span data-estado class="mutado"></span>
   </form>
   <div data-vista aria-live="polite"></div>
   {% else %}
   <p class="mutado">Sin unidades en esta plataforma.</p>
-  {% endif %}
-  </section>
-
-  <section id="bloque-cobertura-{{ plataforma }}" aria-label="Cobertura">
-  <h3>Cobertura</h3>
-  {% if rec.activas == 0 %}
-  <p class="mutado">Sin publicaciones activas hoy.</p>
-  {% else %}
-  {% set n_noev = rec.no_evaluadas | sum(attribute="count") %}
-  {% set n_fuera = rec.fuera_de_alcance | sum(attribute="count") %}
-  <p>{{ rec.activas | numero }} activa{{ "s" if rec.activas != 1 }} = {{ rec.evaluadas | numero }} evaluada{{ "s" if rec.evaluadas != 1 }} + {{ n_noev | numero }} no evaluada{{ "s" if n_noev != 1 }} + {{ rec.sin_goal | length | numero }} sin objetivo + {{ n_fuera | numero }} fuera de alcance</p>
-  {% endif %}
-  <p class="mutado">Puente del bridge: {% if datos.puente is none %}contraste no disponible{% else %}{{ datos.puente | numero }} frente a {{ rec.activas | numero }} canónicas{% endif %}{% if datos.aviso_puente %} · <span class="chip alerta">{{ datos.aviso_puente }}</span>{% endif %}</p>
-  {% if rec.avisos %}
-  <ul>
-    {% for aviso in rec.avisos %}
-    <li class="alerta">{{ aviso }}</li>
-    {% endfor %}
-  </ul>
-  {% endif %}
-  {% if rec.sin_goal %}
-  <div class="tabla-scroll" role="region" aria-label="Publicaciones sin goal" tabindex="0">
-  <table>
-    <thead><tr><th>SKU sin goal</th><th class="num">Precio</th><th>Moneda</th><th>Canal</th></tr></thead>
-    <tbody>
-      {% for d in rec.sin_goal %}
-      <tr><td class="mono" data-dato-libre>{{ d.sku }}</td><td class="num">{{ d.precio | dinero }}</td><td>{{ d.moneda or "—" }}</td><td>{{ d.canal or "—" }}</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% endif %}
-  {% if rec.fuera_de_alcance %}
-  <ul>
-    {% for item in rec.fuera_de_alcance %}
-    <li>{{ item.count | numero }} fuera de alcance ({{ item.fase | etiqueta("motivo_precio") }})</li>
-    {% endfor %}
-  </ul>
   {% endif %}
   </section>
 

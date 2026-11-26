@@ -542,7 +542,9 @@ def test_pantalla_envios_html_y_etiquetas(monkeypatch):
 
         assert 'href="/envios"' in html
         assert 'id="envios-contador"' in html
-        assert 'class="tab tab-activo" href="/envios" aria-current="page"' in html
+        assert 'href="/precios" class="nav-activo" aria-current="true"' in html
+        assert '<a href="/envios" aria-current="page">Envíos</a>' in html
+        assert 'id="nav-mas-toggle" class="tab tab-activo"' in html
         assert 'data-rol="envios"' in html
         assert 'class="tab tab-activo" href="/reputacion"' not in html
         assert "Amazon MX · Amazon US · Mercado Libre" in _texto_visible(

@@ -1,25 +1,24 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h2>Settings</h2>
-<p class="mutado">
-  La meta de ACoS que usa cada plataforma y de dónde sale. Guardar la configuración
-  crea una versión nueva y la anterior queda en el historial; guardar una meta de
-  campaña la cambia en su lugar. Para guardar hace falta el token de escritura
-  (campo Token abajo). El modo global y la captura de búsquedas solo se consultan aquí.
-  La tarjeta «Temporadas de venta» guarda el calendario y sus parámetros para las
-  dos plataformas a la vez, con el mismo token.
-</p>
-
-<section class="tarjeta settings-sesion">
-<p>
-  Config vigente: <code>{{ datos.config_version_id or "—" }}</code>
-  · Modo global (solo lectura): <strong>{{ datos.modo_global | etiqueta("modo") }}</strong>
-</p>
-
-<label>Token
-  <input type="password" id="settings-token" name="token" placeholder="Token de escritura" required>
-</label>
-
+<section class="sistema-resumen superficie settings-sesion">
+  <div class="seccion-encabezado">
+    <h2>Settings</h2>
+    <p>
+      Config vigente: <code>{{ datos.config_version_id or "—" }}</code>
+      · Modo global (solo lectura): <strong>{{ datos.modo_global | etiqueta("modo") }}</strong>
+    </p>
+  </div>
+  <p class="mutado">
+    La meta de ACoS que usa cada plataforma y de dónde sale. Guardar la configuración
+    crea una versión nueva y la anterior queda en el historial; guardar una meta de
+    campaña la cambia en su lugar. Para guardar hace falta el token de escritura
+    (campo Token abajo). El modo global y la captura de búsquedas solo se consultan aquí.
+    La tarjeta «Temporadas de venta» guarda el calendario y sus parámetros para las
+    dos plataformas a la vez, con el mismo token.
+  </p>
+  <label>Token
+    <input type="password" id="settings-token" name="token" placeholder="Token de escritura" required>
+  </label>
 </section>
 
 <section class="tarjeta" data-temporada
@@ -269,7 +268,7 @@
       {% endfor %}
     </fieldset>
 
-    <button type="submit">Guardar configuración de {{ p.plataforma | etiqueta("plataforma") }}</button>
+    <button type="submit" class="accion-primaria">Guardar configuración de {{ p.plataforma | etiqueta("plataforma") }}</button>
     <span data-estado class="mutado"></span>
   </form>
 
@@ -291,7 +290,7 @@
     <label>Ceiling
       <input type="text" name="bid_ceiling" value="{{ p.goal.ceiling or '' }}">
     </label>
-    <button type="submit">Guardar goal plataforma</button>
+    <button type="submit" class="accion-primaria">Guardar goal plataforma</button>
     <span data-estado class="mutado"></span>
   </form>
   {% endif %}
@@ -327,7 +326,7 @@
     <label>Ceiling
       <input type="text" name="bid_ceiling" value="{{ goal.ceiling or '' }}">
     </label>
-    <button type="submit">Guardar goal campaña</button>
+    <button type="submit" class="accion-primaria">Guardar goal campaña</button>
     <span data-estado class="mutado"></span>
   </form>
   {% else %}

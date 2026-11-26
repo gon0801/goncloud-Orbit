@@ -1,4 +1,4 @@
-/* Resumen multicanal (secciones 0 a 6). Cargado solo por resumen.html. */
+/* Resumen A2 multicanal. Cargado solo por resumen.html. */
 .resumen-filter-bar {
   background: var(--o-card);
   border: 1px solid var(--o-borde);
@@ -64,6 +64,68 @@ details.custom-range[open] > summary {
   font-size: 11px;
   color: var(--o-ink3);
   margin: 6px 0 0;
+}
+
+.resumen-pendientes {
+  padding: 16px 18px;
+  margin-bottom: 20px;
+}
+.resumen-pendientes .seccion-encabezado {
+  margin-bottom: 12px;
+}
+.resumen-pendientes .actions-card {
+  border: 0;
+  border-radius: 0;
+}
+.resumen-pendientes .actions-card > .mutado {
+  margin: 0;
+  padding: 12px 0 0;
+}
+.resumen-monedas-principales {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.resumen-moneda {
+  min-width: 0;
+}
+.resumen-moneda .grupo-metricas {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.resumen-moneda .kpi {
+  display: flex;
+  flex-direction: column;
+}
+.resumen-moneda .kpi-valor {
+  overflow-wrap: anywhere;
+}
+.resumen-principal {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.resumen-principal > *,
+.resumen-canales,
+.resumen-canales .channel-grid {
+  min-width: 0;
+}
+.resumen-principal .resumen-seccion {
+  margin-bottom: 0;
+}
+.resumen-canales .channel-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 50rem) {
+  .resumen-moneda .grupo-metricas {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (min-width: 65.625rem) {
+  .resumen-principal {
+    grid-template-columns: minmax(0, 1.75fr) minmax(260px, 1fr);
+  }
 }
 
 .resumen-seccion {
@@ -309,69 +371,6 @@ html[data-tema="noche"] .ch-kpi-delta.down { color: #fcd34d; }
   border-radius: 10px;
   overflow: clip;
 }
-.action-row {
-  display: grid;
-  grid-template-columns: 28px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--o-borde2);
-}
-.action-row:last-child { border-bottom: none; }
-.action-rank {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-variant-numeric: tabular-nums;
-  background: #fef3c7;
-  color: #92400e;
-}
-html[data-tema="noche"] .action-rank {
-  background: #451a03;
-  color: #fde68a;
-}
-.action-body { min-width: 0; }
-.action-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--o-ink);
-}
-.action-desc {
-  font-size: 12px;
-  color: var(--o-ink2);
-  margin-top: 2px;
-  font-variant-numeric: tabular-nums;
-}
-.action-caveat {
-  font-size: 11px;
-  color: #b45309;
-  margin-top: 3px;
-}
-html[data-tema="noche"] .action-caveat { color: #fcd34d; }
-.action-links {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.action-link {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--o-ac);
-  padding: 6px 10px;
-  border: 1px solid var(--o-borde);
-  background: var(--o-bg2);
-  border-radius: 6px;
-}
-.action-link:hover {
-  background: var(--o-ac-bg);
-  border-color: var(--o-ac);
-}
-
 .chart-card {
   background: var(--o-card);
   border: 1px solid var(--o-borde);
@@ -569,33 +568,16 @@ details.detail-box[open] > summary {
   padding: 12px 16px;
 }
 
-.footer-links {
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1px solid var(--o-borde);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  font-size: 12px;
-}
-.footer-links a {
-  color: var(--o-ink2);
-  font-weight: 500;
-}
-.footer-links a:hover { color: var(--o-ink); }
-
-@media (max-width: 40rem) {
-  .action-row {
-    grid-template-columns: 24px 1fr;
-  }
-  .action-links {
-    grid-column: 1 / -1;
-  }
-}
 @media (max-width: 390px) {
   body[data-pantalla="resumen"] { overflow-x: clip; }
   body[data-pantalla="resumen"] .filtros,
   body[data-pantalla="resumen"] .resumen-filter-bar,
+  body[data-pantalla="resumen"] .resumen-pendientes,
+  body[data-pantalla="resumen"] .resumen-monedas-principales,
+  body[data-pantalla="resumen"] .resumen-moneda,
+  body[data-pantalla="resumen"] .grupo-metricas,
+  body[data-pantalla="resumen"] .resumen-principal,
+  body[data-pantalla="resumen"] .resumen-canales,
   body[data-pantalla="resumen"] .channel-grid,
   body[data-pantalla="resumen"] .ch-card,
   body[data-pantalla="resumen"] .actions-card,

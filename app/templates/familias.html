@@ -1,11 +1,16 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h2>Familias</h2>
-<p class="mutado">
-  Etiquetas de producto en dos niveles (familia · subfamilia). La fábrica
-  toma el tipo de producto de la familia y avisa si un grupo mezcla
-  familias. Para guardar hace falta el token de escritura (campo Token).
-</p>
+<section class="catalogo-resumen superficie" aria-labelledby="h-familias">
+  <div class="seccion-encabezado">
+    <h2 id="h-familias">Familias</h2>
+    <span class="num mutado">{{ items | length }} productos</span>
+  </div>
+  <p class="mutado">
+    Etiquetas de producto en dos niveles (familia · subfamilia). La fábrica
+    toma el tipo de producto de la familia y avisa si un grupo mezcla
+    familias. Para guardar hace falta el token de escritura (campo Token).
+  </p>
+</section>
 
 <section class="tarjeta">
   <label>Token
@@ -62,13 +67,13 @@
         {% endfor %}
       </select>
     </label>
-    <button type="submit">Crear familia</button>
+    <button type="submit" class="accion-primaria">Crear familia</button>
     <span data-estado class="mutado" role="status"></span>
   </form>
 </section>
 
 <section class="tarjeta">
-  <h3>Productos · {{ items | length }}</h3>
+  <h3>Productos</h3>
   <form method="get" action="/familias" id="familias-filtros">
     <label>Plataforma
       <select name="plataforma">
@@ -84,7 +89,7 @@
         {% if filtros.sin_familia %}checked{% endif %}>
       Solo sin familia
     </label>
-    <button type="submit">Filtrar</button>
+    <button type="submit" class="accion-primaria">Filtrar</button>
   </form>
   <form id="familias-asignar" autocomplete="off">
     <label>Asignar los seleccionados a
@@ -98,7 +103,7 @@
         {% endfor %}
       </select>
     </label>
-    <button type="submit">Asignar a los seleccionados</button>
+    <button type="submit" class="accion-primaria">Asignar a los seleccionados</button>
     <span data-estado class="mutado" role="status"></span>
   </form>
   {% if items %}

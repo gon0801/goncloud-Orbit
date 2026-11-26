@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Keywords dañadas</h2>
+<section class="oportunidad-resumen superficie" aria-label="Keywords dañadas">
 <p class="mutado">
   Vendían y perdieron sus visitas después de que Orbit les bajó la puja; las que
   más vendían van arriba. Regresar una le devuelve la puja que tenía antes de los recortes.
@@ -14,7 +15,9 @@
 {# calculado_el es la medianoche UTC de hoy: marca un dia, no una hora. #}
 <p class="mutado">Calculado el {{ calculado_el[:10] | fecha_corta }}.</p>
 {% endif %}
+</section>
 {% set pendientes = hojas | selectattr("ya_regresada", "equalto", false) | list %}
+<section class="oportunidad-contenido" aria-label="Keywords dañadas">
 {% if pendientes %}
 <div class="tarjeta">
   <h3>Regresar todas <span class="chip">{{ pendientes | length }}</span></h3>
@@ -55,7 +58,9 @@
 {% else %}
 <p>{% if hojas %}Ninguna pendiente: todas ya se regresaron.{% else %}Sin keywords dañadas en este mercado: nada que regresar.{% endif %}</p>
 {% endfor %}
+</section>
 {% set regresadas = hojas | selectattr("ya_regresada") | list %}
+<section class="oportunidad-detalle" aria-label="Keywords dañadas">
 {% if regresadas %}
 <details class="tarjeta">
   <summary>Ya regresadas ({{ regresadas | length }})</summary>
@@ -66,5 +71,6 @@
   </ul>
 </details>
 {% endif %}
+</section>
 {% endblock %}
 {% block scripts %}<script src="/static/js/danadas.js?v={{ asset_version }}"></script>{% endblock %}

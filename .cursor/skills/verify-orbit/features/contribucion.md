@@ -8,12 +8,12 @@ Sin JS: tarjetas y tabla server-rendered. No es decisoria (etiqueta fija).
 ## Sub-features
 
 - `contribucion-nav` abre `/contribucion` desde el nav y marca `aria-current="page"`.
-- `contribucion-resumen` una tarjeta por plataforma (`section.contribucion-plataformas`,
-  `article.contribucion-tarjeta#contribucion-card-amazon_us` / `-amazon_mx`) con
+- `contribucion-resumen` una sola `section.contribucion-plataformas.rendimiento-resumen` agrupa una tarjeta por plataforma (`article.contribucion-tarjeta.superficie#contribucion-card-amazon_us` / `-amazon_mx`) con
   moneda, numero de campanas, rango de fechas, barra segmentada
   (`div.contribucion-segmentos`), conteo por clase (`ul.contribucion-clases`) y
   la leyenda `contribucion pre-cargos · no decisoria · MONEDA · el tipo de cambio
-  aproximado se marca en la fila`.
+  aproximado se marca en la fila`. Las cabeceras `.contribucion-cab` tambien usan
+  `.seccion-encabezado`.
 - `contribucion-clases` cada fila y cada segmento llevan `contribucion-pos`,
   `contribucion-cruza`, `contribucion-neg` o `contribucion-sin`; la barra
   segmentada usa `<svg class="contribucion-segmentos-svg">` con `<rect>`
@@ -63,7 +63,9 @@ Preconditions:
   `plataformas.amazon_us.ventana.desde` / `.hasta` estan presentes (D-15-89 y D-15 UTC).
   No hay `ventana` en la raiz del JSON.
 - **Proof.** Guarda HTML de `/` y `/contribucion`, el JSON y capturas 1440/390 bajo
-  `evidence/<run_id>/contribucion/`.
+  `evidence/<run_id>/contribucion/`. La captura móvil pasa por CDP: afirma viewport
+  real de 390 px, cinco controles de la tab bar dentro de pantalla y enlaces de
+  `.subnavegacion` con al menos 44 px medidos por `getBoundingClientRect()`.
 
 ## Gotchas
 

@@ -4,7 +4,8 @@ Inertes lista hojas (`keyword` / `product_target`) ENABLED cuya campana y ad gro
 
 ## Sub-features
 
-- `inertes-nav` abre `/inertes` y marca `aria-current="page"`.
+- `inertes-jerarquia` agrupa clasificación y antigüedad en `section.oportunidad-resumen.superficie`, los lotes en `section.oportunidad-contenido`, y las filas con sus criterios de archivado en `section.oportunidad-detalle`. «Antigüedad cumplida» sigue siendo solo una señal para revisar la clasificación, no una equivalencia con archivable.
+- `inertes-nav` abre `/inertes` desde `Oportunidades`; el padre del sidebar usa `aria-current="true"` y `Inertes` en `nav.subnavegacion` usa `aria-current="page"`. En móvil, `Oportunidades` en la tab bar marca `aria-current="page"`.
 - `inertes-vacio` sin filas muestra `Sin keywords ni productos inertes: todo lo activo tiene visitas recientes.` (el parrafo se pinta dos veces: resumen y tabla).
 - `inertes-kpis` pinta Sin visitas, Antigüedad cumplida, En espera y Gasto de 90 días sin visitas (cifras con miles).
 - `inertes-fila` si hay hoja, muestra plataforma, campana, ad group, texto de keyword/target (`etiqueta_entidad.hoja`), clasificacion («Vendió antes» / «Gastó sin vender» / «Sin gasto ni ventas»; el JSON sigue con `con_ventas_previas` / `gasto_sin_ventas` / `peso_muerto`), chip `en espera` si aplica, y las columnas Grupo de anuncios, Keyword o producto, Días sin impresiones, Gasto 90 días, Órdenes 90 días, Última impresión y `Archivable desde`. La plataforma se lee «Amazon US».
@@ -13,7 +14,7 @@ Inertes lista hojas (`keyword` / `product_target`) ENABLED cuya campana y ad gro
 
 ## How to get to it (user POV)
 
-- Elegir `Inertes` en el nav (`<a href="/inertes">`).
+- Elegir `Oportunidades` en el sidebar o la tab bar y después `Inertes` en la subnavegación (`<a href="/inertes">`).
 - Abrir `http://127.0.0.1:<puerto>/inertes`.
 
 ## Driving it with curl

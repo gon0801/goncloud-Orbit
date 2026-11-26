@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% block contenido %}
 <h2>Dónde poner el dinero</h2>
-<p class="mutado">
-  Solo cuenta lo que hoy está encendido. Lo que apagaste no aparece, así que
-  el total no coincide con el Resumen.
-</p>
 {# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
 <p>
   <a href="/donde-poner-el-dinero?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
   <a href="/donde-poner-el-dinero?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+<section class="rendimiento-resumen superficie" aria-label="Gasto y ACoS por tipo">
+<p class="mutado">
+  Solo cuenta lo que hoy está encendido. Lo que apagaste no aparece, así que
+  el total no coincide con el Resumen.
 </p>
 <p class="mutado">Ventana por tipo {{ desde }} a {{ hasta }} ({{ moneda }}); ubicación y campaña, últimos 30 días.</p>
 {% if hojas_sin_clasificar %}
@@ -51,6 +52,7 @@
     </tr>
   </tfoot>
 </table>
+</section>
 <h3>Por ubicación (30 días)</h3>
 <table>
   <thead>

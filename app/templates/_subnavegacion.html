@@ -1,0 +1,7 @@
+{% if grupo %}
+<nav class="subnavegacion" aria-label="Secciones de {{ grupo[0] }}">
+  {% for id, href, nombre in grupo[1] %}
+  <a href="{{ href }}"{% if pantalla == id %} aria-current="page"{% endif %}>{{ nombre }}</a>
+  {% endfor %}
+</nav>
+{% endif %}

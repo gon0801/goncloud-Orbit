@@ -1,14 +1,15 @@
 {% extends "base.html" %}
 {% block contenido %}
-<h2>Ruido</h2>
-<p class="mutado">
-  Cuántas keywords y productos movió el motor por ciclo y por qué, cuánto bajó
-  cada puja en 90 días y cómo se compara el antes y el después del encendido.
-</p>
+<h2>Detalle de ciclos</h2>
 {# Mercado con enlaces GET (guia S.5.5): no existe componente de pestanas. #}
 <p>
   <a href="/ruido?plataforma=amazon_mx" {% if plataforma == "amazon_mx" %}aria-current="page"{% endif %}>Amazon MX</a>
   <a href="/ruido?plataforma=amazon_us" {% if plataforma == "amazon_us" %}aria-current="page"{% endif %}>Amazon US</a>
+</p>
+<section class="historial-resumen superficie" aria-label="Decisiones por ciclo">
+<p class="mutado">
+  Cuántas keywords y productos movió el motor por ciclo y por qué, cuánto bajó
+  cada puja en 90 días y cómo se compara el antes y el después del encendido.
 </p>
 <h3>Por ciclo</h3>
 {% for ciclo in ciclos %}
@@ -37,6 +38,7 @@
 {% else %}
 <p>Sin ciclos del motor en este mercado.</p>
 {% endfor %}
+</section>
 <h3>Cuánto bajó cada puja</h3>
 {% for item in encogimiento %}
 <div class="tarjeta">

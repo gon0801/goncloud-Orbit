@@ -4,12 +4,13 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 
 ## Sub-features
 
-- `cortes-nav` abre `/cortes` y marca `aria-current="page"`.
+- `cortes-jerarquia` agrupa la explicación en `section.oportunidad-resumen.superficie`, las propuestas y acciones en `section.oportunidad-contenido`, y los bloqueos y su evidencia en `section.oportunidad-detalle`. Las regiones no ocultan contenido ni sustituyen los selectores funcionales.
+- `cortes-nav` abre `/cortes` desde el destino padre `Oportunidades`; el padre del sidebar usa `aria-current="true"` y `Propuestas` en `nav.subnavegacion` usa `aria-current="page"`. En móvil, el enlace `Oportunidades` de la tab bar marca `aria-current="page"`.
 - `cortes-tabla` parte la cola en `Crecen` y `Recortan`. Columnas: Tipo (chip Crece/Recorta, chip `Práctica` si la fila es `modo` `shadow`, y etiqueta), Entidad (`linea_entidad` + ids + plataforma como «Amazon US»), Search term, Por que, Vence (`se aplica solo el <8 nov, 11:58>` en filas `live`, `No se aplica: es práctica` en filas `shadow`, + estado en español y `propuesta el <fecha>` en detalle), Accion.
 - `cortes-etiqueta` la etiqueta de `pause` sale por la entidad: keyword `Apagar palabra`, product_target `Apagar segmentación de producto`, product_ad `Pausar anuncio del producto`. `negative` es `Bloquear busqueda` y `harvest` `Capturar termino que vende`.
 - `cortes-vacio` sin filas muestra `Sin propuestas pendientes: no hay nada esperando tu decisión.`
 - `cortes-form` el boton `data-vetar="<id>"` revela `form[data-veto="<id>"]` (efecto del rechazo, o en una fila `shadow` el aviso `Es de práctica: no se aplica aunque no la rechaces. El rechazo sí bloquea esta propuesta de verdad…`; la frase `Bloquea la propuesta durante los días que pongas abajo, contados desde hoy.`; `Días` (`name="dias"`), actor, token (placeholder «Token de escritura»), `Confirmar rechazo`). Tras el POST, `cortes.js` escribe `Rechazado hasta el <fecha larga> (hora del centro de México).` y un 422 sale como `Error: Días: <mensaje>.`.
-- `cortes-senal` bajo la fila de la propuesta puede ir `tr.senal-jev` con la señal Jev guardada (origen y, en harvest, destino). Sin señal guardada no se pinta nada; si la lectura falla sale el chip `Señal Jev no disponible por ahora…`. La semilla baseline no trae señal.
+- `cortes-senal` bajo la fila de la propuesta puede ir `tr.senal-jev` con la señal Jev guardada (origen y, en harvest, destino). `.senal-bloque .action-row` usa una sola columna para que `.action-body` ocupe todo el ancho disponible. Sin señal guardada no se pinta nada; si la lectura falla sale el chip `Señal Jev no disponible por ahora…`. La semilla baseline no trae señal; cuando el run la siembra, el drive mide por CDP el ancho calculado del contenido y guarda `04-senal-390.png` / `04-senal.json`.
 - Ya no hay asesoría Jev por propuesta (se quitó en ARREGLOS 03 D-C): ni fila `tr.asesoria-jev`, ni chip `Asesoria Jev`, ni claves `asesoria` / `asesoria_disponible` en el JSON.
 - `cortes-api` `GET /api/dashboard/cortes` es la misma cola; cada item trae `modo` (`live` o `shadow`) y `senal`.
 - `cortes-bloqueos` en «Tus bloqueos» (`[data-tus-bloqueos]`) y tras enviar `form[data-bloqueo]`, el paso y el motivo se muestran en español mediante `Orbit.etiqueta` (`paso_bloqueo`: `Por aplicar`, `Aplicado`, `No se aplicó`, `Quitándose`, `Quitado`, `No se pudo quitar`, `Rechazado`, `Reanudado`; `motivo_bloqueo`: `por confirmar en Amazon`, `Amazon lo rechazó`, `Amazon no lo confirmó`, `Amazon todavía lo muestra`, `la señal cambió`, `ya estaba bloqueado`, `el motor ya lo está cortando`, `Amazon no respondió`, `no se pudo leer la lista de Amazon`, `Amazon no entregó la lista completa`, `Orbit no tiene los datos del grupo de anuncios en Amazon`, y `Amazon respondió con error` para cualquier `http_*`); un error del `fetch` cuyo `detail` es un código (`/^[a-z_]+$/`, como `candado`, `reconciliacion_pendiente`, `senal_ausente` o `no_vive`) se traduce con `motivo_bloqueo` (`Error: otro cambio de este término está en curso; vuelve a intentar en un minuto.`, `Error: Orbit todavía está confirmando en Amazon un cambio anterior de este término; vuelve a intentar en una hora.`, `Error: esa propuesta ya no existe; recarga la página.`, `Error: ese bloqueo ya no está activo; recarga la página.`).
@@ -17,7 +18,7 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 
 ## How to get to it (user POV)
 
-- Elegir `Propuestas` en el sidebar (`<a href="/cortes">`). `/propuestas` es el mismo HTML.
+- Elegir `Oportunidades` en el sidebar o la tab bar (`<a href="/cortes">`) y después `Propuestas` en la subnavegación. `/propuestas` es el mismo HTML.
 - Pulsar `Rechazar` en una fila para ver el form (el submit real queda fuera del baseline).
 
 ## Driving it with curl
