@@ -70,7 +70,9 @@ ALLOWLIST_TAMANO = {
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1022,
+    # ENVIOS 01: tres vocabularios de la pantalla /envios (estado, tipo
+    # logistico y motivo de atencion) y la fuente `envios_meli`.
+    "app/etiquetas.py": 1057,
     # ARREGLOS 05 A: techo congelado del orquestador unico del ciclo.
     "app/cycle.py": 1148,
 }
@@ -2360,6 +2362,56 @@ def test_candado_eras_caza_import_sembrado(tmp_path):
     sano = tmp_path / "sano.py"
     sano.write_text("from app.optimizer import replay\n", encoding="utf-8")
     assert _importa_eras(sano) == []
+
+
+# ---------------------------------------------------------------------------
+# ENVIOS 01: modelo, clasificador y traductores son puros
+# ---------------------------------------------------------------------------
+
+PUROS_ENVIOS = ("modelo.py", "estado.py", "amazon.py", "meli.py")
+PROHIBIDOS_ENVIOS = (
+    "psycopg",
+    "httpx",
+    "time",
+    "app.db",
+    "app.spapi.client",
+    "app.meli.client",
+    "<import-relativo-nivel-2>",
+)
+
+
+def _fugas_envios(raiz: Path) -> dict[str, list[str]]:
+    fugas: dict[str, list[str]] = {}
+    for nombre in PUROS_ENVIOS:
+        path = raiz / nombre
+        if not path.exists():
+            continue
+        hallado = _violaciones(_imports_runtime(path), PROHIBIDOS_ENVIOS)
+        hallado += _usos_reloj(ast.parse(path.read_text(encoding="utf-8")))
+        if hallado:
+            fugas[nombre] = hallado
+    return fugas
+
+
+def test_envios_puros_sin_io_ni_reloj():
+    """Los puros de `app/envios/` no hacen IO ni leen el reloj: la hora entra
+    como argumento (`juzgado_al`)."""
+    envios = APP / "envios"
+    assert (envios / "modelo.py").exists() and (envios / "estado.py").exists()
+    assert _fugas_envios(envios) == {}
+
+
+def test_candado_envios_caza_fugas_sembradas(tmp_path):
+    (tmp_path / "modelo.py").write_text(
+        "from app.meli import client\nfrom datetime import date\nhoy = date.today()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "amazon.py").write_text("import psycopg\n", encoding="utf-8")
+    (tmp_path / "store.py").write_text("import psycopg\n", encoding="utf-8")
+    assert _fugas_envios(tmp_path) == {
+        "modelo.py": ["app.meli.client", ".today"],
+        "amazon.py": ["psycopg"],
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from app import formato
 from app.etiquetas import etiqueta
+from app.ingest_run import saltos_inesperados
 
 _TITULOS_SKIP = {"entidad": "Keywords y productos", "termino": "Búsquedas"}
 _GRUPO_SIN_PRESUPUESTO = "sin_presupuesto"
@@ -80,18 +81,21 @@ def _resumen_ingesta(ads: dict | None) -> dict:
     return {"valor": valor, "tono": _tono(escritos == len(reportes))}
 
 
+def _en_aviso(ultima: dict) -> int:
+    """Filas saltadas que pintan ambar: las esperadas no cuentan."""
+    return saltos_inesperados(_entero(ultima.get("rows_skipped")), ultima.get("skip_reason"))
+
+
 def _resumen_spapi(spapi: dict | None) -> dict:
     filas = list((spapi or {}).items())
     if not filas:
         return {"valor": "—", "tono": "neutro"}
     ok = sum(1 for _, fuente in filas if (fuente.get("ultima") or {}).get("ok") is True)
-    saltadas = sum(
-        _entero((fuente.get("ultima") or {}).get("rows_skipped"))
-        for _, fuente in filas
-        if fuente.get("ultima")
-    )
+    ultimas = [fuente["ultima"] for _, fuente in filas if fuente.get("ultima")]
+    saltadas = sum(_entero(ultima.get("rows_skipped")) for ultima in ultimas)
+    en_aviso = sum(_en_aviso(ultima) for ultima in ultimas)
     valor = f"{ok} de {len(filas)} fuentes ok · {formato.numero(saltadas)} filas saltadas"
-    return {"valor": valor, "tono": _tono(bool(saltadas == 0 and ok == len(filas)))}
+    return {"valor": valor, "tono": _tono(bool(en_aviso == 0 and ok == len(filas)))}
 
 
 def _telegram_de(ciclo: dict) -> dict | None:
@@ -313,7 +317,7 @@ def _spapi(spapi: dict | None) -> list[dict] | None:
                 else "sin corridas",
                 "filas": formato.numero(ultima.get("rows_written")) if ultima else "—",
                 "saltadas": formato.numero(saltadas) if ultima else "—",
-                "saltadas_aviso": bool(_entero(saltadas)),
+                "saltadas_aviso": bool(ultima and _en_aviso(ultima)),
                 "motivo": (motivo or "—").replace("_", " ") if motivo else "—",
                 "limite": f"#{datos['ultima_429'].get('id')} · {_instante(datos['ultima_429'])}"
                 if datos.get("ultima_429")

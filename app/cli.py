@@ -246,6 +246,11 @@ def _ingest(args, rest: list[str]) -> int:
     if args.pipeline == "spapi_inventario":
         # SP-API 01 A.4: recorrido de Inventario FBA v1 (--platform).
         return spapi_inventario.main(rest)
+    if args.pipeline == "envios_meli":
+        # ENVIOS 01: pedidos y envios de Mercado Libre, solo GET.
+        from app.envios import meli_ingesta
+
+        return meli_ingesta.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -457,7 +462,7 @@ def _construye_parser() -> argparse.ArgumentParser:
         "ingest",
         help=(
             "pipelines de ingesta (app/ads, app/costs, app/listings, app/fx,"
-            " app/ledger, app/estimacion_ingest, app/spapi/orders)"
+            " app/ledger, app/estimacion_ingest, app/spapi/orders, app/envios)"
         ),
     )
     p_ingest.add_argument(
@@ -475,6 +480,7 @@ def _construye_parser() -> argparse.ArgumentParser:
             "spapi_pricing",
             "spapi_listings",
             "spapi_inventario",
+            "envios_meli",
         ),
         help=(
             "structure: sync de estructura;"
@@ -489,7 +495,8 @@ def _construye_parser() -> argparse.ArgumentParser:
             " spapi_orders: resumenes Orders SP-API (--platform);"
             " spapi_pricing: pase Pricing SP-API (--platform);"
             " spapi_listings: estado Listings SP-API (--platform);"
-            " spapi_inventario: inventario FBA SP-API (--platform)"
+            " spapi_inventario: inventario FBA SP-API (--platform);"
+            " envios_meli: pedidos y envios de Mercado Libre"
         ),
     )
 

@@ -872,6 +872,9 @@ El server está en UTC: estas horas SON UTC.
 | 11:30 | `meli-catalogo` | `python -m app.meli.catalogo` (REPRICING 02 D.4: catalogo MeLi antes de la corrida) |
 | 12:25 | `precio-muestras:meli` | `python -m app.envio_muestras --platform meli --canal meli` (REPRICING 02 D.4: muestras MeLi antes de la estimacion) |
 | 13:10 + repasos 15-23/2 | `precio:meli` | `python -m app.cli precio --platform meli` (REPRICING 02 D.4: diaria 13:10 + repasos cada 2 h; flock propio + log, lineas exactas abajo) |
+| 02:25, 06:25, 10:25, 14:25, 18:25, 22:25 | `envios:amazon_mx` | `python -m app.cli ingest spapi_orders --platform amazon_mx` (ENVIOS 01: pedidos y paquetes; en el bloque canónico, ver «Envíos cada 4 h») |
+| 02:32, 06:32, 10:32, 14:32, 18:32, 22:32 | `envios:amazon_us` | `python -m app.cli ingest spapi_orders --platform amazon_us` (ENVIOS 01: pedidos y paquetes; en el bloque canónico, ver «Envíos cada 4 h») |
+| 02:40, 06:40, 10:40, 14:40, 18:40, 22:40 | `envios:meli` | `python -m app.cli ingest envios_meli` (ENVIOS 01: pedidos y envíos de Mercado Libre; en el bloque canónico, ver «Envíos cada 4 h») |
 
 Corrida diaria de precios (REPRICING 02 D.3), `amazon_mx` y `amazon_us`
 en serie: la diaria de las 13:10 UTC mas los repasos de las 15:10 a las
@@ -993,6 +996,46 @@ episodios y acuses; no reescribe metricas. Comprobar con
 se puede repetir: antes de 10:30 UTC no abre atraso y despues reintenta hasta
 seis veces los avisos pendientes. La ausencia de `telegram.json` deja pending;
 no cuenta como entrega. El cron de productos nunca cierra un incidente principal.
+
+### Envíos cada 4 h (ENVIOS 01)
+
+Tres líneas del bloque canónico `tools/despliegue/crontab-orbit.txt`, con
+`job_key=envios:amazon_mx`, `envios:amazon_us` y `envios:meli`, escalonadas
+7 y 8 minutos. Solo leen de Amazon SP-API y de Mercado Libre. Cada una lleva
+`cron-avisa --cada 4` y su propio candado (`flock -n -E 75` sobre
+`/tmp/envios-amazon-mx.lock`, `/tmp/envios-amazon-us.lock` y
+`/tmp/envios-meli.lock`): si la corrida anterior sigue viva, la nueva sale 75
+sin arrancar. Según la lectura de `cron-avisa` del 2026-11-09
+(`docs/evidencia/arreglos-2026-11-09/operacion/SINTESIS.md`; el script vive
+solo en el servidor), la salida 75 no toca el estado del aviso. Las tres
+escriben en `/mnt/data/appdata/orbit/logs/envios.log`. Las pinza
+`tests/test_envios_cron.py`.
+
+**Instalación.** No se agregan a mano. `desplegar.sh` aplica la migración
+`0102_envios01_seguimiento.sql` en el paso (4), copia el código y recrea
+`orbit-app-1` en el (5), y recién en el (5b) instala el bloque con
+`cron_orbit.sh prepara` e `instala`; `checklist.sh` falla si el bloque del
+crontab de `gon` no es el canónico. La reversa (`rollback.sh`) restaura el
+bloque anterior antes de revertir el código y la migración.
+
+**Prerrequisitos** dentro de `orbit-app-1` (`docker exec` no pasa el entorno
+del host): `ORBIT_DSN_INGEST`, las credenciales SP-API que ya usa
+`spapi_orders` y `meli_tokens.json` en `secrets/`. Orbit no renueva ese pase
+de Mercado Libre: si está vencido, `envios_meli` sale 1.
+
+**Verificación** tras desplegar, en `goncloud`:
+
+```bash
+crontab -u gon -l | grep -A1 'job_key=envios:'   # tres comentarios, cada uno con su línea
+docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_mx
+docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_us
+docker exec orbit-app-1 python -m app.cli ingest envios_meli
+tail -n 20 /mnt/data/appdata/orbit/logs/envios.log   # corridas del cron
+```
+
+Cada comando sale 0 si la lectura quedó completa y distinto de 0 si no. La
+pantalla `/envios` muestra la última lectura correcta por mercado y la marca
+`Atrasada` cuando pasan más de 8 h.
 
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 

@@ -21,3 +21,9 @@
 0 11 * * * /usr/local/bin/cron-avisa --nombre "Vigía de JEV" --cada 24 -- docker exec orbit-app-1 python -m app.cli jev-vigia >> /mnt/data/appdata/orbit/logs/jev-vigia.log 2>&1
 # job_key=ads-salud  A.3: 10:30 UTC y reintentos hasta 12:50
 */10 10-12 * * * /usr/local/bin/cron-avisa --nombre "Salud de la publicidad" --cada 24 --tras 3 -- /bin/bash -c 'docker exec orbit-app-1 python -m app.cli ads-salud' >> /mnt/data/appdata/orbit/logs/ads-salud.log 2>&1
+# job_key=envios:amazon_mx  ENVIOS 01: pedidos y paquetes de Amazon MX cada 4 h
+25 2-22/4 * * * /usr/local/bin/cron-avisa --nombre "Envíos de Amazon México" --cada 4 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/envios-amazon-mx.lock docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_mx' >> /mnt/data/appdata/orbit/logs/envios.log 2>&1
+# job_key=envios:amazon_us  ENVIOS 01: pedidos y paquetes de Amazon US cada 4 h
+32 2-22/4 * * * /usr/local/bin/cron-avisa --nombre "Envíos de Amazon Estados Unidos" --cada 4 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/envios-amazon-us.lock docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_us' >> /mnt/data/appdata/orbit/logs/envios.log 2>&1
+# job_key=envios:meli  ENVIOS 01: pedidos y envios de Mercado Libre cada 4 h
+40 2-22/4 * * * /usr/local/bin/cron-avisa --nombre "Envíos de Mercado Libre" --cada 4 -- /bin/bash -c '/usr/bin/flock -n -E 75 /tmp/envios-meli.lock docker exec orbit-app-1 python -m app.cli ingest envios_meli' >> /mnt/data/appdata/orbit/logs/envios.log 2>&1

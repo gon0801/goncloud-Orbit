@@ -35,6 +35,7 @@
     'settings': ('Settings', 'Metas de ACoS, topes diarios y metas por campaña'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
     'reputacion': ('Reputación', 'Calificación, reseñas, preguntas y alertas por publicación'),
+    'envios': ('Envíos', 'Pedidos y dónde va cada envío'),
     'precios': ('Precios', 'Qué publicaciones revisa el motor de precios, qué decidió y qué no cuadra'),
     'familias': ('Familias', 'Etiquetas de producto en dos niveles para la fábrica')
   } %}
@@ -72,6 +73,7 @@
         {# REPUTACION 01 A.6 (acta 0.5 §6): Reputacion deja "pronto" y el
            chip Reviews se retira (pestana dentro de /reputacion). #}
         <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
+        <a href="/envios" {% if pantalla == 'envios' %}aria-current="page"{% endif %}>Envíos<span id="envios-contador" class="contador" hidden></span></a>
         <a href="/precios" {% if pantalla == 'precios' %}aria-current="page"{% endif %}>Precios</a>
         <a href="/familias" {% if pantalla == 'familias' %}aria-current="page"{% endif %}>Familias</a>
       </div>
@@ -92,7 +94,7 @@
         {% block cabecera_accion %}{% endblock %}
         <span class="leyenda-zona">{{ leyenda_zona }}</span>
         <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
-        <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
+        <span class="alcance">{% if pantalla in ('resumen', 'envios') %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>
@@ -108,7 +110,7 @@
   {% set tab_por_pantalla = {
     'resumen': 'inicio', 'salud': 'inicio',
     'contribucion': 'pnl', 'precios': 'pnl',
-    'reputacion': 'skus', 'familias': 'skus',
+    'reputacion': 'skus', 'familias': 'skus', 'envios': 'skus',
     'decisiones': 'ordenes',
     'campanas': 'gastos', 'fabrica': 'gastos', 'inertes': 'gastos',
     'settings': 'saldos',

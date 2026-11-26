@@ -10,13 +10,21 @@ muestra la ultima. Correcciones dentro de la misma corrida (mismo
 `observed_at`) siguen absorbidas por `ON CONFLICT DO NOTHING` y cuentan
 como skip, como manda `ingest_run`.
 
-Ventana: `lastUpdatedAfter` = maximo `last_updated_time` observado menos
-1 dia de solape; primera corrida: `createdAfter` = ahora menos 30 dias.
+Ventana: `lastUpdatedAfter` = lo mas antiguo entre ahora menos 30 dias
+(seguimiento de envios) y el maximo `last_updated_time` observado menos 1
+dia de solape; primera corrida: `createdAfter` = ahora menos 30 dias. El
+resumen no se ensancha con la ventana: solo se escribe desde
+`corte_resumen` (el solape de 1 dia).
 Paginacion con las guardas de TRASPASO-1 (token repetido y pagina vacia
-con token paran y se marcan). Se pide `includedData=FULFILLMENT,PROCEEDS`
-(A.2b, verificadas sin permiso especial en el acta A.2b/sonda.md) y jamas
-BUYER ni RECIPIENT: cero PII, y la tabla no tiene columnas de comprador
-ni direccion.
+con token paran y se marcan). Se pide
+`includedData=FULFILLMENT,PROCEEDS,PACKAGES` (verificadas sin permiso
+especial en las actas A.2b/sonda.md y envios-01/sonda.md) y jamas BUYER ni
+RECIPIENT: cero PII, y las tablas no tienen columnas de comprador ni
+direccion.
+
+ENVIOS 01: cada orden parseada alimenta tambien `envio_observation`
+(`app.envios.amazon` + `app.envios.store`) en la misma transaccion que el
+resumen; el store solo inserta cuando cambian los hechos del envio.
 
 Dinero `(valor, moneda)` NUMERIC(14,4) + enum (regla 4); total incoherente
 o ausente = NULLs (regla 3), la fila se escribe igual porque la identidad
@@ -37,7 +45,10 @@ from typing import Any
 
 import psycopg
 
-from app.ingest_run import formato_skip_reason
+from app.envios import store as envios_store
+from app.envios.amazon import envio_desde_orden
+from app.envios.modelo import DIAS_SEGUIMIENTO
+from app.ingest_run import SALTO_ENVIO_SIN_CAMBIO, SALTO_RESUMEN_CUBIERTO, formato_skip_reason
 from app.redaction import install_scrub_filter
 from app.spapi._ingesta import (
     abrir_run_spapi,
@@ -122,6 +133,8 @@ class ResultadoIngesta:
     paginas: int
     ordenes_vistas: int
     aviso_paginacion: str | None
+    envios_escritos: int = 0
+    envios_sin_cambio: int = 0
 
 
 def _zulu(momento: datetime.datetime) -> str:
@@ -233,7 +246,7 @@ def parametros_ventana(
     dias_inicial: int = DIAS_INICIAL_DEFAULT,
     desde: datetime.date | None = None,
 ) -> dict:
-    """Params del searchOrders: solape de 1 dia o ventana inicial de 30.
+    """Params del searchOrders: ventana de seguimiento o inicial de 30 dias.
 
     `desde` (backfill A.2b, --desde YYYY-MM-DD) fuerza `lastUpdatedAfter`
     a esa fecha ignorando el maximo observado: completa observaciones de
@@ -244,8 +257,8 @@ def parametros_ventana(
     base = {
         "marketplaceIds": marketplace_id,
         "maxResultsPerPage": RESULTADOS_POR_PAGINA,
-        # Secciones con estado y total (A.2b); jamas BUYER ni RECIPIENT.
-        "includedData": "FULFILLMENT,PROCEEDS",
+        # Estado, total (A.2b) y paquetes (ENVIOS 01); jamas BUYER ni RECIPIENT.
+        "includedData": "FULFILLMENT,PROCEEDS,PACKAGES",
     }
     if desde is not None:
         base["lastUpdatedAfter"] = _zulu(
@@ -258,8 +271,26 @@ def parametros_ventana(
     else:
         if ultimo_observado.tzinfo is None:
             ultimo_observado = ultimo_observado.replace(tzinfo=datetime.UTC)
-        base["lastUpdatedAfter"] = _zulu(ultimo_observado - datetime.timedelta(days=SOLAPE_DIAS))
+        base["lastUpdatedAfter"] = _zulu(
+            min(
+                corte_resumen(ultimo_observado=ultimo_observado, desde=None),
+                ahora - datetime.timedelta(days=DIAS_SEGUIMIENTO),
+            )
+        )
     return base
+
+
+def corte_resumen(
+    *, ultimo_observado: datetime.datetime | None, desde: datetime.date | None
+) -> datetime.datetime | None:
+    """`last_updated_time` minimo que escribe resumen; None = todo lo leido.
+
+    La ventana de lectura es mas ancha por los envios; sin este piso cada
+    corrida re-observaria 30 dias en `spapi_order_observation`.
+    """
+    if desde is not None or ultimo_observado is None:
+        return None
+    return ultimo_observado - datetime.timedelta(days=SOLAPE_DIAS)
 
 
 def _extraer_ordenes(carga: Any) -> list[dict]:
@@ -379,16 +410,22 @@ def ejecutar_ingesta(
                 dias_inicial=dias_inicial,
                 desde=desde,
             )
+        corte = corte_resumen(ultimo_observado=ultimo, desde=desde)
         crudas, info = recorrer_ordenes(client, params, max_paginas=max_paginas)
         paginas = info["paginas"]
         vistas = info["conteo"]
         aviso = info["aviso_paginacion"]
         with conn.transaction():
+            envios = []
             for cruda in crudas:
                 try:
                     orden = parsear_orden(cruda)
                 except OrdenOmitida as exc:
                     skips[exc.motivo] += 1
+                    continue
+                envios.append(envio_desde_orden(cruda, platform=platform, orden=orden))
+                if corte is not None and orden.last_updated_time < corte:
+                    skips[SALTO_RESUMEN_CUBIERTO] += 1
                     continue
                 cur = conn.execute(
                     _SQL_INSERTAR,
@@ -404,6 +441,10 @@ def ejecutar_ingesta(
                     escritas += 1
                 else:
                     skips["duplicada"] += 1
+            envios_escritos, envios_sin_cambio = envios_store.guardar(
+                conn, envios, observed_at=momento, run_id=run_id
+            )
+            skips[SALTO_ENVIO_SIN_CAMBIO] += envios_sin_cambio
             # Paginacion incompleta no es exito: las filas parciales ya se
             # escriben y el siguiente watermark avanza sobre el hueco, asi que
             # ok=False deja rastro en ingest_run para reparar con --desde.
@@ -411,7 +452,7 @@ def ejecutar_ingesta(
                 conn,
                 run_id,
                 aviso=aviso,
-                escritas=escritas,
+                escritas=escritas + envios_escritos,
                 skips=skips,
             )
         # A.5: alertas en flanco, FUERA de la transaccion del sello
@@ -429,6 +470,8 @@ def ejecutar_ingesta(
         paginas=paginas,
         ordenes_vistas=vistas,
         aviso_paginacion=aviso,
+        envios_escritos=envios_escritos,
+        envios_sin_cambio=envios_sin_cambio,
     )
 
 

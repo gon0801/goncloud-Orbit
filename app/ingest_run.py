@@ -7,6 +7,7 @@ ante `BaseException` (A9) que antes se duplicaban en 14 ingestores distintos.
 from __future__ import annotations
 
 import logging
+import re
 from collections import Counter
 from collections.abc import Callable
 from typing import Any
@@ -57,6 +58,28 @@ def formato_skip_reason(skips: Counter) -> str | None:
         return None
     bruto = ", ".join(f"{n}x {motivo}" for motivo, n in sorted(activos.items()))
     return sanitizar_motivo(bruto)
+
+
+# Saltos de toda corrida normal de spapi_orders (ENVIOS 01 relee 30 dias):
+# quedan en el sello como cualquier otro, pero no son un aviso en /salud.
+SALTO_RESUMEN_CUBIERTO = "resumen_ya_cubierto"
+SALTO_ENVIO_SIN_CAMBIO = "envio_sin_cambio"
+_SALTOS_ESPERADOS = frozenset({SALTO_RESUMEN_CUBIERTO, SALTO_ENVIO_SIN_CAMBIO})
+_CONTEO_SKIP = re.compile(r"(\d+)x (.+)")
+
+
+def saltos_inesperados(rows_skipped: int, skip_reason: str | None) -> int:
+    """Saltos de `rows_skipped` que `skip_reason` no explica como esperados.
+
+    Lee el formato de `formato_skip_reason`, tambien tras un prefijo `...; `.
+    Lo ausente, cortado o que no cuadra con el total cuenta como inesperado.
+    """
+    esperados = 0
+    for parte in re.split(r"[;,] ", skip_reason or ""):
+        conteo = _CONTEO_SKIP.fullmatch(parte)
+        if conteo and conteo[2] in _SALTOS_ESPERADOS:
+            esperados += int(conteo[1])
+    return rows_skipped - esperados if esperados <= rows_skipped else rows_skipped
 
 
 def abrir_run(
