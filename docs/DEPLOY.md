@@ -1026,7 +1026,7 @@ de Mercado Libre: si está vencido, `envios_meli` sale 1.
 **Verificación** tras desplegar, en `goncloud`:
 
 ```bash
-crontab -l | grep -A1 'job_key=envios:'   # tres comentarios, cada uno con su línea
+crontab -u gon -l | grep -A1 'job_key=envios:'   # tres comentarios, cada uno con su línea
 docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_mx
 docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_us
 docker exec orbit-app-1 python -m app.cli ingest envios_meli

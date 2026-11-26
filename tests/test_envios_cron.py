@@ -83,3 +83,16 @@ def test_la_tabla_de_deploy_documenta_la_linea_de_envios(job_key, _c, _n, _l, ar
     filas = [ln for ln in deploy.splitlines() if ln.startswith("| ") and f"`{job_key}`" in ln]
     assert len(filas) == 1, f"{job_key}: {len(filas)} filas en la tabla de crons"
     assert filas[0].startswith(f"| {horarios} | `{job_key}` | `python -m app.cli {argumentos}`")
+
+
+def test_la_verificacion_de_deploy_lee_el_crontab_de_gon():
+    """`ssh goncloud` entra como root y el bloque Orbit vive en el crontab de gon:
+    sin `-u gon` la verificacion sale vacia aunque la instalacion este bien."""
+    deploy = (RAIZ / "docs/DEPLOY.md").read_text(encoding="utf-8")
+    seccion = deploy.split(" cada 4 h (ENVIOS 01)\n", 1)[1].split("\n## ", 1)[0]
+    seccion = seccion.split("\n### ", 1)[0]
+    comandos = [
+        ln.split("#")[0].rstrip() for ln in seccion.splitlines() if ln.startswith("crontab -")
+    ]
+
+    assert comandos == ["crontab -u gon -l | grep -A1 'job_key=envios:'"]
