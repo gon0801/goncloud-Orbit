@@ -64,6 +64,8 @@ Esta sección describe `52cb4b02` y ya no es la regla: ver [Cambio posterior: #7
 
 Posterior a las lecturas de arriba, que describen `52cb4b02`.
 
+Comparación punto por punto con la rama de seguimiento: [comparacion-782-783.md](comparacion-782-783.md). Qué versión gana lo decide David y está pendiente.
+
 - #782 (`3c5e53fb`) se desplegó el 26-nov UTC. Es dato del coordinador; este recibo no guarda mediciones de ese despliegue.
 - Según su código: `in_hub` e `in_packing_list` se muestran En camino; los envíos abiertos se releen hasta un tope fijo de 90 días (desde `pedido_creado_el` o, sin él, desde su última observación); un envío sin leer con compra anterior a 30 días que ya no viene en la búsqueda no baja `ok`; la barra móvil tiene enlace a `/envios` con contador.
 - La rama de seguimiento `feat/envios-01-vencimiento` corrige `in_packing_list` a Por despachar y **aún no está desplegada**.

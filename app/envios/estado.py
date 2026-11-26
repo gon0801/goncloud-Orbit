@@ -54,7 +54,8 @@ DIAS_CIERRE_MAXIMO = 365
 
 
 class DiasCierreInvalidos(ValueError):
-    """La clave existe y no sirve. El mensaje es para el operador."""
+    """La clave existe y no sirve. El mensaje es para el operador y no repite el
+    valor guardado: sale por la API y por stderr."""
 
 
 def dias_cierre_desde_settings(settings: Mapping) -> int:
@@ -72,7 +73,7 @@ def dias_cierre_desde_settings(settings: Mapping) -> int:
         return int(crudo)
     raise DiasCierreInvalidos(
         f"Configuración inválida: {CLAVE_DIAS_CIERRE} debe ser un número entero de"
-        f" {DIAS_SEGUIMIENTO} a {DIAS_CIERRE_MAXIMO} y llegó {crudo!r}. Se ajusta con:"
+        f" {DIAS_SEGUIMIENTO} a {DIAS_CIERRE_MAXIMO}. Se ajusta con:"
         " python -m app.cli envios-ventana --dias N"
     )
 

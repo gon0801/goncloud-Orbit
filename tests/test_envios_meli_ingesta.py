@@ -796,7 +796,7 @@ def test_dias_de_cierre_invalidos_fallan_la_corrida_sin_consultar(
     conn, dsn = base
     _tokens(tmp_path, monkeypatch)
     monkeypatch.setenv("ORBIT_DSN_INGEST", dsn)
-    _fija_dias(conn, "12")
+    _fija_dias(conn, "centinela-ventana-9q2x")
     falso = MeliFalso([[_orden(1001, 501, creada=None)]], {"501": _envio(501)})
 
     assert meli_ingesta.main([], transport=httpx.MockTransport(falso)) == 1
@@ -806,7 +806,9 @@ def test_dias_de_cierre_invalidos_fallan_la_corrida_sin_consultar(
     assert (corrida["ok"], corrida["rows_written"]) == (False, 0)
     for texto in (corrida["skip_reason"], capsys.readouterr().err):
         assert "envios_meli_dias_cierre" in texto
-        assert "'12'" in texto
+        assert "de 30 a 365" in texto
+        assert "envios-ventana --dias N" in texto
+        assert "centinela-ventana-9q2x" not in texto
 
 
 @_skip_db

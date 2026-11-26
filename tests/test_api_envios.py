@@ -647,13 +647,15 @@ def test_contador_de_vencidos_sobre_toda_la_historia_en_api_y_pantalla(monkeypat
 @pytest.mark.parametrize("ruta", ["/api/envios", "/envios", "/api/envios/contador"])
 def test_dias_de_cierre_invalidos_son_un_error_visible(monkeypatch, ruta):
     with _base(monkeypatch) as (conn, cliente):
-        _fija_dias(conn, "noventa")
+        _fija_dias(conn, "centinela-ventana-9q2x")
         conn.execute("SET ROLE app_read")
         resp = cliente.get(ruta)
         assert resp.status_code == 503
-        detalle = resp.json()["detail"]
-        assert "envios_meli_dias_cierre" in detalle and "'noventa'" in detalle
-        assert "envios-ventana --dias" in detalle
+        assert "centinela-ventana-9q2x" not in resp.text
+        assert resp.json()["detail"] == (
+            "Configuración inválida: envios_meli_dias_cierre debe ser un número entero de"
+            " 30 a 365. Se ajusta con: python -m app.cli envios-ventana --dias N"
+        )
 
 
 def _consulta_documentada(marca: str = "cerrados_por_vencimiento") -> str:

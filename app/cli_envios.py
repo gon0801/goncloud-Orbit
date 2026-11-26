@@ -57,7 +57,7 @@ def corre(args: argparse.Namespace) -> int:
         print("envios-ventana: sin cambios, la config vigente ya lo trae")
         return 0
     except config_write.SettingsInvalido as exc:
-        print(f"edicion invalida (exit 2): {exc}", file=sys.stderr)
+        print(f"edicion invalida (exit 2): {scrub(str(exc))}", file=sys.stderr)
         return 2
     except Exception as exc:
         print(f"envios-ventana fallo: {scrub(str(exc))}", file=sys.stderr)

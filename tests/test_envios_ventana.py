@@ -17,6 +17,7 @@ from test_fabrica_f2 import _skip_db
 from test_schema import _test_dsn
 
 from app import cli, config_write
+from app.redaction import register_secret
 
 MIGRACIONES = Path(__file__).resolve().parent.parent / "migrations"
 IDA = MIGRACIONES / "0103_envios01_ventana_cierre.sql"
@@ -235,6 +236,25 @@ def test_cli_envios_ventana_rechaza_fuera_de_rango(base, monkeypatch, capsys, di
 
     assert _filas(conn) == antes
     assert "de 30 a 365" in capsys.readouterr().err
+
+
+@_skip_db
+def test_cli_envios_ventana_redacta_un_secreto_de_la_config_vigente(base, monkeypatch, capsys):
+    conn, dsn = base
+    register_secret("centinela-secreto-4k8d")
+    _siembra(conn, VIGENTE | {"precio_modo_global": "centinela-secreto-4k8d"})
+    monkeypatch.setenv("ORBIT_DSN_ADMIN", dsn)
+    antes = _filas(conn)
+
+    assert cli.main(["envios-ventana", "--dias", "45"]) == 2
+
+    assert _filas(conn) == antes
+    err = capsys.readouterr().err
+    assert "centinela-secreto-4k8d" not in err
+    assert err == (
+        "edicion invalida (exit 2): precio_modo_global debe ser off, shadow o live,"
+        " llego '***REDACTED***'\n"
+    )
 
 
 @pytest.mark.parametrize(
