@@ -31,12 +31,12 @@ from app.apply_ajustes import (
     AjusteEnCurso,
     AjusteNoConfirmado,
     CambioExternoDetectado,
-    ErrorTrasPut,
     HuellaDesactualizada,
     _config_leida,
     aplica_ajuste_motor,
 )
 from app.apply_cuota import consume_quota
+from app.apply_estados import ErrorTrasPut
 from app.campana_ajustes import CambiarAjusteUbicacion
 from app.db import OrbitDbError, settings_vigentes, tx_durable
 from app.db import connect as db_connect
@@ -195,6 +195,35 @@ def reconcilia_automaticos(
     return ResumenReconcilia(revisadas=len(filas), selladas=selladas)
 
 
+def _sigue_vivo(conn: psycopg.Connection, platform: str, campana: int) -> bool:
+    """Relee settings y goal frescos: el dueno pudo apagar la campana o el
+    motor durante la fase de pujas."""
+    frescos = settings_vigentes(conn)
+    if frescos is None or modo_ubicacion_desde_settings(frescos, platform) != "live":
+        return False
+    if g.modo_desde_settings(frescos) != "live":
+        return False
+    from app.cycle_grupos import lee_goals
+
+    goal_plataforma, goals_campana = lee_goals(conn, platform, [campana])
+    objetivo = g.resuelve_goal(goals_campana.get(campana), goal_plataforma)
+    return objetivo is not None and objetivo.enabled and objetivo.mode == "live"
+
+
+def _motivo_error_put(exc: Exception) -> str | None:
+    """Motivo a registrar, o None si el PUT pudo llegar (ambiguo)."""
+    if isinstance(exc, AdsAuthError):
+        return MOTIVO_ERROR_PUT
+    status = getattr(exc, "status", None)
+    if status in (401, 403):
+        return MOTIVO_ERROR_PUT
+    if not getattr(exc, "put_iniciado", False):
+        return MOTIVO_ERROR_PUT
+    if status is not None and status < 500 and status != 429:
+        return MOTIVO_ERROR_PUT
+    return None
+
+
 def _cuenta_en_espera(conn: psycopg.Connection, platform: str) -> int:
     return conn.execute(_SQL_CUENTA_EN_ESPERA, (platform,)).fetchone()[0]
 
@@ -236,20 +265,8 @@ def aplica_automaticos(
         if modo != "live":
             descarta(eval_id, MOTIVO_MODO_NO_LIVE)
             continue
-        # El dueno pudo apagar la campana o el motor durante la fase de pujas:
-        # la compuerta se re-lee fresca antes de cobrar cuota.
-        frescos = settings_vigentes(conn)
-        if frescos is None or modo_ubicacion_desde_settings(frescos, platform) != "live":
-            descarta(eval_id, MOTIVO_MODO_NO_LIVE)
-            continue
-        if g.modo_desde_settings(frescos) != "live":
-            descarta(eval_id, MOTIVO_MODO_NO_LIVE)
-            continue
-        from app.cycle_grupos import lee_goals
-
-        goal_plataforma, goals_campana = lee_goals(conn, platform, [caso.campana_id])
-        objetivo = g.resuelve_goal(goals_campana.get(caso.campana_id), goal_plataforma)
-        if objetivo is None or not objetivo.enabled or objetivo.mode != "live":
+        # El dueno pudo apagar la campana o el motor durante la fase de pujas.
+        if not _sigue_vivo(conn, platform, caso.campana_id):
             descarta(eval_id, MOTIVO_MODO_NO_LIVE)
             continue
         vigente_id, _vigente = config_vigente_con_id(conn, caso.campana_id)
@@ -289,15 +306,23 @@ def aplica_automaticos(
         except HuellaDesactualizada:
             descarta(eval_id, MOTIVO_CONFIG_CAMBIO)
         except AdsAuthError:
-            # 401/403: fallo global de identidad, la fase aborta.
+            descarta(eval_id, MOTIVO_ERROR_PUT)
             raise
         except AdsApiError as exc:
-            # 4xx distinto de 429: rechazo determinista, Amazon no aplico.
-            # 5xx, 429 o red: el PUT pudo llegar; queda pendiente.
-            if exc.status is not None and 400 <= exc.status < 500 and exc.status != 429:
+            if exc.status in (401, 403):
                 descarta(eval_id, MOTIVO_ERROR_PUT)
-            else:
-                pass
+                raise
+            if not getattr(exc, "put_iniciado", False):
+                # Fallo ANTES del PUT: no salio nada.
+                descarta(eval_id, MOTIVO_ERROR_PUT)
+            elif (
+                exc.status is not None
+                and (exc.status < 500 or exc.status == 207)
+                and exc.status != 429
+            ):
+                # Rechazo determinista del PUT (207/4xx): Amazon no aplico.
+                descarta(eval_id, MOTIVO_ERROR_PUT)
+            # 5xx, 429 o red durante el PUT: ambiguo, queda pendiente.
         except AdsClientError:
             descarta(eval_id, MOTIVO_ERROR_PUT)
         except (OrbitDbError, psycopg.Error):

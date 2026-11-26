@@ -1961,10 +1961,15 @@ def test_mapeo_errores_ajuste_trae_sus_codigos():
         apply_ajustes.AjusteYaRegresado: 409,
         apply_ajustes.AjusteEnCurso: 409,
         apply_ajustes.AjusteNoConfirmado: 502,
+        apply_ajustes.HuellaDesactualizada: 409,
         apply.AdsApiErrorMutacion: 502,
         apply.AdsApiError: 502,
         apply.SinPerfilAjuste: 503,
     } == _ERRORES_AJUSTE
+    from app.api_write import _codigo_error_ajuste
+
+    assert _codigo_error_ajuste(apply_ajustes.ErrorTrasPut(RuntimeError("x"))) == 502
+    assert _codigo_error_ajuste(apply_ajustes.HuellaDesactualizada("x", None)) == 409
 
 
 @_skip_db

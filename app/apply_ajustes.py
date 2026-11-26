@@ -23,8 +23,9 @@ from app.ads.campana_config import (
     guarda_config,
     mezcla_observacion,
 )
-from app.ads.client import AdsApiError, AdsClientError
+from app.ads.client import AdsClientError
 from app.apply import SinPerfilAjuste as SinPerfilAjuste
+from app.apply_estados import ErrorTrasPut
 from app.campana_ajustes import (
     AjusteSinCambio,
     CambiarAjusteUbicacion,
@@ -125,18 +126,6 @@ class CambioExternoDetectado(HuellaDesactualizada):
     """La lectura viva de Amazon difiere del valor juzgado: alguien cambio la
     campana en su consola despues del sync. No se manda PUT (ni manual ni
     automatico) para no pisar la mano del dueno."""
-
-
-class ErrorTrasPut(AdsApiError):
-    """Fallo de lectura o red DESPUES de que el PUT salio a Amazon: el
-    resultado es ambiguo y la intencion debe quedar pendiente para la
-    reconciliacion, nunca marcarse como no aplicada. Hereda de AdsApiError
-    para conservar el contrato de error del camino manual."""
-
-    def __init__(self, exc: AdsClientError) -> None:
-        super().__init__(str(exc))
-        self.status = getattr(exc, "status", None)
-        self.cuerpo = getattr(exc, "cuerpo", None)
 
 
 class AjusteNoConfirmado(Exception):
@@ -386,10 +375,14 @@ def _aplica_y_confirma(
             )
         else:
             cuerpo = cuerpo_put_clase(clase, destino)
-        cliente.ajustar_campana(
-            destino.campana_externa,
-            {k: v for k, v in cuerpo.items() if k != "campaignId"},
-        )
+        try:
+            cliente.ajustar_campana(
+                destino.campana_externa,
+                {k: v for k, v in cuerpo.items() if k != "campaignId"},
+            )
+        except AdsClientError as exc:
+            exc.put_iniciado = True
+            raise
         put_enviado = True
         leida = _config_leida(cliente, plataforma, destino.campana_externa)
         if leida is None or not coincide_campo(ajuste, leida, destino):
@@ -405,7 +398,7 @@ def _aplica_y_confirma(
     except AdsClientError as exc:
         conn.rollback()
         if put_enviado:
-            raise ErrorTrasPut(exc) from None
+            raise ErrorTrasPut(str(exc)) from None
         raise
     except BaseException:
         conn.rollback()

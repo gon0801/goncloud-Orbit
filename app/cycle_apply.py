@@ -16,13 +16,13 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import httpx
 import psycopg
 from psycopg import pq
+from psycopg.conninfo import make_conninfo
 
 from app import apply, apply_cola, apply_harvest, notifica
 from app.ads.client import AdsClientError
@@ -488,9 +488,12 @@ def _fase_apply(
             if (
                 settings is not None
                 and not res_bids.inciertos
+                and not apply.bids_recuperables(conn, origen)
                 and hay_evaluaciones_a_aplicar(conn, origen, platform)
             ):
-                dsn_ubic = os.environ.get("ORBIT_DSN_DECIDE")
+                dsn_ubic = conn.info.dsn
+                if conn.info.password:
+                    dsn_ubic = make_conninfo(dsn_ubic, password=conn.info.password)
                 if dsn_ubic:
                     try:
                         res_ubic_a = aplica_automaticos(
@@ -514,6 +517,7 @@ def _fase_apply(
                         AdsConfigError,
                     ) as exc:
                         notas["ubicaciones_error"] = scrub(str(exc)) or type(exc).__name__
+                        fallo = True
             total = (
                 res_bids.aplicadas
                 + res_cola.aplicadas
