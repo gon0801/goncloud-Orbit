@@ -51,6 +51,12 @@ def _config(top=0, *, externa=_EXTERNA, estrategia="LEGACY_FOR_SALES") -> Config
 
 
 def _siembra(conn, *, top=0, externa=_EXTERNA) -> tuple[int, int]:
+    if conn.execute("SELECT count(*) FROM ads_optimizer_goal").fetchone()[0] == 0:
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, platform, bid_currency, bid_floor,"
+            " bid_ceiling, enabled, mode) VALUES ('platform', 'amazon_mx', 'MXN', 0.10,"
+            " 2.50, true, 'live')"
+        )
     camp = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id) VALUES ('amazon_mx',"
         " 'campaign', %s) RETURNING id",
@@ -420,3 +426,68 @@ def test_aplica_ajuste_motor_confirma_sin_literal_humano():
             conexion.close()
         assert hecho.confirmada is True
         assert cliente.puts == 1
+
+
+@_skip_db
+def test_reconciliacion_ignora_intenciones_que_nunca_salieron():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        conexion = _abre_decide(dsn)
+        try:
+            conexion.execute(
+                "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+                " despues, huella, actor, go_literal, evaluacion_id) VALUES (%s,"
+                " 'amazon_mx', 'ajuste_ubicacion', %s, %s, 'auto:nunca',"
+                " 'orbit_ubicacion', 'AUTO_UBICACION', %s)",
+                (camp, config_id, json.dumps(_config(15).como_json()), eval_id),
+            )
+            conexion.commit()
+        finally:
+            conexion.close()
+        conn.execute(
+            "INSERT INTO ubicacion_sin_aplicar (evaluacion_id, motivo, registrado_el)"
+            " VALUES (%s, 'cambio_externo', %s)",
+            (eval_id, _ANCLA),
+        )
+        cliente = ClienteFalso(_config(15), _config(15))
+        resumen = reconcilia_automaticos(conn, cliente, "amazon_mx")
+        assert resumen.revisadas == 0
+        assert resumen.selladas == 0
+        assert (
+            conn.execute(
+                "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE evaluacion_id = %s",
+                (eval_id,),
+            ).fetchone()[0]
+            is True
+        )
+
+
+@_skip_db
+def test_no_aplica_si_el_dueno_apago_la_campana_tras_evaluar():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, bid_currency, bid_floor,"
+            " bid_ceiling, enabled, mode) VALUES ('campaign', %s, 'MXN', 0.10, 2.50,"
+            " false, 'live')",
+            (camp,),
+        )
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = ClienteFalso(_config(0), _config(15))
+        resumen = aplica_automaticos(
+            conn,
+            dsn=dsn,
+            cliente=cliente,
+            platform="amazon_mx",
+            cycle_id=ciclo,
+            settings=_settings(),
+            abrir_conexion=lambda: _abre_decide(dsn),
+        )
+        assert resumen.aplicadas == 0
+        assert resumen.sin_aplicar == ((eval_id, "modo_no_live"),)
+        assert cliente.puts == 0

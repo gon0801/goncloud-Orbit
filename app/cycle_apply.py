@@ -488,7 +488,7 @@ def _fase_apply(
             if (
                 settings is not None
                 and not res_bids.inciertos
-                and hay_evaluaciones_a_aplicar(conn, cycle_id, platform)
+                and hay_evaluaciones_a_aplicar(conn, origen, platform)
             ):
                 dsn_ubic = os.environ.get("ORBIT_DSN_DECIDE")
                 if dsn_ubic:
@@ -498,7 +498,7 @@ def _fase_apply(
                             dsn=dsn_ubic,
                             cliente=apply._cliente_ajuste(platform, transport=None),
                             platform=platform,
-                            cycle_id=cycle_id,
+                            cycle_id=origen,
                             settings=settings,
                             tick=guard,
                         )

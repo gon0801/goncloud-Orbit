@@ -649,7 +649,8 @@ def _recorre_plataforma(
             modo_caso = modo_efectivo(
                 modo, modo_ubicacion, objetivo.mode if objetivo is not None else "off"
             )
-            contadores.ubicaciones.append((caso, modo_caso, decide_ubicacion(caso)))
+            if modo_caso != "off":
+                contadores.ubicaciones.append((caso, modo_caso, decide_ubicacion(caso)))
     return target_ciclo
 
 

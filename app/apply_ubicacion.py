@@ -35,6 +35,8 @@ from app.apply_ajustes import (
 )
 from app.apply_cuota import consume_quota
 from app.campana_ajustes import CambiarAjusteUbicacion
+from app.db import connect as db_connect
+from app.db import settings_vigentes
 from app.optimizer.ubicacion import (
     max_en_espera_desde_settings,
     modo_ubicacion_desde_settings,
@@ -71,6 +73,8 @@ SELECT a.id, a.campana_id, c.external_id, a.antes_config_id, a.despues
   JOIN ad_entity c ON c.id = a.campana_id
  WHERE a.platform = %s AND a.clase = 'ajuste_ubicacion'
    AND a.evaluacion_id IS NOT NULL AND a.confirmado_el IS NULL
+   AND NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s
+                    WHERE s.evaluacion_id = a.evaluacion_id)
  ORDER BY a.id
 """
 
@@ -210,7 +214,7 @@ def aplica_automaticos(
         return ResumenAplica(candidatas=0, aplicadas=0, sin_aplicar=())
     modo = modo_ubicacion_desde_settings(settings, platform)
     maximo = max_en_espera_desde_settings(settings, platform)
-    abrir = abrir_conexion or (lambda: psycopg.connect(dsn, autocommit=False))
+    abrir = abrir_conexion or (lambda: db_connect(dsn, autocommit=False))
     aplicadas = 0
     sin_aplicar: list[tuple[int, str]] = []
 
@@ -222,6 +226,23 @@ def aplica_automaticos(
         if tick is not None:
             tick()
         if modo != "live":
+            descarta(eval_id, MOTIVO_MODO_NO_LIVE)
+            continue
+        # El dueno pudo apagar la campana o el motor durante la fase de pujas:
+        # la compuerta se re-lee fresca antes de cobrar cuota.
+        frescos = settings_vigentes(conn)
+        if frescos is None or modo_ubicacion_desde_settings(frescos, platform) != "live":
+            descarta(eval_id, MOTIVO_MODO_NO_LIVE)
+            continue
+        if frescos.get("ads_optimizer_mode") not in (None, "live"):
+            descarta(eval_id, MOTIVO_MODO_NO_LIVE)
+            continue
+        from app.cycle_grupos import lee_goals
+        from app.optimizer import goals as g
+
+        goal_plataforma, goals_campana = lee_goals(conn, platform, [caso.campana_id])
+        objetivo = g.resuelve_goal(goals_campana.get(caso.campana_id), goal_plataforma)
+        if objetivo is None or not objetivo.enabled or objetivo.mode != "live":
             descarta(eval_id, MOTIVO_MODO_NO_LIVE)
             continue
         vigente_id, _vigente = config_vigente_con_id(conn, caso.campana_id)
