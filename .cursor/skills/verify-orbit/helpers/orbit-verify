@@ -13,6 +13,7 @@ Subcomandos:
   drive-fabrica   Receta curl de Crear campanas + evidencia (HTML y JSON)
   drive-settings  Receta curl de Settings + evidencia (HTML y JSON)
   drive-productos Receta curl de Productos sin clics (meta, pausa, limites y encendido)
+  drive-secundarias Recorre las pantallas de subnavegacion sin drive especifico
   drive-campanas  Receta curl de la pantalla Campanas + captura de evidencia
   maintain-verification-skill
                  Orquesta launch + doctor + drives y hace teardown al final
@@ -68,6 +69,16 @@ DEFAULT_PORT = 18010
 ADMIN_DSN = os.environ.get("ORBIT_TEST_DSN", "postgresql://orbit:orbit@127.0.0.1:5432/postgres")
 FORBIDDEN_HOSTS = ("10.13.13.1",)
 FORBIDDEN_PORTS = {8010}
+SECUNDARIAS = {
+    "/gasto-sin-venta": "gasto-sin-venta",
+    "/busquedas-sin-venta": "busquedas-sin-venta",
+    "/keywords-danadas": "keywords-danadas",
+    "/ruido": "ruido",
+    "/donde-poner-el-dinero": "donde-poner-el-dinero",
+    "/reputacion": "reputacion",
+    "/familias": "familias",
+    "/precios": "precios",
+}
 
 # Migraciones de DATOS (no esquema): exigen filas de produccion (SKU, costos).
 # La base desechable no las tiene — misma excepcion que test_schema.py (0011
@@ -230,7 +241,20 @@ def _sembrar(conn) -> dict:
     ).fetchone()[0]
     config_id = conn.execute(
         "INSERT INTO config_version (label, settings) VALUES (%s, %s) RETURNING id",
-        ("verify-orbit", Json({"ads_optimizer_mode": "shadow"})),
+        (
+            "verify-orbit",
+            Json(
+                {
+                    "ads_optimizer_mode": "shadow",
+                    "precio_aviso_dias_sin_evaluar": 3,
+                    "precio_catalogo_max_dias_sin_reportar": 7,
+                    "precio_cap_amazon_mx": 7,
+                    "precio_cap_amazon_us": 7,
+                    "precio_modo_global": "live",
+                    "precio_modo_universo": {"amazon_mx/fba": "live", "amazon_mx/fbm": "off"},
+                }
+            ),
+        ),
     ).fetchone()[0]
     camp_id = conn.execute(
         "INSERT INTO ad_entity (platform, kind, external_id, name)"
@@ -1274,7 +1298,7 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
         "http_200": st == 200,
         "data-pantalla=campanas": 'data-pantalla="campanas"' in texto,
         "h2_campanas": "Campañas contra su target" in texto and "Lista de campañas" in texto,
-        "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
+        "nav_aria_current": _nav_activa(texto, "/campanas"),
         "fila_campana_a": "Campana A" in texto,
         "chip_activa": "activa" in texto,
         "plataforma_usd": "Amazon US · USD" in texto,
@@ -1364,6 +1388,14 @@ def cmd_drive_campanas(args: argparse.Namespace) -> None:
 def _get_html(base_url: str, path: str, timeout_s: float = 5.0) -> tuple[int, bytes]:
     st, _, body = _http(f"{base_url}{path}", timeout=timeout_s)
     return st, body
+
+
+def _nav_activa(html: str, href: str) -> bool:
+    for etiqueta in re.findall(r"<a\b[^>]*>", html, flags=re.IGNORECASE):
+        atributos = dict(re.findall(r'([\w:-]+)\s*=\s*"([^"]*)"', etiqueta))
+        if atributos.get("href") == href and atributos.get("aria-current") == "page":
+            return True
+    return False
 
 
 def _tramo(texto: str, inicio: str, fin: str = "<h2>") -> str:
@@ -2027,7 +2059,7 @@ def cmd_drive_fabrica(args: argparse.Namespace) -> None:
         and 'class="fabrica-catalogo"' in texto,
         "comparador_publicaciones": 'id="fabrica-comparador"' in texto
         and 'id="fabrica-comparador-datos"' in texto,
-        "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
+        "nav_aria_current": _nav_activa(texto, "/campanas"),
         "form_plan": 'id="fabrica-plan"' in texto,
         "select_plataforma": 'id="fabrica-plataforma"' in texto,
         "input_token": 'id="fabrica-token"' in texto,
@@ -2577,6 +2609,39 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
         _die("drive-productos FALLA: " + ", ".join(fallaron))
 
 
+def cmd_drive_secundarias(args: argparse.Namespace) -> None:
+    run_id = args.run_id or _latest_run_id()
+    state = _load_state(run_id)
+    base = state["base_url"]
+    if any(h in base for h in FORBIDDEN_HOSTS) or state["port"] in FORBIDDEN_PORTS:
+        _die(f"rehuso conducir {base}: no es instancia local de verificacion")
+    evidence = _evidence_dir(run_id) / "secundarias"
+    evidence.mkdir(parents=True, exist_ok=True)
+    resultados = {}
+    for ruta, pantalla in SECUNDARIAS.items():
+        status, raw = _get_html(base, ruta)
+        (evidence / f"{pantalla}.html").write_bytes(raw)
+        html = raw.decode("utf-8", errors="replace")
+        resultados[pantalla] = {
+            "status": status,
+            "nav_activa": f'data-pantalla="{pantalla}"' in html and _nav_activa(html, ruta),
+        }
+    prueba = {
+        "feature": "secundarias",
+        "entry_point": "subnavegacion",
+        "base_url": base,
+        "pantallas": resultados,
+        "ok": all(
+            item["status"] == 200 and item["nav_activa"] for item in resultados.values()
+        ),
+        "evidence_dir": str(evidence),
+    }
+    (evidence / "PROOF.json").write_text(json.dumps(prueba, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(prueba, indent=2))
+    if not prueba["ok"]:
+        _die("drive-secundarias FALLA")
+
+
 def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
     run_id = args.run_id or _run_id()
     port = args.port
@@ -2603,6 +2668,7 @@ def cmd_drive_maintain_verification_skill(args: argparse.Namespace) -> None:
             cmd_drive_fabrica,
             cmd_drive_settings,
             cmd_drive_productos,
+            cmd_drive_secundarias,
         ):
             try:
                 drive(drive_args)
@@ -2731,6 +2797,12 @@ def main() -> None:
     p_drive = sub.add_parser("drive-campanas", help="Conduce la pantalla Campanas")
     p_drive.add_argument("--run-id", default=None)
     p_drive.set_defaults(func=cmd_drive_campanas)
+
+    p_secundarias = sub.add_parser(
+        "drive-secundarias", help="Conduce las pantallas sin drive especifico"
+    )
+    p_secundarias.add_argument("--run-id", default=None)
+    p_secundarias.set_defaults(func=cmd_drive_secundarias)
 
     p_maint = sub.add_parser(
         "maintain-verification-skill",

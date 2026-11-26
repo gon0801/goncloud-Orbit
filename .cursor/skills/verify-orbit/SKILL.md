@@ -1,6 +1,6 @@
 ---
 name: verify-orbit
-description: Verifica Orbit (dashboard web Jinja2 de Amazon Ads) como lo toca un usuario — Resumen, Campanas, Decisiones, Salud, Contribucion, Propuestas, Inertes, Crear campanas, Settings y Productos sin clics. Usala para probar UI, regresiones de pantallas o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
+description: Verifica las 18 rutas del dashboard web Jinja2 de Orbit como las toca un usuario, incluidos Resumen, Campanas, Oportunidades, Decisiones, Rendimiento, Catalogo, Salud y Configuracion. Usala para probar UI, regresiones o el camino real del dashboard, nunca el bind de produccion 10.13.13.1:8010.
 ---
 
 # Verificar Orbit
@@ -13,10 +13,10 @@ Mantenimiento del mapa: `/maintain-verification-skill`.
 
 ## Entrevista (lo que hay en este repo)
 
-- **Surface.** Dashboard HTML server-rendered (Jinja2). El usuario toca el sidebar (`aside.sidebar` + `nav#nav-secciones` en `app/templates/base.html`): Panel — Resumen `/`, Campanas `/campanas`, Decisiones `/decisiones`, Salud `/salud`, Contribucion `/contribucion`; Decidir — Propuestas `/cortes`, Inertes `/inertes`, Crear campanas `/campanas/nuevas` (`data-pantalla="fabrica"`); pie — Settings `/settings`. Catalogo (Repricing, Reviews, Reputacion) son chips `pronto`, no rutas. El `<body>` lleva `data-pantalla`. El `<h1>` es el nombre de la pantalla; `<title>` sigue `Orbit — Dashboard`. Chrome: `#btn-tema`, `html[data-tema]`, `#nav-toggle`, `#ciclo-resumen`. Secundario: JSON en `/api/dashboard/*` (y `/api/fabrica/*` en Crear campanas) y CLI `python -m app.cli` (crons; no es la superficie de esta skill).
+- **Surface.** Dashboard HTML server-rendered (Jinja2), con 18 rutas documentadas en `features/README.md`. El sidebar (`aside.sidebar` + `nav#nav-secciones`) tiene Resumen `/`, Campanas `/campanas`, Oportunidades `/cortes`, Decisiones `/decisiones`, Rendimiento `/contribucion`, Catalogo `/precios`, Salud `/salud` y Configuracion `/settings`. Los cuatro destinos agrupados abren `nav.subnavegacion`, donde el enlace exacto lleva `aria-current="page"`; Crear campanas `/campanas/nuevas` es una accion de Campanas. En movil, `nav.tab-bar` tiene cinco controles: Resumen, Campanas, Oportunidades, Decisiones y `button#nav-mas-toggle`; este controla `nav#nav-mas` (Rendimiento, Catalogo, Salud y Configuracion), con apertura, cierre, Escape y retorno de foco. El `<body>` lleva `data-pantalla`, el `<h1>` nombra la pantalla y `<title>` sigue `Orbit — Dashboard`. Chrome: `#btn-tema`, `html[data-tema]`, `#ciclo-resumen`. Secundario: JSON en `/api/dashboard/*`, `/api/reputacion/*` y `/api/fabrica/*`; el CLI no es la superficie de esta skill.
 - **Run.** No hay `npm run dev`. El entorno Cursor deja Postgres 16 en `127.0.0.1:5432` con `orbit`/`orbit` via `.cursor/start.sh`. La app es `uvicorn app.main:app --host 127.0.0.1 --port <libre>`. Las pantallas HTML exigen `ORBIT_DSN_READ` (sin DSN → 503). `/health` no necesita DB. No hay seed de producto: esta skill crea una base desechable y siembra el fixture. Auth de lectura: ninguna (en prod el candado es VPN). Escritura (`POST /api/ads-optimizer/veto`) pide header `x-orbit-token`; **no la conduzcas** en el baseline de lectura.
-- **Drive.** No hay Playwright/Cypress. El harness existente es curl (y TestClient en pytest). Receta: curl a las rutas HTML reales. Chrome headless solo para capturar canvases de Chart.js (`drive-campanas`, `drive-resumen`, `drive-salud` con tope de 30s en este entorno).
-- **Observe.** HTML (`data-pantalla`, `aria-current="page"`, h2, chips, celdas), JSON gemelo `/api/dashboard/...`, headers CSP/`no-store`, screenshot, log de uvicorn en `/tmp/orbit-verify/<run_id>/`.
+- **Drive.** No hay Playwright/Cypress. El harness existente es curl (y TestClient en pytest). Receta: curl a las rutas HTML reales. Chrome headless captura canvases de Chart.js y comprueba por CDP geometria 390, foco y el menu Mas (con tope de 30s por captura en este entorno).
+- **Observe.** HTML (`data-pantalla`, `aria-current="page"`, h2, chips, celdas), JSON gemelo `/api/dashboard/...` o `/api/reputacion/resumen`, headers CSP/`no-store`, screenshot, log de uvicorn en `/tmp/orbit-verify/<run_id>/`.
 - **Isolate.** Si: otra base `orbit_verify_<run_id>` + otro puerto en `127.0.0.1`. El cluster 5432 se comparte. Nunca 8010 ni `10.13.13.1`. Rehusa conducir una instancia que esta skill no lanzo.
 
 ## Launch
@@ -35,7 +35,7 @@ Que hace, en orden:
 
 1. Habla Postgres en `postgresql://orbit:orbit@127.0.0.1:5432/postgres`. Si no responde, corre `.cursor/start.sh` (idempotente) y reintenta.
 2. `CREATE DATABASE orbit_verify_<run_id>` y aplica las SQL numeradas de esquema en `migrations/` (la cadena entera sin el parche de datos 0011 ni los archivos `_reversa_`, la misma regla que `tests/test_schema_docs.py`). 0001 no es re-runnable: por eso la base es nueva.
-3. Siembra el fixture: campana `Campana A` (amazon_us, ENABLED), metrica D-15 (12.3400 / 45.6700 USD), goal de plataforma 25% (`goal_plataforma`), decision bid, corte `pending_veto` con search_term `zapato blanco`.
+3. Siembra el fixture: campana `Campana A` (amazon_us, ENABLED), metrica D-15 (12.3400 / 45.6700 USD), goal de plataforma 25% (`goal_plataforma`), decision bid, corte `pending_veto` con search_term `zapato blanco`, evaluaciones de Productos y la configuracion valida de Precios usada por `test_precio_pantalla.py`. Precios queda 200 con cobertura vacia; no se siembran listings ni goals de precio.
 4. Arranca `.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port <puerto>` con `ORBIT_DSN_READ` apuntando a esa base. No setea `ORBIT_PG_HOST` ni DSN de escritura.
 
 **Listo cuando** `GET http://127.0.0.1:<puerto>/health` devuelve exactamente `{"status":"ok"}` y el helper imprime JSON con `base_url`, `pid`, `db`, `evidence_dir`. El mismo sello queda en `.cursor/skills/verify-orbit/evidence/<run_id>/launch-ready.txt`.
@@ -72,28 +72,29 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 
 | Handle | Donde |
 |---|---|
-| `body[data-pantalla="resumen"\|"campanas"\|"decisiones"\|"salud"\|"contribucion"\|"cortes"\|"inertes"\|"fabrica"\|"settings"]` | `app/templates/base.html` |
-| `aside.sidebar nav a[href="/"]`, `/campanas`, `/decisiones`, `/salud`, `/contribucion`, `/cortes`, `/inertes`, `/campanas/nuevas`, `/settings` | mismo |
-| `nav a[aria-current="page"]` | pagina activa |
-| `html[data-tema]`, `button#btn-tema` | chrome tema dia/noche |
-| `h1` = nombre de la pantalla (`Resumen`, `Campañas`, …); `<title>` = `Orbit — Dashboard` | header |
-| `h2` Resumen / Campanas / Salud / Contribucion / Propuestas / Entidades sin trafico / Crear campañas / Settings (Decisiones usa `h2#h-res` «En esta página») | cada template |
-| `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | `campanas.html` |
-| `canvas#tendencia-amazon_us`, `table#serie-amazon_us`, `form.filtros` | `resumen.html` |
-| `script#datos-resumen[type=application/json]` | contrato del Resumen |
-| `section.salud-plataformas`, `article.salud-tarjeta`, `ul.salud-checks` | `salud.html` (resumen por plataforma) |
-| `nav.salud-tabs a[href="/salud?plataforma=amazon_us"]`, `section#detalle-amazon_us` | `salud.html` (detalle en pestanas) |
-| `details.salud-ciclos-tabla`, `.salud-ciclos-barras`, `.salud-skip-barra` | `salud.html` (barras y tabla plegada) |
-| `script#datos-skips-amazon_us[type=application/json]` | datos de skips |
-| `section.contribucion-plataformas`, `article.contribucion-tarjeta#contribucion-card-amazon_us`, `table.contribucion-tabla`, `.contribucion-barra`, `.contribucion-rango`, `.contribucion-punto`, `.contribucion-real`, `.contribucion-eje` | `contribucion.html` (tarjeta por plataforma y barra de rango) |
-| `nav.paginador a[rel="next"]`, `a[rel="prev"]`, `[aria-current="page"]` | `decisiones.html` |
-| `form.decisiones-filtros`, `input#f-buscar[name="q"]`, `a.seg-btn[href^="?tipo="]`, `section.decisiones-dia`, `details.decisiones-grupo` | `decisiones.html` |
-| `button[data-vetar="<id>"]`, `form[data-veto="<id>"]` | `cortes.html` |
-| `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` | `fabrica.html` |
-| `#settings-token`, `[data-plataforma]`, `[data-settings-config]`, `[data-settings-goal]` | `settings.html` |
-| `body[data-pantalla="productos-sin-clics"]`, `div#decisiones-producto`, `select#decisiones-filtro`, `tr[data-decision-producto]`, `details[data-grupo]`, `tr[data-hoja]`, `li[data-motivo]`, `div#pausa-producto`, `tr[data-pausa-producto]`, `li[data-propuesta]`, `div#productos-limites`, `form#limites-simular`, `form#limites-guardar`, `div#pausa-vivo`, `button#pausa-encender`, `button#pausa-volver`, `div#pausa-confirmar` | `productos_sin_clics.html` (ficha `features/productos.md`, receta `drive-productos`; `productos-encender` no POSTea `/api/ads-optimizer/productos/pausa/*`) |
-| `GET /api/dashboard/campanas` (y series/decisiones/salud/contribucion/cortes/inertes/settings/productos/pausa) | JSON gemelo; no es endpoint de test |
-| `GET /api/fabrica/catalogo`, `GET /api/fabrica/lotes` | JSON de Crear campanas; no POSTees crear/plan |
+| `body[data-pantalla]` | identificador de cada una de las 18 rutas en `app/templates/base.html` |
+| `aside.sidebar nav#nav-secciones`, `nav.subnavegacion`, `nav.tab-bar` | navegacion de escritorio, grupo activo y movil |
+| `button#nav-mas-toggle[aria-controls="nav-mas"]`, `nav#nav-mas` | menu Mas en movil; Escape cierra y devuelve foco |
+| `nav a[aria-current="page"]`, padre agrupado `[aria-current="true"]` | destino y seccion activos; href y aria-current deben pertenecer al mismo `<a>` |
+| `html[data-tema]`, `button#btn-tema`, `span.leyenda-zona` | tema y zona horaria |
+| `.accion-primaria[href="/campanas/nuevas"]` | accion Crear campanas, no una seccion del nav |
+| `canvas#tendencia-amazon_us`, `table#serie-amazon_us`, `script#datos-resumen` | Resumen |
+| `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | Campanas |
+| `form.decisiones-filtros`, `section.decisiones-dia`, `details.decisiones-grupo`, `nav.paginador` | Decisiones |
+| `section.salud-plataformas`, `article.salud-tarjeta`, `.salud-ciclos-barras`, `script#datos-skips-amazon_us` | Salud |
+| `section.contribucion-plataformas`, `article.contribucion-tarjeta`, `.contribucion-rango` | Contribucion |
+| `button[data-vetar]`, `form[data-veto]`, `form[data-bloqueo]` | Propuestas; no POST en baseline |
+| `section.oportunidad-resumen`, `section.oportunidad-contenido`, `section.oportunidad-detalle` | Oportunidades A2; selectores funcionales por ficha |
+| `section.historial-resumen`, `section.rendimiento-resumen`, `section.catalogo-resumen`, `section.sistema-resumen` | superficies A2 por tarea |
+| `form#fabrica-plan`, `#fabrica-plataforma`, `#fabrica-token` | Crear campanas; no POST crear/plan |
+| `#settings-token`, `[data-settings-config]`, `[data-settings-goal]` | Configuracion |
+| `#decisiones-producto`, `#pausa-producto`, `#productos-limites`, `#pausa-vivo` | Productos; el drive no POSTea las operaciones HTTP |
+| `form.rep-toolbar`, `.tabla-reputacion`, `.rep-estrellas` | Reputacion |
+| `#familias-arbol`, `#familias-productos`, `#familias-crear`, `#familias-asignar` | Familias; no POST en baseline |
+| `#bloque-seguridad-<plataforma>`, `#bloque-cobertura-<plataforma>`, `#bloque-goals-<plataforma>` | Precios |
+| `GET /api/dashboard/*`, `GET /api/reputacion/resumen`, `GET /api/fabrica/{catalogo,lotes}` | JSON gemelo cuando existe; no son endpoints de test |
+
+La lista completa de selectores y estados vacios vive en `features/README.md` y sus 18 fichas. `drive-secundarias` verifica `/gasto-sin-venta`, `/busquedas-sin-venta`, `/keywords-danadas`, `/ruido`, `/donde-poner-el-dinero`, `/reputacion`, `/familias` y `/precios` con HTTP 200, `data-pantalla` y el enlace activo correcto; guarda un HTML por ruta y `secundarias/PROOF.json`.
 
 Receta minima (tras doctor OK):
 
@@ -191,6 +192,20 @@ Directorio nombrado (sobrevive cleanup):
     02-settings.html
     03-settings.json
     PROOF.json
+  productos/
+    01-productos-mx.html
+    02-productos-mx.json
+    PROOF.json             # y simulaciones/encendido 03..19
+  secundarias/
+    gasto-sin-venta.html
+    busquedas-sin-venta.html
+    keywords-danadas.html
+    ruido.html
+    donde-poner-el-dinero.html
+    reputacion.html
+    familias.html
+    precios.html
+    PROOF.json
 ```
 
 Estandares de prueba:
@@ -228,6 +243,7 @@ Todos viven en `.cursor/skills/verify-orbit/helpers/orbit-verify` (ejecutable):
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-fabrica [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-settings [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify drive-productos [--run-id ID]
+.cursor/skills/verify-orbit/helpers/orbit-verify drive-secundarias [--run-id ID]
 .cursor/skills/verify-orbit/helpers/orbit-verify maintain-verification-skill [--run-id ID] [--port 18010] [--force]
 .cursor/skills/verify-orbit/helpers/orbit-verify cleanup [--run-id ID]
 ```

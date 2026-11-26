@@ -4,7 +4,7 @@ Dónde poner el dinero reparte el gasto de las campañas encendidas por tipo y p
 
 ## Sub-features
 
-- `dinero-nav` abre `/donde-poner-el-dinero` desde el sidebar y marca `aria-current="page"`. El `<body data-pantalla>` es `donde-poner-el-dinero` y el `h1` dice `Dónde poner el dinero`. Los enlaces `Amazon MX` / `Amazon US` cambian de mercado por GET.
+- `dinero-nav` abre `/donde-poner-el-dinero` desde `Rendimiento`; el padre del sidebar usa `aria-current="true"` y el destino en `nav.subnavegacion` marca `aria-current="page"`. En móvil se entra por `Rendimiento` dentro de `nav#nav-mas`. El `<body data-pantalla>` es `donde-poner-el-dinero` y el `h1` dice `Dónde poner el dinero`. Los enlaces `Amazon MX` / `Amazon US` cambian de mercado por GET.
 - `dinero-tipos` `section.rendimiento-resumen.superficie` agrupa la explicacion, la ventana y la tabla de gasto, parte del gasto, pedidos, venta y ACoS por tipo de campaña, con sus totales. Los enlaces de mercado quedan fuera del resumen; debajo siguen `Por ubicación (30 días)` y `Por campaña`.
 - `dinero-por-campana` una fila por campaña con presupuesto diario, gasto medio, uso del presupuesto, estrategia, ajustes por ubicación, gasto fuera de Amazon y el botón `Cambiar presupuesto` (`button[data-ajuste-clase="presupuesto"][data-campana-id]`). Sin campañas con configuración vigente la tabla queda vacía.
 - `dinero-propuesta-temporada` la columna `Temporada` muestra la propuesta de presupuesto del bloque G (`propuesta_temporada.frase`: baja, fin de baja o alta sin presupuesto, con el monto absoluto). Con propuesta trae `button[data-propuesta-presupuesto]` (texto `Revisar`) que abre el form `presupuesto` de esa campaña, escribe el monto propuesto en `input[name="presupuesto"]` y pide el plan; la aprobación sigue siendo el literal `APLICAR AJUSTE` del dueño. Sin propuesta la celda dice `—`.
@@ -15,7 +15,7 @@ Dónde poner el dinero reparte el gasto de las campañas encendidas por tipo y p
 
 ## How to get to it (user POV)
 
-- Elegir `Dónde poner el dinero` en el sidebar (`<a href="/donde-poner-el-dinero">`).
+- Elegir `Rendimiento` en el sidebar o dentro de `Más` en móvil y después `Dónde poner el dinero` en la subnavegación (`<a href="/donde-poner-el-dinero">`).
 - Cambiar de mercado con `Amazon MX` o `Amazon US`.
 - En `Por campaña`, pulsar `Cambiar presupuesto`, escribir el monto y `Ver plan`; leer la frase (y el aviso, si es más del doble de lo que tiene hoy), escribir `APLICAR AJUSTE`, marcar `Sí, quiero ese presupuesto` cuando aparezca y `Aplicar`.
 

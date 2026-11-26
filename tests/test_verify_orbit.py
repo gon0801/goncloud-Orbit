@@ -95,6 +95,25 @@ def test_drives_conducen_el_dashboard_vigente(dashboard, monkeypatch, pantalla):
     assert prueba["ok"] is True
 
 
+def test_drive_secundarias_recorre_rutas_sin_drive_especifico(dashboard):
+    dashboard.cmd_drive_secundarias(argparse.Namespace(run_id="prueba"))
+    prueba = json.loads((dashboard.EVIDENCE_ROOT / "prueba/secundarias/PROOF.json").read_text())
+    assert prueba["ok"] is True
+    assert set(prueba["pantallas"]) == {
+        "gasto-sin-venta",
+        "busquedas-sin-venta",
+        "keywords-danadas",
+        "ruido",
+        "donde-poner-el-dinero",
+        "reputacion",
+        "familias",
+        "precios",
+    }
+    for pantalla in prueba["pantallas"].values():
+        assert pantalla["status"] == 200
+        assert pantalla["nav_activa"] is True
+
+
 def test_drive_resumen_valida_navegacion_a2_y_css_propio(dashboard, monkeypatch):
     monkeypatch.setattr(dashboard, "_chrome_screenshot", lambda *args, **kwargs: True)
     monkeypatch.setattr(
