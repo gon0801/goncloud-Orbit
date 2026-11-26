@@ -2090,9 +2090,10 @@ def test_ubicacion_no_toca_otro_placement_de_consola(monkeypatch):
 
 
 @_skip_db
-def test_ubicacion_no_toca_strategy_de_consola(monkeypatch):
-    """B11: el dueno cambio la estrategia en la consola tras el sync;
-    el PUT lleva la actual (leida antes del PUT), no la del sync."""
+def test_ubicacion_aborta_si_la_estrategia_viva_difiere(monkeypatch):
+    """AUTO-04: el dueno cambio la estrategia en la consola tras el sync.
+    Los techos de la politica dependen de ella, asi que la lectura viva
+    manda y el ajuste se aborta sin PUT."""
     with _db("orbit_aj_b11b") as conn:
         camp, _cfg = _siembra(conn)
         remoto = _remoto_b11(estrategia="AUTO_FOR_SALES")
@@ -2101,17 +2102,16 @@ def test_ubicacion_no_toca_strategy_de_consola(monkeypatch):
         plan = _plan(
             conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
         )
-        hecho = apply_ajustes.aplica_ajuste_campana(
-            conn,
-            plan,
-            huella=plan.huella(),
-            confirmacion="APLICAR AJUSTE",
-            actor="dueno",
-            transport=httpx.MockTransport(handler),
-        )
-        assert hecho.confirmada is True
-        (put,) = _puts(vistos)
-        assert put["dynamicBidding"]["strategy"] == "AUTO_FOR_SALES"
+        with pytest.raises(apply_ajustes.CambioExternoDetectado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+        assert _puts(vistos) == []
         assert remoto[EXTERNA]["dynamicBidding"]["strategy"] == "AUTO_FOR_SALES"
 
 
@@ -2386,3 +2386,36 @@ def test_regreso_con_clase_ya_en_antes_no_manda_put(monkeypatch):
                 conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
             )
         assert len(_puts(vistos)) == 1
+
+
+@_skip_db
+def test_put_aborta_si_el_dueno_cambio_la_ubicacion_en_consola(monkeypatch):
+    """AUTO-04: la lectura viva manda. Si la consola de Amazon tiene otro
+    porcentaje que el juzgado, no se manda PUT (ni manual ni automatico)."""
+    from app.ads.campana_config import cuerpo_put_campana
+
+    with _db("orbit_aj_guard") as conn:
+        camp, _cfg = _siembra(conn)
+        remoto = {
+            EXTERNA: {
+                k: v for k, v in cuerpo_put_campana(_vigente_config()).items() if k != "campaignId"
+            }
+        }
+        remoto[EXTERNA]["dynamicBidding"]["placementBidding"] = [
+            {"placement": "PLACEMENT_TOP", "percentage": 25}
+        ]
+        handler, vistos = _handler_mezcla(remoto)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=15)
+        )
+        with pytest.raises(apply_ajustes.CambioExternoDetectado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler),
+            )
+        assert _puts(vistos) == []
