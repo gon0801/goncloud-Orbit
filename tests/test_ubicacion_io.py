@@ -384,7 +384,10 @@ def test_guarda_evaluaciones_y_lee_sugerencia_vigente():
         assert a["campana"] not in ultimas_evaluaciones_por_campana(conn, "amazon_mx")
 
 
-def _caso_simple(campana: int, config_id: int, *, plataforma="amazon_mx") -> CasoCampana:
+def _caso_simple(
+    campana: int, config_id: int, *, plataforma="amazon_mx", gasto_arriba="5"
+) -> CasoCampana:
+    gasto = _D(gasto_arriba)
     return CasoCampana(
         campana_id=campana,
         plataforma=plataforma,
@@ -393,14 +396,14 @@ def _caso_simple(campana: int, config_id: int, *, plataforma="amazon_mx") -> Cas
         ventana_desde=_HOY.date() - dt.timedelta(days=32),
         ventana_hasta=_HOY.date() - dt.timedelta(days=3),
         ubicaciones=(
-            EvidenciaUbicacion("arriba_de_busqueda", 0, 40, _D("5"), 4, _D("100"), 0),
+            EvidenciaUbicacion("arriba_de_busqueda", 0, 40, gasto, 4, _D("100"), 0),
             EvidenciaUbicacion("resto_de_busqueda", 0, 20, _D("2"), 0, _D("10"), 0),
             EvidenciaUbicacion("paginas_de_producto", 0, 20, _D("2"), 0, _D("10"), 0),
         ),
         meta=MetaCampana(_D("18"), _D("24"), ("goal",)),
         economia=_eco(),
-        gasto_campana=_D("9"),
-        gasto_placements_total=_D("9"),
+        gasto_campana=gasto + _D("4"),
+        gasto_placements_total=gasto + _D("4"),
         placements_frescos=True,
         dias_desde_ultimo_cambio=None,
         ajuste_en_vuelo=False,
@@ -511,16 +514,25 @@ def test_resumen_aplicadas_solo_cuenta_confirmadas():
 
 
 @_skip_db
-def test_evaluaciones_a_aplicar_ordena_recortes_antes_que_subidas():
+def test_evaluaciones_a_aplicar_ordena_y_filtra_pendientes():
     with _db() as (conn, _dsn):
         _goal(conn)
-        a = _campana(conn, external="c-uio-rec")
-        b = _campana(conn, external="c-uio-sub")
-        config_a = _config(conn, a["campana"], _ANCLA - dt.timedelta(days=20), top=40)
-        config_b = _config(conn, b["campana"], _ANCLA - dt.timedelta(days=20), top=0)
+        sub = _campana(conn, external="c-uio-sub")["campana"]
+        suave = _campana(conn, external="c-uio-suave")["campana"]
+        fuerte = _campana(conn, external="c-uio-fuerte")["campana"]
+        ajustada = _campana(conn, external="c-uio-ajustada")["campana"]
+        sin_aplicar = _campana(conn, external="c-uio-sin")["campana"]
+        configs = {
+            sub: _config(conn, sub, _ANCLA - dt.timedelta(days=20), top=0),
+            suave: _config(conn, suave, _ANCLA - dt.timedelta(days=20), top=30),
+            fuerte: _config(conn, fuerte, _ANCLA - dt.timedelta(days=20), top=40),
+            ajustada: _config(conn, ajustada, _ANCLA - dt.timedelta(days=20), top=40),
+            sin_aplicar: _config(conn, sin_aplicar, _ANCLA - dt.timedelta(days=20), top=40),
+        }
         cv = _config_version(conn)
         ciclo = _ciclo(conn, mode="live")
-        guarda_evaluaciones(
+        # La subida se inserta PRIMERO (id menor): sin el sort saldria primera.
+        ids = guarda_evaluaciones(
             conn,
             cycle_id=ciclo,
             config_version_id=cv,
@@ -528,46 +540,72 @@ def test_evaluaciones_a_aplicar_ordena_recortes_antes_que_subidas():
             decided_at=_HOY,
             evaluaciones=[
                 (
-                    _caso_simple(a["campana"], config_a),
+                    _caso_simple(sub, configs[sub]),
+                    "live",
+                    MoverUbicacion("arriba_de_busqueda", 0, 15, "bajo_meta_con_ventaja"),
+                ),
+                (
+                    _caso_simple(suave, configs[suave], gasto_arriba="30"),
+                    "live",
+                    MoverUbicacion("arriba_de_busqueda", 30, 15, "acos_sobre_meta"),
+                ),
+                (
+                    _caso_simple(fuerte, configs[fuerte], gasto_arriba="50"),
                     "live",
                     MoverUbicacion("arriba_de_busqueda", 40, 15, "acos_sobre_meta_fuerte"),
                 ),
                 (
-                    _caso_simple(b["campana"], config_b),
+                    _caso_simple(ajustada, configs[ajustada]),
                     "live",
-                    MoverUbicacion("arriba_de_busqueda", 0, 15, "bajo_meta_con_ventaja"),
+                    MoverUbicacion("arriba_de_busqueda", 40, 15, "acos_sobre_meta_fuerte"),
+                ),
+                (
+                    _caso_simple(sin_aplicar, configs[sin_aplicar]),
+                    "live",
+                    MoverUbicacion("arriba_de_busqueda", 40, 15, "acos_sobre_meta_fuerte"),
                 ),
             ],
         )
+        conn.execute("SET ROLE app_decide")
+        conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, evaluacion_id) VALUES (%s, 'amazon_mx',"
+            " 'ajuste_ubicacion', %s, %s, 'auto:filtro', 'orbit_ubicacion',"
+            " 'AUTO_UBICACION', %s)",
+            (
+                ajustada,
+                configs[ajustada],
+                json.dumps({"clase": "ajuste_ubicacion"}),
+                ids[ajustada],
+            ),
+        )
+        conn.execute("RESET ROLE")
+        conn.execute(
+            "INSERT INTO ubicacion_sin_aplicar (evaluacion_id, motivo, registrado_el)"
+            " VALUES (%s, 'cuota_agotada', %s)",
+            (ids[sin_aplicar], _HOY),
+        )
         pendientes = evaluaciones_a_aplicar(conn, ciclo, "amazon_mx")
-        assert [p[1].campana_id for p in pendientes] == [a["campana"], b["campana"]]
-        assert pendientes[0][2].de_pct == 40
-        assert pendientes[1][2].de_pct == 0
-
-
-def _coloca_cuatro(conn, camp):
-    hasta = _HOY.date() - dt.timedelta(days=3)
-    return hasta
+        assert [p[1].campana_id for p in pendientes] == [fuerte, suave, sub]
+        assert [p[2].de_pct for p in pendientes] == [40, 30, 0]
 
 
 @_skip_db
 def test_ventana_vacia_por_cambio_reciente_no_revienta_el_check():
     from app.optimizer.ubicacion import decide_ubicacion
 
-    with _db() as (conn, _dsn):
-        _goal(conn)
-        camp = _campana(conn)["campana"]
-        _config(conn, camp, _HOY - dt.timedelta(days=20), top=9)
-        for dias in (0, 1, 3):
+    for dias in (0, 1, 3):
+        with _db() as (conn, _dsn):
+            _goal(conn)
+            camp = _campana(conn, external=f"c-uio-v{dias}")["campana"]
+            _config(conn, camp, _HOY - dt.timedelta(days=20), top=9)
             _config(conn, camp, _HOY - dt.timedelta(days=dias), top=10 + dias)
             caso = next(c for c in _lee(conn) if c.campana_id == camp)
             assert caso.ventana_desde == caso.ventana_hasta
-            cv = _config_version(conn)
-            ciclo = _ciclo(conn)
             guarda_evaluaciones(
                 conn,
-                cycle_id=ciclo,
-                config_version_id=cv,
+                cycle_id=_ciclo(conn),
+                config_version_id=_config_version(conn),
                 platform="amazon_mx",
                 decided_at=_HOY,
                 evaluaciones=[(caso, "shadow", decide_ubicacion(caso))],
@@ -604,17 +642,23 @@ def test_suma_placements_presentes_y_ceros_medidos_sin_fila():
         _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
         ingest = _ingest(conn)
         hasta = _HOY.date() - dt.timedelta(days=3)
-        _placement(conn, camp, "arriba_de_busqueda", hasta, cost=_D("10"))
+        _placement(conn, camp, "arriba_de_busqueda", hasta, cost=_D("10"), clics=0, pedidos=0)
         conn.execute(
             "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
             " metric_date, observed_at, metric_currency, impressions, clicks, cost, orders,"
-            " ad_revenue, source_report_id) VALUES ('amazon_mx', %s, 'resto_de_busqueda', %s,"
-            " %s, 'MXN', 1000, NULL, NULL, NULL, NULL, 'r-uio')",
+            " ad_revenue, source_report_id) VALUES ('amazon_mx', %s, 'paginas_de_producto',"
+            " %s, %s, 'MXN', 1000, NULL, NULL, NULL, NULL, 'r-uio')",
             (camp, hasta, _ANCLA),
         )
         _metrica(conn, camp, hasta, _D("10"), ingest)
         metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
         caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        ubicaciones = {u.ubicacion: u for u in caso.ubicaciones}
+        assert ubicaciones["arriba_de_busqueda"].pedidos == 0
+        assert ubicaciones["resto_de_busqueda"].pedidos == 0
+        assert ubicaciones["resto_de_busqueda"].gasto == _D("0")
+        assert ubicaciones["paginas_de_producto"].pedidos is None
+        assert ubicaciones["paginas_de_producto"].gasto is None
         assert caso.gasto_placements_total is None
 
 
@@ -645,6 +689,26 @@ def test_inmaduros_exige_cobertura_y_cero_sin_filas():
             _metrica(conn, camp, dia, _D("1"), ingest)
         caso = next(c for c in _lee(conn) if c.campana_id == camp)
         assert caso.ubicaciones[0].pedidos_inmaduros == 0
+        assert caso.ubicaciones[1].pedidos_inmaduros == 0
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn, external="c-uio-null")["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=10)
+        ayer = _HOY.date() - dt.timedelta(days=1)
+        antes = _HOY.date() - dt.timedelta(days=2)
+        ingest = _ingest(conn)
+        for dia in (antes, ayer):
+            conn.execute(
+                "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+                " metric_date, observed_at, metric_currency, impressions, clicks, cost,"
+                " orders, ad_revenue, source_report_id) VALUES ('amazon_mx', %s,"
+                " 'arriba_de_busqueda', %s, %s, 'MXN', 1000, 5, 1, NULL, NULL, 'r-uio')",
+                (camp, dia, _ANCLA),
+            )
+            _metrica(conn, camp, dia, _D("1"), ingest)
+        caso = next(c for c in _lee(conn) if c.campana_id == camp)
+        assert caso.ubicaciones[0].pedidos_inmaduros is None
         assert caso.ubicaciones[1].pedidos_inmaduros == 0
 
 

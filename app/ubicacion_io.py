@@ -217,7 +217,7 @@ def _inmaduros(
     hasta = hoy - dt.timedelta(days=1)
     desde = hoy - dt.timedelta(days=2)
     filas = conn.execute(_SQL_INMADUROS, (campana, platform, desde, hasta)).fetchall()
-    return {fila[0]: (0 if fila[1] is None else fila[1]) for fila in filas}
+    return {fila[0]: fila[1] for fila in filas}
 
 
 def _medida(info: dict | None, hay_ingesta: bool) -> dict:
