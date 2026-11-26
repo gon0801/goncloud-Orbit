@@ -95,6 +95,44 @@ def test_drives_conducen_el_dashboard_vigente(dashboard, monkeypatch, pantalla):
     assert prueba["ok"] is True
 
 
+def test_drive_resumen_valida_navegacion_a2_y_css_propio(dashboard, monkeypatch):
+    monkeypatch.setattr(dashboard, "_chrome_screenshot", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        dashboard,
+        "_foco_y_ancho",
+        lambda *args, **kwargs: {
+            "foco": {
+                "ok": True,
+                "focoVisible": True,
+                "outlineStyle": "solid",
+                "outlineWidth": "2px",
+            },
+            "ancho390": {"ancho": 390, "bodyScroll": False, "tablaScroll": True},
+        },
+    )
+
+    dashboard.cmd_drive_resumen(argparse.Namespace(run_id="prueba"))
+
+    prueba = json.loads((dashboard.EVIDENCE_ROOT / "prueba/resumen/PROOF.json").read_text())
+    assert prueba["ok"] is True
+    for check in (
+        "nav_oportunidades",
+        "nav_decisiones",
+        "nav_rendimiento",
+        "nav_catalogo",
+        "menu_movil_mas",
+        "accion_crear_campanas",
+        "pendientes_revision",
+        "monedas_principales",
+        "sin_footer_antiguo",
+        "css_390",
+        "css_foco",
+    ):
+        assert prueba["checks"][check] is True
+    assert "nav_inertes" not in prueba["checks"]
+    assert "nav_fabrica" not in prueba["checks"]
+
+
 @pytest.mark.parametrize("pantalla", ["campanas", "resumen", "salud"])
 def test_drive_falla_si_no_hay_captura(dashboard, monkeypatch, pantalla):
     monkeypatch.setenv("ORBIT_VERIFY_CHROME", "/no-existe/chrome")

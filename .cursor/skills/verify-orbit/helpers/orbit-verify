@@ -1415,9 +1415,16 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "h1_resumen": "<h1>Resumen</h1>" in texto,
         "sidebar": 'class="sidebar"' in texto,
         "nav_resumen_activa": 'href="/"' in texto and 'aria-current="page"' in texto,
-        "nav_inertes": 'href="/inertes"' in texto,
-        "nav_fabrica": 'href="/campanas/nuevas"' in texto,
+        "nav_oportunidades": 'href="/cortes"' in texto,
+        "nav_decisiones": 'href="/decisiones"' in texto,
+        "nav_rendimiento": 'href="/contribucion"' in texto,
+        "nav_catalogo": 'href="/precios"' in texto,
+        "nav_salud": 'href="/salud"' in texto,
         "nav_settings": 'href="/settings"' in texto,
+        "menu_movil_mas": 'id="nav-mas-toggle"' in texto and 'id="nav-mas"' in texto,
+        "accion_crear_campanas": (
+            'class="accion-primaria" href="/campanas/nuevas"' in texto
+        ),
         "tema_dia": 'data-tema="dia"' in texto,
         "btn_tema": 'id="btn-tema"' in texto,
         "resumen_publicidad": "Resumen de publicidad" in texto,
@@ -1425,8 +1432,21 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "filtro_periodo_30": 'value="30" selected' in texto,
         "datos_resumen": 'id="datos-resumen"' in texto,
         "tabla_canal": "Tabla por canal" in texto,
-        "como_va_cada_canal": "Cómo va cada canal" in texto,
-        "que_revisar": "Qué revisar" in texto,
+        "pendientes_revision": "Pendientes de revisión" in texto,
+        "monedas_principales": 'class="resumen-monedas-principales"' in texto,
+        "canales": "Canales" in texto,
+        "grid_a2": (
+            'class="resumen-principal"' in texto
+            and '<aside class="resumen-canales">' in texto
+        ),
+        "orden_a2": (
+            'class="resumen-pendientes superficie"' in texto
+            and 'class="resumen-monedas-principales"' in texto
+            and 'class="chart-card"' in texto
+            and texto.index("resumen-pendientes") < texto.index("resumen-monedas-principales")
+            and texto.index("resumen-monedas-principales") < texto.index("chart-card")
+        ),
+        "sin_footer_antiguo": 'class="footer-links"' not in texto,
         "meta_acos": "Meta ACoS:" in texto,
         "totales_por_moneda": "Totales por moneda" in texto,
         "detalle_plegado": 'class="detail-box"' in texto,
@@ -1545,9 +1565,11 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         timeout_s=30,
     )
     st_css, _, raw_css = _http(f"{base}/static/css/dashboard.css")
+    st_css_resumen, _, raw_css_resumen = _http(f"{base}/static/css/resumen.css")
     css = raw_css.decode("utf-8", errors="replace")
-    checks["css_200"] = st_css == 200
-    css_390 = _bloque_css(css, "@media (max-width: 390px)")
+    css_resumen = raw_css_resumen.decode("utf-8", errors="replace")
+    checks["css_200"] = st_css == 200 and st_css_resumen == 200
+    css_390 = _bloque_css(css_resumen, "@media (max-width: 390px)")
     checks["css_390"] = (
         'body[data-pantalla="resumen"] .tabla-scroll' in css_390 and "overflow-x: auto" in css_390
     )
@@ -1575,8 +1597,8 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "action": (
             "GET /, filtros ?canal=meli&periodo=7, ?periodo=90 y "
             "?desde=2026-10-01&hasta=2026-10-07; GET /api/dashboard/resumen "
-            "(?canal=amazon_us, ?canal=amazon_mx); CSS /static/css/dashboard.css y capturas y foco "
-            "en navegador headless"
+            "(?canal=amazon_us, ?canal=amazon_mx); CSS /static/css/dashboard.css y "
+            "/static/css/resumen.css; capturas y foco en navegador headless"
         ),
         "checks": checks,
         "ok": all(checks.values()),
@@ -2004,7 +2026,7 @@ def cmd_drive_fabrica(args: argparse.Namespace) -> None:
         and 'class="fabrica-catalogo"' in texto,
         "comparador_publicaciones": 'id="fabrica-comparador"' in texto
         and 'id="fabrica-comparador-datos"' in texto,
-        "nav_aria_current": 'href="/campanas/nuevas"' in texto and 'aria-current="page"' in texto,
+        "nav_aria_current": 'href="/campanas"' in texto and 'aria-current="page"' in texto,
         "form_plan": 'id="fabrica-plan"' in texto,
         "select_plataforma": 'id="fabrica-plataforma"' in texto,
         "input_token": 'id="fabrica-token"' in texto,
