@@ -21,9 +21,10 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
-from app.lecturas_historia import ultimos_dias_ingesta_campanas
+from app.lecturas_historia import presupuestos_campanas_hoy
 from app.optimizer import goals as g
 from app.optimizer import temporada
+from app.optimizer.temporada_config import CampanaTopada
 from app.optimizer.ubicacion import (
     DIAS_REZAGO,
     DIAS_VENTANA_MAX,
@@ -42,7 +43,6 @@ from app.optimizer.ubicacion import (
     solo_bajadas_desde_settings,
 )
 
-DIAS_TOPE = 7
 _CIEN = Decimal(100)
 
 _SQL_CONFIGS_ACTIVAS = """
@@ -64,7 +64,7 @@ SELECT observed_at, estrategia_puja,
 """
 
 _SQL_GASTO_CAMPANA = """
-SELECT sum(cost)
+SELECT CASE WHEN bool_and(cost IS NOT NULL) THEN sum(cost) END
   FROM v_metric_latest
  WHERE ad_entity_id = %s AND metric_date BETWEEN %s AND %s
 """
@@ -77,7 +77,11 @@ WITH ult AS (
      WHERE ad_entity_id = %s AND platform = %s AND metric_date BETWEEN %s AND %s
      ORDER BY placement, metric_date, observed_at DESC
 )
-SELECT placement, sum(clicks), sum(cost), sum(orders), sum(ad_revenue),
+SELECT placement,
+       CASE WHEN bool_and(clicks IS NOT NULL) THEN sum(clicks) END,
+       CASE WHEN bool_and(cost IS NOT NULL) THEN sum(cost) END,
+       CASE WHEN bool_and(orders IS NOT NULL) THEN sum(orders) END,
+       CASE WHEN bool_and(ad_revenue IS NOT NULL) THEN sum(ad_revenue) END,
        max(metric_date)
   FROM ult
  GROUP BY placement
@@ -90,9 +94,16 @@ WITH ult AS (
      WHERE ad_entity_id = %s AND platform = %s AND metric_date BETWEEN %s AND %s
      ORDER BY placement, metric_date, observed_at DESC
 )
-SELECT placement, sum(orders)
+SELECT placement,
+       CASE WHEN bool_and(orders IS NOT NULL) THEN sum(orders) END
   FROM ult
  GROUP BY placement
+"""
+
+_SQL_DIAS_PLACEMENTS = """
+SELECT DISTINCT metric_date
+  FROM ads_placement_observation
+ WHERE platform = %s AND metric_date BETWEEN %s AND %s
 """
 
 _SQL_HOJAS = """
@@ -112,26 +123,6 @@ _SQL_AJUSTES_EN_VUELO = """
 SELECT DISTINCT campana_id
   FROM campana_ajuste
  WHERE platform = %s AND confirmado_el IS NULL
-"""
-
-_SQL_GASTO_DIARIO = """
-SELECT v.ad_entity_id, v.metric_date, v.cost
-  FROM v_metric_latest v
-  JOIN ad_entity c ON c.id = v.ad_entity_id
-  JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED'
- WHERE c.platform = %s AND c.kind = 'campaign'
-   AND v.metric_date BETWEEN %s AND %s
-"""
-
-_SQL_PRESUPUESTOS = """
-SELECT o.ad_entity_id, (o.observed_at AT TIME ZONE 'UTC')::date,
-       o.presupuesto_diario
-  FROM ads_campana_config_observation o
-  JOIN ad_entity c ON c.id = o.ad_entity_id
-  JOIN ad_entity_state s ON s.ad_entity_id = c.id AND s.status = 'ENABLED'
- WHERE c.platform = %s AND c.kind = 'campaign'
-   AND (o.observed_at AT TIME ZONE 'UTC')::date <= %s
- ORDER BY o.ad_entity_id, 2, o.observed_at
 """
 
 
@@ -177,12 +168,16 @@ def _ultimo_cambio(conn, campana: int) -> dt.date | None:
 
 
 def _ventana(ultimo: dt.date | None, decided_at: dt.datetime) -> tuple[dt.date, dt.date]:
-    hasta = decided_at.date() - dt.timedelta(days=DIAS_REZAGO)
+    """Ventana madura. Un cambio dentro de los ultimos 3 dias deja la ventana
+    VACIA (`desde == hasta`), nunca invertida: el CHECK de la tabla prohibe
+    `desde > hasta` y la compuerta de enfriamiento ya abstiene ese caso."""
+    hoy = _fecha_utc(decided_at)
+    hasta = hoy - dt.timedelta(days=DIAS_REZAGO)
     max_desde = hasta - dt.timedelta(days=DIAS_VENTANA_MAX - 1)
     if ultimo is None:
         return max_desde, hasta
     desde = max(max_desde, ultimo + dt.timedelta(days=1))
-    return desde, hasta
+    return min(desde, hasta), hasta
 
 
 def _placements(conn, campana: int, platform: str, desde: dt.date, hasta: dt.date) -> dict:
@@ -199,11 +194,49 @@ def _placements(conn, campana: int, platform: str, desde: dt.date, hasta: dt.dat
     }
 
 
-def _inmaduros(conn, campana: int, platform: str, decided_at: dt.datetime) -> dict[str, int | None]:
-    hasta = decided_at.date() - dt.timedelta(days=1)
-    desde = decided_at.date() - dt.timedelta(days=2)
+def _dias_con_placements(conn, platform: str, desde: dt.date, hasta: dt.date) -> frozenset:
+    return frozenset(
+        fila[0] for fila in conn.execute(_SQL_DIAS_PLACEMENTS, (platform, desde, hasta))
+    )
+
+
+def _inmaduros(
+    conn,
+    campana: int,
+    platform: str,
+    decided_at: dt.datetime,
+    *,
+    cubiertos: bool,
+) -> dict[str, int | None]:
+    """Pedidos de D-2..D-1 por ubicacion. Sin cobertura de ingesta de
+    placements en ambas fechas devuelve None en todas (no se inventa cero);
+    con cobertura completa, una ubicacion sin filas es cero medido."""
+    if not cubiertos:
+        return {}
+    hoy = _fecha_utc(decided_at)
+    hasta = hoy - dt.timedelta(days=1)
+    desde = hoy - dt.timedelta(days=2)
     filas = conn.execute(_SQL_INMADUROS, (campana, platform, desde, hasta)).fetchall()
-    return {fila[0]: fila[1] for fila in filas}
+    return {fila[0]: (0 if fila[1] is None else fila[1]) for fila in filas}
+
+
+def _medida(info: dict | None, hay_ingesta: bool) -> dict:
+    """Metricas de UNA ubicacion. Sin fila e ingesta presente = ceros medidos;
+    sin fila y sin ingesta = None (regla 3)."""
+    if info is None:
+        if not hay_ingesta:
+            return {"clics": None, "gasto": None, "pedidos": None, "venta": None}
+        return {"clics": 0, "gasto": Decimal(0), "pedidos": 0, "venta": Decimal(0)}
+    return {
+        "clics": info["clics"],
+        "gasto": info["gasto"],
+        "pedidos": info["pedidos"],
+        "venta": info["venta"],
+    }
+
+
+def _cubre_ingesta(dias: frozenset, desde: dt.date, hasta: dt.date) -> bool:
+    return all(desde + dt.timedelta(days=i) in dias for i in range((hasta - desde).days + 1))
 
 
 def _gasto_campana(conn, campana: int, desde: dt.date, hasta: dt.date) -> Decimal | None:
@@ -225,27 +258,15 @@ def _banda_de_metas(
     )
 
 
-def _dias_topados(conn, plataforma: str, campana: int, settings: Mapping, hasta: dt.date):
+def _dias_topados(
+    conn, plataforma: str, decided_at: dt.datetime, settings: Mapping
+) -> tuple[CampanaTopada, dict[int, int | None]]:
+    """Dias al tope de los ultimos 7 dias con ingesta hasta ayer UTC, con el
+    lector unico `presupuestos_campanas_hoy` (mismo criterio que la pantalla y
+    los avisos). Sin dias medidos o sin presupuesto conocido devuelve None."""
     topada = temporada.campana_topada_desde_settings(settings)
-    ultimos_7 = list(ultimos_dias_ingesta_campanas(conn, plataforma, hasta, limite=DIAS_TOPE))
-    if not ultimos_7:
-        return None, topada
-    gasto_por_dia: dict[dt.date, Decimal | None] = {}
-    for cid, dia, costo in conn.execute(
-        _SQL_GASTO_DIARIO, (plataforma, ultimos_7[0], ultimos_7[-1])
-    ).fetchall():
-        if cid == campana:
-            gasto_por_dia[dia] = costo
-    historial: list[tuple[dt.date, Decimal | None]] = []
-    for cid, dia, presupuesto in conn.execute(
-        _SQL_PRESUPUESTOS, (plataforma, hasta + dt.timedelta(days=1))
-    ).fetchall():
-        if cid == campana:
-            historial.append((dia, presupuesto))
-    return (
-        temporada.cuenta_dias_topados(ultimos_7, gasto_por_dia, historial, topada),
-        topada,
-    )
+    presupuestos = presupuestos_campanas_hoy(conn, plataforma, _fecha_utc(decided_at), topada)
+    return topada, {cid: info.dias_topados for cid, info in presupuestos.items()}
 
 
 def lee_casos(
@@ -269,6 +290,16 @@ def lee_casos(
         return ()
     abiertos = {f[0] for f in conn.execute(_SQL_IMPULSOS_ABIERTOS, (platform,))}
     en_vuelo = {f[0] for f in conn.execute(_SQL_AJUSTES_EN_VUELO, (platform,))}
+    hoy = _fecha_utc(decided_at)
+    topada, dias_topados_por_campana = _dias_topados(conn, platform, decided_at, settings)
+    cubre_inmaduros = _cubre_ingesta(
+        _dias_con_placements(
+            conn, platform, hoy - dt.timedelta(days=2), hoy - dt.timedelta(days=1)
+        ),
+        hoy - dt.timedelta(days=2),
+        hoy - dt.timedelta(days=1),
+    )
+    solo_bajadas = solo_bajadas_desde_settings(settings, platform)
     metas_por_campana: dict[int, list[tuple[Decimal, str]]] = {}
     for hoja_id, campana_id in conn.execute(_SQL_HOJAS, (platform,)).fetchall():
         if hoja_id in metas_hoja:
@@ -282,30 +313,28 @@ def lee_casos(
         ultimo = _ultimo_cambio(conn, campana)
         desde, hasta = _ventana(ultimo, decided_at)
         placements = _placements(conn, campana, platform, desde, hasta)
-        inmaduros = _inmaduros(conn, campana, platform, decided_at)
+        inmaduros = _inmaduros(conn, campana, platform, decided_at, cubiertos=cubre_inmaduros)
         vigentes = {
             "arriba_de_busqueda": top or 0,
             "resto_de_busqueda": resto or 0,
             "paginas_de_producto": producto or 0,
         }
+        hay_ingesta = bool(placements)
         ubicaciones = tuple(
             EvidenciaUbicacion(
                 ubicacion=ubicacion,
                 ajuste_vigente_pct=vigentes[ubicacion],
-                clics=placements.get(ubicacion, {}).get("clics"),
-                gasto=placements.get(ubicacion, {}).get("gasto"),
-                pedidos=placements.get(ubicacion, {}).get("pedidos"),
-                venta=placements.get(ubicacion, {}).get("venta"),
-                pedidos_inmaduros=inmaduros.get(ubicacion),
+                **_medida(placements.get(ubicacion), hay_ingesta),
+                pedidos_inmaduros=(None if not cubre_inmaduros else inmaduros.get(ubicacion, 0)),
             )
             for ubicacion in UBICACIONES
         )
-        completos = all(u in placements for u in (*UBICACIONES, "fuera_de_amazon"))
+        # El reporte por placement solo trae filas con actividad: sumar las
+        # presentes y dejar que la conciliacion contra el gasto de campana
+        # delate un hueco real (regla 10).
         total = None
-        if completos:
-            gastos = [placements[u]["gasto"] for u in (*UBICACIONES, "fuera_de_amazon")]
-            if all(x is not None for x in gastos):
-                total = sum(gastos, Decimal(0))
+        if placements and all(info["gasto"] is not None for info in placements.values()):
+            total = sum((info["gasto"] for info in placements.values()), Decimal(0))
         fresco = (
             bool(placements)
             and max(
@@ -313,7 +342,6 @@ def lee_casos(
             )
             >= hasta
         )
-        dias_topados, topada = _dias_topados(conn, platform, campana, settings, hasta)
         casos.append(
             CasoCampana(
                 campana_id=campana,
@@ -328,14 +356,12 @@ def lee_casos(
                 gasto_campana=_gasto_campana(conn, campana, desde, hasta),
                 gasto_placements_total=total,
                 placements_frescos=fresco,
-                dias_desde_ultimo_cambio=None
-                if ultimo is None
-                else (decided_at.date() - ultimo).days,
+                dias_desde_ultimo_cambio=None if ultimo is None else (hoy - ultimo).days,
                 ajuste_en_vuelo=campana in en_vuelo,
                 elegible=elegible,
                 en_impulso=campana in abiertos,
-                solo_bajadas=solo_bajadas_desde_settings(settings, platform),
-                dias_topados_7d=dias_topados,
+                solo_bajadas=solo_bajadas,
+                dias_topados_7d=dias_topados_por_campana.get(campana),
                 topada=topada,
                 fase_temporada=fase_temporada,
             )

@@ -95,14 +95,37 @@ def _campana(conn, platform="amazon_mx", external="c-uio") -> dict:
     return {"campana": camp, "grupo": grupo, "hojas": hojas}
 
 
-def _config(conn, campana, observed_at, *, top=0, resto=None, producto=None, estrategia="MANUAL"):
+def _config(
+    conn,
+    campana,
+    observed_at,
+    *,
+    top=0,
+    resto=None,
+    producto=None,
+    estrategia="MANUAL",
+    presupuesto="100",
+):
     return conn.execute(
         "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
         " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct,"
-        " ajuste_resto_pct, ajuste_producto_pct) VALUES (%s, %s, 100, 'MXN', %s, %s, %s, %s)"
+        " ajuste_resto_pct, ajuste_producto_pct) VALUES (%s, %s, %s,"
+        " CASE WHEN %s::numeric IS NULL THEN NULL ELSE 'MXN'::currency END, %s, %s, %s, %s)"
         " RETURNING id",
-        (campana, observed_at, estrategia, top, resto, producto),
+        (campana, observed_at, presupuesto, presupuesto, estrategia, top, resto, producto),
     ).fetchone()[0]
+
+
+def _hojas(conn, campana: int) -> list[int]:
+    return [
+        fila[0]
+        for fila in conn.execute(
+            "SELECT k.id FROM ad_entity k"
+            " JOIN ad_entity g ON g.id = k.parent_id"
+            " WHERE g.parent_id = %s AND k.kind = 'keyword' ORDER BY k.id",
+            (campana,),
+        )
+    ]
 
 
 def _config_version(conn) -> int:
@@ -520,3 +543,135 @@ def test_evaluaciones_a_aplicar_ordena_recortes_antes_que_subidas():
         assert [p[1].campana_id for p in pendientes] == [a["campana"], b["campana"]]
         assert pendientes[0][2].de_pct == 40
         assert pendientes[1][2].de_pct == 0
+
+
+def _coloca_cuatro(conn, camp):
+    hasta = _HOY.date() - dt.timedelta(days=3)
+    return hasta
+
+
+@_skip_db
+def test_ventana_vacia_por_cambio_reciente_no_revienta_el_check():
+    from app.optimizer.ubicacion import decide_ubicacion
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _HOY - dt.timedelta(days=20), top=9)
+        for dias in (0, 1, 3):
+            _config(conn, camp, _HOY - dt.timedelta(days=dias), top=10 + dias)
+            caso = next(c for c in _lee(conn) if c.campana_id == camp)
+            assert caso.ventana_desde == caso.ventana_hasta
+            cv = _config_version(conn)
+            ciclo = _ciclo(conn)
+            guarda_evaluaciones(
+                conn,
+                cycle_id=ciclo,
+                config_version_id=cv,
+                platform="amazon_mx",
+                decided_at=_HOY,
+                evaluaciones=[(caso, "shadow", decide_ubicacion(caso))],
+            )
+
+
+@_skip_db
+def test_suma_placements_presentes_y_ceros_medidos_sin_fila():
+    from app.optimizer.ubicacion import decide_ubicacion
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
+        ingest = _ingest(conn)
+        hasta = _HOY.date() - dt.timedelta(days=3)
+        for ubicacion, cost in (
+            ("arriba_de_busqueda", "40"),
+            ("resto_de_busqueda", "30"),
+            ("paginas_de_producto", "20"),
+        ):
+            _placement(conn, camp, ubicacion, hasta, cost=_D(cost), clics=0, pedidos=0, venta=0)
+        _metrica(conn, camp, hasta, _D("90"), ingest)
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        assert caso.gasto_placements_total == _D("90")
+        assert caso.ubicaciones[0].pedidos == 0
+        assert caso.ubicaciones[0].venta == 0
+        assert decide_ubicacion(caso).motivo == "sin_evidencia_ubicacion"
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
+        ingest = _ingest(conn)
+        hasta = _HOY.date() - dt.timedelta(days=3)
+        _placement(conn, camp, "arriba_de_busqueda", hasta, cost=_D("10"))
+        conn.execute(
+            "INSERT INTO ads_placement_observation (platform, ad_entity_id, placement,"
+            " metric_date, observed_at, metric_currency, impressions, clicks, cost, orders,"
+            " ad_revenue, source_report_id) VALUES ('amazon_mx', %s, 'resto_de_busqueda', %s,"
+            " %s, 'MXN', 1000, NULL, NULL, NULL, NULL, 'r-uio')",
+            (camp, hasta, _ANCLA),
+        )
+        _metrica(conn, camp, hasta, _D("10"), ingest)
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        assert caso.gasto_placements_total is None
+
+
+@_skip_db
+def test_inmaduros_exige_cobertura_y_cero_sin_filas():
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=10)
+        ayer = _HOY.date() - dt.timedelta(days=1)
+        antes = _HOY.date() - dt.timedelta(days=2)
+        ingest = _ingest(conn)
+        _placement(conn, camp, "arriba_de_busqueda", ayer, cost=_D("1"), pedidos=0)
+        _metrica(conn, camp, ayer, _D("1"), ingest)
+        caso = next(c for c in _lee(conn) if c.campana_id == camp)
+        assert caso.ubicaciones[0].pedidos_inmaduros is None
+        assert caso.ubicaciones[1].pedidos_inmaduros is None
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=10)
+        ayer = _HOY.date() - dt.timedelta(days=1)
+        antes = _HOY.date() - dt.timedelta(days=2)
+        ingest = _ingest(conn)
+        for dia in (antes, ayer):
+            _placement(conn, camp, "arriba_de_busqueda", dia, cost=_D("1"), pedidos=0)
+            _metrica(conn, camp, dia, _D("1"), ingest)
+        caso = next(c for c in _lee(conn) if c.campana_id == camp)
+        assert caso.ubicaciones[0].pedidos_inmaduros == 0
+        assert caso.ubicaciones[1].pedidos_inmaduros == 0
+
+
+@_skip_db
+def test_dias_topados_sin_presupuesto_es_none_y_con_presupuesto_mide():
+    from app.optimizer.ubicacion import decide_ubicacion
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0, presupuesto=None)
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        hasta = _HOY.date() - dt.timedelta(days=3)
+        ingest = _ingest(conn)
+        _placement(conn, camp, "arriba_de_busqueda", hasta, cost=_D("10"))
+        _metrica(conn, camp, hasta, _D("10"), ingest)
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        assert caso.dias_topados_7d is None
+        assert decide_ubicacion(caso).motivo == "presupuesto_sin_medir"
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0, presupuesto="100")
+        ingest = _ingest(conn)
+        ayer = _HOY.date() - dt.timedelta(days=1)
+        _metrica(conn, camp, ayer, _D("95"), ingest)
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        assert caso.dias_topados_7d == 1
