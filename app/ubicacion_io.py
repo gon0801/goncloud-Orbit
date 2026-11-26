@@ -266,7 +266,18 @@ def _dias_topados(
     los avisos). Sin dias medidos o sin presupuesto conocido devuelve None."""
     topada = temporada.campana_topada_desde_settings(settings)
     presupuestos = presupuestos_campanas_hoy(conn, plataforma, _fecha_utc(decided_at), topada)
-    return topada, {cid: info.dias_topados for cid, info in presupuestos.items()}
+    # Mismo criterio que recuperacion.py: sin presupuesto, sin conteo o con
+    # menos dias medidos que el corte, el resultado es "sin medir" (None).
+    return topada, {
+        cid: (
+            None
+            if info.presupuesto_diario is None
+            or info.dias_topados is None
+            or info.dias_medidos < info.topada.dias
+            else info.dias_topados
+        )
+        for cid, info in presupuestos.items()
+    }
 
 
 def lee_casos(

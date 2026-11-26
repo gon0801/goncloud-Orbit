@@ -634,7 +634,9 @@ def test_suma_placements_presentes_y_ceros_medidos_sin_fila():
         assert caso.gasto_placements_total == _D("90")
         assert caso.ubicaciones[0].pedidos == 0
         assert caso.ubicaciones[0].venta == 0
-        assert decide_ubicacion(caso).motivo == "sin_evidencia_ubicacion"
+        # La ausencia de `fuera_de_amazon` no bloquea el caso: el gasto suma
+        # las ubicaciones presentes y la conciliacion cuadra.
+        assert decide_ubicacion(caso).motivo != "datos_placements_incompletos"
 
     with _db() as (conn, _dsn):
         _goal(conn)
@@ -729,13 +731,37 @@ def test_dias_topados_sin_presupuesto_es_none_y_con_presupuesto_mide():
         assert caso.dias_topados_7d is None
         assert decide_ubicacion(caso).motivo == "presupuesto_sin_medir"
 
+    # Presupuesto conocido pero sin dias medidos: None, no cero.
     with _db() as (conn, _dsn):
         _goal(conn)
-        camp = _campana(conn)["campana"]
+        camp = _campana(conn, external="c-uio-sin-dias")["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0, presupuesto="100")
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        assert caso.dias_topados_7d is None
+
+    # Menos dias medidos que el corte (5 por omision): None.
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn, external="c-uio-pocos")["campana"]
         _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0, presupuesto="100")
         ingest = _ingest(conn)
         ayer = _HOY.date() - dt.timedelta(days=1)
-        _metrica(conn, camp, ayer, _D("95"), ingest)
+        for dias in range(1, 4):
+            _metrica(conn, camp, ayer - dt.timedelta(days=dias - 1), _D("95"), ingest)
         metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
         caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
-        assert caso.dias_topados_7d == 1
+        assert caso.dias_topados_7d is None
+
+    # Con cinco dias medidos (el corte) el conteo se publica.
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn, external="c-uio-completo")["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0, presupuesto="100")
+        ingest = _ingest(conn)
+        ayer = _HOY.date() - dt.timedelta(days=1)
+        for dias in range(5):
+            _metrica(conn, camp, ayer - dt.timedelta(days=dias), _D("95"), ingest)
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        assert caso.dias_topados_7d == 5
