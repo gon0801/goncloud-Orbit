@@ -1454,6 +1454,14 @@ def _ctx_propuestas() -> dict:
     }
 
 
+def test_propuestas_a2_conserva_vencimiento_e_irreversibilidad():
+    html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
+    assert 'class="oportunidad-resumen' in html
+    assert "se aplica solo" in html
+    assert "no se puede deshacer" in html
+    assert "data-vetar=" in html or "data-veto=" in html
+
+
 def test_ui_propuestas_etiquetas_exactas_por_kind():
     """D2: cada fila declara su tipo con la etiqueta exacta (efecto
     primero); el harvest trae su indicador de ordenes e ingreso. Por

@@ -2355,10 +2355,10 @@ def cmd_drive_productos(args: argparse.Namespace) -> None:
     evidence = _evidence_dir(run_id) / "productos"
     evidence.mkdir(parents=True, exist_ok=True)
 
-    st0, html0 = _get_html(base, "/")
-    (evidence / "01-resumen.html").write_bytes(html0)
+    st0, html0 = _get_html(base, "/cortes")
+    (evidence / "01-oportunidades.html").write_bytes(html0)
     if st0 != 200 or 'href="/productos-sin-clics"' not in html0.decode("utf-8", errors="replace"):
-        _die(f"punto de partida GET / sin enlace a Productos sin clics: {st0}")
+        _die(f"punto de partida GET /cortes sin enlace a Productos sin clics: {st0}")
 
     st_mx, html_mx = _get_html(base, "/productos-sin-clics?plataforma=amazon_mx")
     (evidence / "02-productos-mx.html").write_bytes(html_mx)

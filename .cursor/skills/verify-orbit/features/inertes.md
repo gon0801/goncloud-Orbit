@@ -4,6 +4,7 @@ Inertes lista hojas (`keyword` / `product_target`) ENABLED cuya campana y ad gro
 
 ## Sub-features
 
+- `inertes-jerarquia` agrupa clasificación y antigüedad en `section.oportunidad-resumen.superficie`, los lotes en `section.oportunidad-contenido`, y las filas con sus criterios de archivado en `section.oportunidad-detalle`. «Antigüedad cumplida» sigue siendo solo una señal para revisar la clasificación, no una equivalencia con archivable.
 - `inertes-nav` abre `/inertes` y marca `aria-current="page"`.
 - `inertes-vacio` sin filas muestra `Sin keywords ni productos inertes: todo lo activo tiene visitas recientes.` (el parrafo se pinta dos veces: resumen y tabla).
 - `inertes-kpis` pinta Sin visitas, Antigüedad cumplida, En espera y Gasto de 90 días sin visitas (cifras con miles).

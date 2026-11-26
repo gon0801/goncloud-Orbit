@@ -2,6 +2,7 @@
 {% block contenido %}
 {% set kpis = items | kpis_inertes %}
 <h2>Keywords y productos sin visitas</h2>
+<section class="oportunidad-resumen superficie" aria-label="Keywords y productos sin visitas">
 <p class="mutado">
   Keywords y productos objetivo activos que Amazon no muestra desde hace 14 días
   o más, contados desde el último día con datos de cada plataforma. Revivirlos
@@ -13,6 +14,43 @@
   <section class="kpi"><p class="kpi-etiqueta">En espera</p><div class="kpi-valor">{{ kpis.en_espera | numero }}</div><div class="kpi-contexto">{{ kpis.sin_antiguedad | numero }} sin dato de antigüedad</div></section>
   <section class="kpi"><p class="kpi-etiqueta">Gasto de 90 días sin visitas</p>{% for moneda, total in kpis.gasto.items() %}<div class="kpi-valor">{{ total | dinero }} <small>{{ moneda }}</small></div>{% else %}<div class="kpi-valor">—</div>{% endfor %}<div class="kpi-contexto">Suma observada por moneda</div></section>
 </div>
+</section>
+<section class="oportunidad-contenido" aria-label="Keywords y productos sin visitas">
+<div class="tarjeta">
+  <h3>Lotes de archivado</h3>
+  {% if lotes %}
+  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+  <table>
+    <thead>
+      <tr>
+        <th>Lote</th>
+        <th>Fecha</th>
+        <th class="num">Planeado</th>
+        <th class="num">Archivadas</th>
+        <th class="num">Fallidas</th>
+        <th class="num">Repuesto</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lote in lotes %}
+      <tr>
+        <td data-dato-libre>{{ lote.lote }}</td>
+        <td class="mutado">{{ lote.fecha }}</td>
+        <td class="num">{{ lote.planeado | numero }}</td>
+        <td class="num">{{ lote.applied | numero }}</td>
+        <td class="num">{{ lote.failed | numero }}</td>
+        <td class="num">{{ lote.repuesto | numero }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p>Sin lotes de archivado todavía.</p>
+  {% endif %}
+</div>
+</section>
+<section class="oportunidad-detalle" aria-label="Keywords y productos sin visitas">
 <div class="tarjeta">
   {% if items %}
   <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
@@ -88,37 +126,5 @@
   <p>Sin keywords ni productos inertes: todo lo activo tiene visitas recientes.</p>
   {% endif %}
 </div>
-<div class="tarjeta">
-  <h3>Lotes de archivado</h3>
-  {% if lotes %}
-  <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
-  <table>
-    <thead>
-      <tr>
-        <th>Lote</th>
-        <th>Fecha</th>
-        <th class="num">Planeado</th>
-        <th class="num">Archivadas</th>
-        <th class="num">Fallidas</th>
-        <th class="num">Repuesto</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for lote in lotes %}
-      <tr>
-        <td data-dato-libre>{{ lote.lote }}</td>
-        <td class="mutado">{{ lote.fecha }}</td>
-        <td class="num">{{ lote.planeado | numero }}</td>
-        <td class="num">{{ lote.applied | numero }}</td>
-        <td class="num">{{ lote.failed | numero }}</td>
-        <td class="num">{{ lote.repuesto | numero }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  {% else %}
-  <p>Sin lotes de archivado todavía.</p>
-  {% endif %}
-</div>
+</section>
 {% endblock %}
