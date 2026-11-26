@@ -59,11 +59,20 @@ def _config_version(conn) -> int:
     ).fetchone()[0]
 
 
-def _antes_config(conn, campana: int) -> int:
+def _antes_config(conn, campana: int, observed_at=None) -> int:
     return conn.execute(
         "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
         " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct)"
         " VALUES (%s, %s, 100, 'MXN', 'MANUAL', 10) RETURNING id",
+        (campana, observed_at or _ANCLA),
+    ).fetchone()[0]
+
+
+def _antes_config_us(conn, campana: int) -> int:
+    return conn.execute(
+        "INSERT INTO ads_campana_config_observation (ad_entity_id, observed_at,"
+        " presupuesto_diario, presupuesto_moneda, estrategia_puja, ajuste_top_pct)"
+        " VALUES (%s, %s, 100, 'USD', 'MANUAL', 10) RETURNING id",
         (campana, _ANCLA),
     ).fetchone()[0]
 
@@ -94,7 +103,7 @@ def _evaluacion(
         "INSERT INTO ubicacion_evaluacion (cycle_id, campana_id, platform, modo,"
         " politica, config_version_id, antes_config_id, decided_at, ventana_desde,"
         " ventana_hasta, moneda, entrada, veredicto, motivo, ubicacion, de_pct, a_pct)"
-        " VALUES (%s, %s, %s, %s, 'ubicacion_v1', %s, %s, %s, %s, %s, 'MXN', %s,"
+        " VALUES (%s, %s, %s, %s, 'ubicacion_v1', %s, %s, %s, %s, %s, %s, %s,"
         " %s, %s, %s, %s, %s) RETURNING id",
         (
             ciclo,
@@ -106,6 +115,7 @@ def _evaluacion(
             _ANCLA,
             _ANCLA.date() - dt.timedelta(days=20),
             _ANCLA.date() - dt.timedelta(days=3),
+            "USD" if platform == "amazon_us" else "MXN",
             json.dumps({"campana_id": campana}),
             veredicto,
             motivo,
@@ -209,6 +219,23 @@ def test_0104_frontera_roles_bloquea_shadow_y_fuerza_admin_sin_evaluacion():
         antes3 = _antes_config(conn, camp3)
         live = _evaluacion(conn, ciclo=_ciclo(conn), campana=camp3, antes=antes3, config_version=cv)
 
+        camp4 = _campana(conn, external="c-0104-otra")
+        antes4 = _antes_config(conn, camp4)
+        live4 = _evaluacion(
+            conn, ciclo=_ciclo(conn), campana=camp4, antes=antes4, config_version=cv
+        )
+        camp5 = _campana(conn, external="c-0104-us", platform="amazon_us")
+        antes5 = _antes_config_us(conn, camp5)
+        live5 = _evaluacion(
+            conn,
+            ciclo=_ciclo(conn, platform="amazon_us"),
+            campana=camp5,
+            antes=antes5,
+            config_version=cv,
+            platform="amazon_us",
+        )
+        antes_otra = _antes_config(conn, camp3, _ANCLA + dt.timedelta(hours=1))
+
         conn.execute("SET ROLE app_decide")
         with pytest.raises(psycopg.Error, match="FRONTERA-ROLES"):
             _ajuste(conn, camp, antes, evaluacion_id=shadow)
@@ -216,6 +243,23 @@ def test_0104_frontera_roles_bloquea_shadow_y_fuerza_admin_sin_evaluacion():
             _ajuste(conn, camp2, antes2, evaluacion_id=mantener)
         auto = _ajuste(conn, camp3, antes3, evaluacion_id=live)
         conn.execute("UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s", (_ANCLA, auto))
+
+        # La evaluacion de OTRA campana no autoriza este movimiento.
+        with pytest.raises(psycopg.Error, match="FRONTERA-ROLES"):
+            _ajuste(conn, camp3, antes3, evaluacion_id=live4, huella="h-cruce-campana")
+        # Platform distinta de la evaluacion.
+        with pytest.raises(psycopg.Error, match="FRONTERA-ROLES"):
+            _ajuste(
+                conn,
+                camp5,
+                antes5,
+                platform="amazon_mx",
+                evaluacion_id=live5,
+                huella="h-cruce-platform",
+            )
+        # antes_config distinto del juzgado.
+        with pytest.raises(psycopg.Error, match="FRONTERA-ROLES"):
+            _ajuste(conn, camp3, antes_otra, evaluacion_id=live, huella="h-cruce-antes")
         conn.execute("RESET ROLE")
 
         conn.execute("SET ROLE app_admin")

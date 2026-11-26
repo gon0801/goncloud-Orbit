@@ -112,6 +112,7 @@ MOTIVO_PRESUPUESTO_SIN_MEDIR = "presupuesto_sin_medir"
 MOTIVO_CAMPANA_TOPADA = "campana_topada"
 MOTIVO_SUBIDA = "bajo_meta_con_ventaja"
 MOTIVO_SIN_EVIDENCIA = "sin_evidencia_ubicacion"
+MOTIVO_PRODUCTO_SIN_EVIDENCIA = "producto_sin_evidencia"
 
 # Texto para la pantalla. Una sola fuente del vocabulario en espanol.
 MOTIVOS_UBICACION_ES: dict[str, str] = {
@@ -134,6 +135,7 @@ MOTIVOS_UBICACION_ES: dict[str, str] = {
     MOTIVO_CAMPANA_TOPADA: "la campana esta topada",
     MOTIVO_SUBIDA: "bajo la meta con ventaja contra el resto de la campana",
     MOTIVO_SIN_EVIDENCIA: "sin evidencia suficiente en ninguna ubicacion",
+    MOTIVO_PRODUCTO_SIN_EVIDENCIA: "una hoja de la campana se quedo sin meta",
 }
 
 # ---------------------------------------------------------------------------
@@ -371,20 +373,21 @@ def _candidato_recorte(
     if ev.pedidos >= 1:
         if not (ev.venta > 0 and ev.gasto > 0):
             return None
-        base_mu = Decimal(ev.pedidos) * ev.gasto / ev.venta
-        a = Decimal(ev.pedidos + 1)
-        if (
-            gamma_p(a, base_mu / (MULT_BAJA_FUERTE * meta.laxa_pct / _CIEN))
-            >= economia.confianza_recorte
-        ):
-            paso, motivo = PASO_BAJA_FUERTE_PTS, MOTIVO_ACOS_FUERTE
-        elif (
-            gamma_p(a, base_mu / (MULT_BAJA_SUAVE * meta.laxa_pct / _CIEN))
-            >= economia.confianza_recorte
-        ):
-            paso, motivo = PASO_BAJA_SUAVE_PTS, MOTIVO_ACOS
-        else:
-            return None
+        with localcontext(prec=PRECISION):
+            base_mu = Decimal(ev.pedidos) * ev.gasto / ev.venta
+            a = Decimal(ev.pedidos + 1)
+            if (
+                gamma_p(a, base_mu / (MULT_BAJA_FUERTE * meta.laxa_pct / _CIEN))
+                >= economia.confianza_recorte
+            ):
+                paso, motivo = PASO_BAJA_FUERTE_PTS, MOTIVO_ACOS_FUERTE
+            elif (
+                gamma_p(a, base_mu / (MULT_BAJA_SUAVE * meta.laxa_pct / _CIEN))
+                >= economia.confianza_recorte
+            ):
+                paso, motivo = PASO_BAJA_SUAVE_PTS, MOTIVO_ACOS
+            else:
+                return None
     else:
         if ev.pedidos_inmaduros is None or ev.pedidos_inmaduros >= 1:
             return None

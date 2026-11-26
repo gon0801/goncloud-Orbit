@@ -44,7 +44,7 @@ Orbit evalua cada dia las tres ubicaciones con multiplicador de puja (`arriba_de
 
 - Reglas 1 a 10 de `docs/CONTEXTO.md`: un dueno por dato, una fuente por numero, ausente igual a `None`, `Decimal` exacto y `NUMERIC(14,4)` sin `float`, tablas append-only, madurez de datos, reversa probada antes de encender, verificacion contra datos reales, pruebas de regresion que fallan antes del cambio y conciliacion externa.
 - Evidencia de produccion medida el 2026-11-26 (solo lectura): la suma de `ads_placement_observation.cost` coincide al centavo (`0.00` maximo de diferencia) con el gasto de campana en las 22 campanas MX y 8 campanas US con gasto; `ads_campana_config_observation` tiene 246 filas con 0 nulos en estrategia y porcentajes; `campana_ajuste` tiene 0 filas.
-- Candados de `tests/test_architecture.py`: `app/optimizer/` no importa `httpx`, `psycopg`, `app.ads` ni `app.db`; `app/ads/write.py` conserva su lista cerrada de importadores; `app/cycle.py` tiene techo de 1,148 lineas (hoy 1,146) y `app/etiquetas.py` tiene techo de 1,022 lineas (hoy 1,020); modulos nuevos deben quedar bajo 900 lineas.
+- Candados de `tests/test_architecture.py`: `app/optimizer/` no importa `httpx`, `psycopg`, `app.ads` ni `app.db`; `app/ads/write.py` conserva su lista cerrada de importadores; `app/cycle.py` tiene techo de 1,148 lineas (hoy 1,146) y `app/etiquetas.py` tiene techo de 1,058 lineas; modulos nuevos deben quedar bajo 900 lineas.
 - Convencion de migraciones (`tools/despliegue/comun.sh`): linea 1 con `-- sonda-aplicada:`, sin `BEGIN`/`COMMIT`, no re-ejecutable y con archivo `*_reversa_*.sql`.
 
 ## 4. Arquitectura elegida (Forma A)

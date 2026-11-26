@@ -21,6 +21,7 @@ from app.optimizer.ubicacion import (
 )
 from app.ubicacion_io import (
     MOTIVO_PRODUCTO_SIN_EVIDENCIA,
+    evaluaciones_a_aplicar,
     guarda_evaluaciones,
     lee_casos,
     marca_producto_sin_evidencia,
@@ -360,6 +361,35 @@ def test_guarda_evaluaciones_y_lee_sugerencia_vigente():
         assert a["campana"] not in ultimas_evaluaciones_por_campana(conn, "amazon_mx")
 
 
+def _caso_simple(campana: int, config_id: int, *, plataforma="amazon_mx") -> CasoCampana:
+    return CasoCampana(
+        campana_id=campana,
+        plataforma=plataforma,
+        config_id=config_id,
+        estrategia="LEGACY_FOR_SALES",
+        ventana_desde=_HOY.date() - dt.timedelta(days=32),
+        ventana_hasta=_HOY.date() - dt.timedelta(days=3),
+        ubicaciones=(
+            EvidenciaUbicacion("arriba_de_busqueda", 0, 40, _D("5"), 4, _D("100"), 0),
+            EvidenciaUbicacion("resto_de_busqueda", 0, 20, _D("2"), 0, _D("10"), 0),
+            EvidenciaUbicacion("paginas_de_producto", 0, 20, _D("2"), 0, _D("10"), 0),
+        ),
+        meta=MetaCampana(_D("18"), _D("24"), ("goal",)),
+        economia=_eco(),
+        gasto_campana=_D("9"),
+        gasto_placements_total=_D("9"),
+        placements_frescos=True,
+        dias_desde_ultimo_cambio=None,
+        ajuste_en_vuelo=False,
+        elegible=True,
+        en_impulso=False,
+        solo_bajadas=False,
+        dias_topados_7d=0,
+        topada=CampanaTopada(_D("0.90"), 5),
+        fase_temporada="normal",
+    )
+
+
 def _ciclo(conn, mode="shadow") -> int:
     return conn.execute(
         "INSERT INTO optimizer_cycle (mode, platform) VALUES (%s, 'amazon_mx') RETURNING id",
@@ -404,3 +434,89 @@ def _caso_json(caso: CasoCampana):
     from app.optimizer.ubicacion import caso_a_json
 
     return caso_a_json(caso)
+
+
+@_skip_db
+def test_goal_de_campana_manda_sobre_el_de_plataforma_en_elegibilidad():
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
+        conn.execute(
+            "INSERT INTO ads_optimizer_goal (scope, ad_entity_id, bid_currency, bid_floor,"
+            " bid_ceiling, enabled, mode) VALUES ('campaign', %s, 'MXN', 0.10, 2.50, false,"
+            " 'live')",
+            (camp,),
+        )
+        caso = next(c for c in _lee(conn) if c.campana_id == camp)
+        assert caso.elegible is False
+
+
+@_skip_db
+def test_resumen_aplicadas_solo_cuenta_confirmadas():
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        config = _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
+        cv = _config_version(conn)
+        ciclo = _ciclo(conn, mode="live")
+        mover = MoverUbicacion("arriba_de_busqueda", 0, 15, "bajo_meta_con_ventaja")
+        ids = guarda_evaluaciones(
+            conn,
+            cycle_id=ciclo,
+            config_version_id=cv,
+            platform="amazon_mx",
+            decided_at=_HOY,
+            evaluaciones=[(_caso_simple(camp, config), "live", mover)],
+        )
+        eval_id = ids[camp]
+        assert resumen_ubicaciones_ciclo(conn, ciclo)["aplicadas"] == 0
+        conn.execute("SET ROLE app_decide")
+        ajuste = conn.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, evaluacion_id) VALUES (%s, 'amazon_mx',"
+            " 'ajuste_ubicacion', %s, %s, 'auto:uio', 'orbit_ubicacion', 'AUTO_UBICACION',"
+            " %s) RETURNING id",
+            (camp, config, json.dumps({"clase": "ajuste_ubicacion"}), eval_id),
+        ).fetchone()[0]
+        conn.execute("RESET ROLE")
+        assert resumen_ubicaciones_ciclo(conn, ciclo)["aplicadas"] == 0
+        conn.execute("SET ROLE app_decide")
+        conn.execute("UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s", (_HOY, ajuste))
+        conn.execute("RESET ROLE")
+        assert resumen_ubicaciones_ciclo(conn, ciclo)["aplicadas"] == 1
+
+
+@_skip_db
+def test_evaluaciones_a_aplicar_ordena_recortes_antes_que_subidas():
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        a = _campana(conn, external="c-uio-rec")
+        b = _campana(conn, external="c-uio-sub")
+        config_a = _config(conn, a["campana"], _ANCLA - dt.timedelta(days=20), top=40)
+        config_b = _config(conn, b["campana"], _ANCLA - dt.timedelta(days=20), top=0)
+        cv = _config_version(conn)
+        ciclo = _ciclo(conn, mode="live")
+        guarda_evaluaciones(
+            conn,
+            cycle_id=ciclo,
+            config_version_id=cv,
+            platform="amazon_mx",
+            decided_at=_HOY,
+            evaluaciones=[
+                (
+                    _caso_simple(a["campana"], config_a),
+                    "live",
+                    MoverUbicacion("arriba_de_busqueda", 40, 15, "acos_sobre_meta_fuerte"),
+                ),
+                (
+                    _caso_simple(b["campana"], config_b),
+                    "live",
+                    MoverUbicacion("arriba_de_busqueda", 0, 15, "bajo_meta_con_ventaja"),
+                ),
+            ],
+        )
+        pendientes = evaluaciones_a_aplicar(conn, ciclo, "amazon_mx")
+        assert [p[1].campana_id for p in pendientes] == [a["campana"], b["campana"]]
+        assert pendientes[0][2].de_pct == 40
+        assert pendientes[1][2].de_pct == 0

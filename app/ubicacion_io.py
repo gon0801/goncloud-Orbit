@@ -27,6 +27,7 @@ from app.optimizer import temporada
 from app.optimizer.ubicacion import (
     DIAS_REZAGO,
     DIAS_VENTANA_MAX,
+    MOTIVO_PRODUCTO_SIN_EVIDENCIA,
     POLITICA,
     UBICACIONES,
     CasoCampana,
@@ -41,7 +42,6 @@ from app.optimizer.ubicacion import (
     solo_bajadas_desde_settings,
 )
 
-MOTIVO_PRODUCTO_SIN_EVIDENCIA = "producto_sin_evidencia"
 DIAS_TOPE = 7
 _CIEN = Decimal(100)
 
@@ -278,7 +278,7 @@ def lee_casos(
     for campana, config_id, estrategia, top, resto, producto in conn.execute(
         _SQL_CONFIGS_ACTIVAS, (platform,)
     ).fetchall():
-        elegible = g.elegible(g.resuelve_goal(goal_plataforma, goals.get(campana)))
+        elegible = g.elegible(g.resuelve_goal(goals.get(campana), goal_plataforma))
         ultimo = _ultimo_cambio(conn, campana)
         desde, hasta = _ventana(ultimo, decided_at)
         placements = _placements(conn, campana, platform, desde, hasta)
@@ -507,7 +507,8 @@ def resumen_ubicaciones_ciclo(conn: psycopg.Connection, cycle_id: int) -> dict:
                count(*) FILTER (
                    WHERE veredicto = 'mover' AND modo = 'live'
                      AND EXISTS (SELECT 1 FROM campana_ajuste a
-                                  WHERE a.evaluacion_id = ubicacion_evaluacion.id))
+                                  WHERE a.evaluacion_id = ubicacion_evaluacion.id
+                                    AND a.confirmado_el IS NOT NULL))
           FROM ubicacion_evaluacion
          WHERE cycle_id = %s
         """,
