@@ -195,7 +195,7 @@ def _config_leida(cliente, plataforma: str, externa: str):
 _SQL_AJUSTE_POSTERIOR = """
 SELECT id, antes_config_id, despues, regresa_a
   FROM campana_ajuste
- WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NOT NULL
+ WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NOT NULL{excluye}
  ORDER BY id
 """
 
