@@ -7,6 +7,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 from app.envios.amazon import envio_desde_orden
+from app.envios.meli import envio_desde_meli
 from app.envios.modelo import Articulo, EnvioObservado, PaqueteObservado
 from app.spapi.client import sanear
 from app.spapi.orders import parsear_orden
@@ -253,3 +254,113 @@ def test_sanear_descarta_shipfromaddress_completo():
     assert sanear(carga, "orders") == {
         "orders": [{"orderId": "US-1", "packages": [{"packageReferenceId": "1", "carrier": "DHL"}]}]
     }
+
+
+# Claves de PII que Mercado Libre manda en ordenes y envios (sonda 2026-11-25 §2).
+_PII_MELI = {
+    "buyer": {"id": 1, "nickname": "CENTINELA_COMPRADOR", "first_name": "CENTINELA_NOMBRE"},
+    "receiver_address": _DIRECCION,
+    "sender_address": _DIRECCION,
+    "receiver_id": "CENTINELA_RECEPTOR",
+    "sender_id": "CENTINELA_REMITENTE",
+    "destination": {"shipping_address": _DIRECCION},
+    "origin": {"shipping_address": _DIRECCION},
+    "comments": "CENTINELA_COMENTARIO",
+}
+
+
+def test_envio_desde_meli_sin_pii_y_pack_multiorden():
+    ordenes = [
+        {
+            "id": 2000000002,
+            "pack_id": 9000000001,
+            "date_created": "2026-11-20T10:00:05.000-06:00",
+            "total_amount": 749.0,
+            "shipping": {"id": 44000000001, **_PII_MELI},
+            "order_items": [
+                {
+                    "quantity": 1,
+                    "unit_price": 749.0,
+                    "item": {"id": "MLM2", "seller_sku": None, "title": "Pieza dos"},
+                }
+            ],
+            **_PII_MELI,
+        },
+        {
+            "id": 2000000001,
+            "pack_id": 9000000001,
+            "date_created": "2026-11-20T10:00:00.000-06:00",
+            "shipping": {"id": 44000000001},
+            "order_items": [
+                {
+                    "quantity": 2,
+                    "item": {"id": "MLM1", "seller_sku": "SKU-1", "title": "Pieza uno"},
+                    **_PII_MELI,
+                }
+            ],
+            **_PII_MELI,
+        },
+    ]
+    shipment = {
+        "id": 44000000001,
+        "logistic_type": "xd_drop_off",
+        "status": "not_delivered",
+        "substatus": "returned",
+        "tracking_number": "GUIA-ML-1",
+        "tracking_method": "Agencias Mercado Libre",
+        "last_updated": "2026-11-24T11:00:00.000-04:00",
+        "base_cost": 99.0,
+        "status_history": {
+            "date_shipped": "2026-11-21T09:00:00.000-06:00",
+            "date_delivered": "2026-11-22T12:30:00.000-06:00",
+            "date_returned": "2026-11-23T08:00:00.000-06:00",
+            **_PII_MELI,
+        },
+        "shipping_option": {
+            "cost": 99.0,
+            "estimated_delivery_time": {
+                "date": "2026-11-25T00:00:00.000-06:00",
+                "offset": {"date": "2026-11-27T00:00:00.000-06:00"},
+            },
+            "estimated_handling_limit": {"date": "2026-11-21T00:00:00.000-06:00"},
+            **_PII_MELI,
+        },
+        **_PII_MELI,
+    }
+
+    envio = envio_desde_meli(ordenes, shipment)
+
+    assert envio == EnvioObservado(
+        platform="meli",
+        envio_ref="44000000001",
+        pedidos=("2000000001", "2000000002"),
+        pack_ref="9000000001",
+        logistica_fuente="xd_drop_off",
+        estado_fuente="not_delivered",
+        subestado_fuente="returned",
+        pedido_creado_el=datetime(2026, 11, 20, 16, 0, tzinfo=UTC),
+        fuente_actualizado_el=datetime(2026, 11, 24, 15, 0, tzinfo=UTC),
+        despachar_antes_de=datetime(2026, 11, 21, 6, 0, tzinfo=UTC),
+        entrega_prometida_el=datetime(2026, 11, 25, 6, 0, tzinfo=UTC),
+        entrega_limite_el=datetime(2026, 11, 27, 6, 0, tzinfo=UTC),
+        entregado_el=datetime(2026, 11, 22, 18, 30, tzinfo=UTC),
+        devuelto_el=datetime(2026, 11, 23, 14, 0, tzinfo=UTC),
+        articulos=(
+            Articulo("2000000001", "SKU-1", "Pieza uno", 2, "MLM1"),
+            Articulo("2000000002", None, "Pieza dos", 1, "MLM2"),
+        ),
+        paquetes=(
+            PaqueteObservado(
+                paquete_ref="44000000001",
+                transportista="Agencias Mercado Libre",
+                servicio=None,
+                guia="GUIA-ML-1",
+                despachado_el=datetime(2026, 11, 21, 15, 0, tzinfo=UTC),
+                estado_fuente=None,
+                detalle_fuente=None,
+            ),
+        ),
+    )
+    texto = json.dumps(asdict(envio), default=str)
+    assert "CENTINELA" not in texto
+    assert "53240" not in texto

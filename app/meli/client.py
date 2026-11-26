@@ -36,6 +36,10 @@ class ReputacionError(Exception):
 MeliClientError = ReputacionError
 
 
+class PaseVencidoError(ReputacionError):
+    """401: el pase del bridge vencio; seguir leyendo no tiene sentido."""
+
+
 def _load_json(path: Path) -> dict:
     if not path.is_file():
         raise ReputacionError(f"no existe el archivo de credenciales: {path.name}")
@@ -138,7 +142,7 @@ class ClienteMeli:
                     f" ({type(exc).__name__}: {scrub(str(exc))})"
                 ) from None
             if resp.status_code == 401:
-                raise ReputacionError(
+                raise PaseVencidoError(
                     f"MeLi GET {path}: 401 (pase del bridge vencido;"
                     " Orbit nunca refresca: lo renueva el cron del bridge)"
                 )
