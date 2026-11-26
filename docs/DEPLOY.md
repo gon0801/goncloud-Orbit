@@ -1042,12 +1042,6 @@ en `/salud` y por sí solo no hace fallar la corrida. Un 401 la aborta siempre.
 La pantalla `/envios` muestra la última lectura correcta por mercado y la marca
 `Atrasada` cuando pasan más de 8 h.
 
-Producción (26-nov UTC, dato del coordinador) corre #782 (`3c5e53fb`), con
-`in_packing_list` como En camino y un tope fijo de relectura de 90 días. El
-cierre por vencimiento, `--releer`, la migración `0103` y la corrección de ese
-mapeo que describe esta sección son de la rama de seguimiento, que aún no está
-desplegada.
-
 #### Cierre por vencimiento (Mercado Libre)
 
 Un envío sin estado final (entregado, devuelto o cancelado) con más de N días

@@ -145,10 +145,10 @@ _MELI_TABLA: tuple[tuple[str, tuple[str | _Regla | None, ...], Estado], ...] = (
     ("handling", (None,), "por_despachar"),
     (
         "ready_to_ship",
-        (None, "ready_to_print", "printed", "delayed", "stale", "in_packing_list"),
+        (None, "ready_to_print", "printed", "delayed", "stale"),
         "por_despachar",
     ),
-    ("ready_to_ship", ("dropped_off", "picked_up", "in_hub"), "en_camino"),
+    ("ready_to_ship", ("dropped_off", "picked_up", "in_hub", "in_packing_list"), "en_camino"),
     ("shipped", (None, "delayed"), "en_camino"),
     (
         "shipped",

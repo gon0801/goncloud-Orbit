@@ -253,7 +253,7 @@
     {
       "name": "envios-01",
       "path": "docs/superpowers/plans/2026-11-25-envios-01.md",
-      "description": "ENVIOS 01 — INTEGRADO Y DESPLEGADO (PR #780, 52cb4b02, 2026-11-26 UTC): seguimiento de solo lectura de envios de Amazon y Mercado Libre, migracion 0102 aplicada y conciliacion en produccion. PR #782 (3c5e53fb) desplegado el 2026-11-26 UTC: in_hub/in_packing_list en en_camino, tope fijo de relectura MeLi de 90 dias, tolerancia a envios antiguos sin leer y enlace en barra movil. Rama feat/envios-01-vencimiento, AUN SIN DESPLEGAR: corrige in_packing_list a por_despachar, tabla unica de estados, cierre por vencimiento configurable (migracion 0103) en lugar del tope, una respuesta ilegible no certifica la lectura, y la tolerancia a antiguos cubre ilegibles y no aplica a --releer. Abierto: desplegar la rama, verificar la primera corrida automatica del cron y vista limitada a 30 dias. Evidencia en docs/evidencia/envios-01/cierre-produccion.md."
+      "description": "ENVIOS 01 — CERRADO Y DESPLEGADO (PR #780 52cb4b02, PR #782 3c5e53fb, PR #783, 2026-11-26 UTC): seguimiento de solo lectura de envios de Amazon y Mercado Libre, migraciones 0102 y 0103, primera corrida automatica del cron verificada en verde (runs 1908-1910). Incluye in_hub/in_packing_list en en_camino, tabla unica de estados, cierre por vencimiento configurable (90 dias, --releer), enlace en barra movil y tolerancia a fallos/ilegibles en envios >30 dias fuera de busqueda. Abierto: vista limitada a 30 dias. Evidencia en docs/evidencia/envios-01/cierre-produccion.md."
     }
   ],
   "active": "arreglos-05"

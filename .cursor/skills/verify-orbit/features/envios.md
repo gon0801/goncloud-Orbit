@@ -37,7 +37,7 @@ Preconditions:
 - La ventana va por la fecha del pedido: un envío de un pedido de hace más de 30 días no se lista aunque siga abierto.
 - Por la misma ventana, un vencido nunca aparece como tarjeta (el filtro `estado=cerrado_sin_confirmar` llega vacío): se ve en `#envios-vencimiento`.
 - Un envío de Mercado Libre sin leer o ilegible hace que la corrida no cuente como lectura correcta. No pasa con un envío abierto comprado antes de la ventana de 30 días que ya no viene en la búsqueda (queda como `envio_viejo_no_leido` o `envio_viejo_ilegible`, con aviso en `/salud`), salvo que se haya pedido con `--releer`.
-- Producción (26-nov UTC, dato del coordinador) corre #782 (`3c5e53fb`): muestra `ready_to_ship/in_packing_list` como `En camino` y no tiene `#envios-vencimiento`. Esta ficha describe la rama que lo corrige a `Por despachar`, aún sin desplegar.
+- `ready_to_ship/in_hub` e `in_packing_list` clasifican como `En camino` (transición real en producción: `in_hub` → `in_packing_list` → `shipped`).
 - Un mercado sin lectura reciente no marca demoras nuevas: revisa `#envios-lecturas` antes de concluir que todo va a tiempo.
 - FBA, Full, DHL sin confirmación de entrega y `Esperando recolección en agencia` no cuentan como entrega atrasada.
 - `orbit-verify` no tiene todavía una receta `drive-envios`.

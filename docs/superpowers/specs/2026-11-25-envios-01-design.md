@@ -6,7 +6,7 @@
   - **1B:** Sin alertas por Telegram en v1 (solo consulta, filtros, contador y resaltado en `/envios`). No se construye tabla ni sender de alertas de envíos en v1 (Regla 1).
   - **2B:** Actualización automática cada **4 horas** para Amazon MX, Amazon US y Mercado Libre.
   - Solo lectura contra APIs externas. Cero PII almacenada o registrada en logs.
-- **Estado en producción (26-nov UTC, dato del coordinador):** #782 (`3c5e53fb`) está desplegado y muestra `in_packing_list` como En camino, con un tope fijo de relectura de 90 días. Este documento describe la rama de seguimiento, que lo corrige y **aún no está desplegada**.
+  - **2026-11-26 UTC (confirmado con producción):** `ready_to_ship/in_hub` y `ready_to_ship/in_packing_list` clasifican como `en_camino` (transición real observada en `envio_observation`: `in_hub` → `in_packing_list` → `shipped`).
 
 ## 1. Arquitectura elegida (Forma B: modelo unificado + clasificador puro)
 
@@ -108,8 +108,8 @@ Una sola tabla en `app/envios/estado.py`. "Cualquiera" es una entrada explícita
 |---|---|---|
 | `pending` | cualquiera | `pendiente` |
 | `handling` | ninguno | `por_despachar` |
-| `ready_to_ship` | ninguno, `ready_to_print`, `printed`, `delayed`, `stale`, `in_packing_list` | `por_despachar` |
-| `ready_to_ship` | `dropped_off`, `picked_up`, `in_hub` | `en_camino` |
+| `ready_to_ship` | ninguno, `ready_to_print`, `printed`, `delayed`, `stale` | `por_despachar` |
+| `ready_to_ship` | `dropped_off`, `picked_up`, `in_hub`, `in_packing_list` | `en_camino` |
 | `shipped` | ninguno, `delayed` | `en_camino` |
 | `shipped` | `out_for_delivery`, `soon_deliver`, `at_the_door`, `in_delivery_zone` | `en_reparto` |
 | `shipped` | `waiting_for_withdrawal` | `esperando_recoleccion` |
