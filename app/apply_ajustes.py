@@ -214,6 +214,17 @@ SELECT id, antes_config_id, despues, regresa_a
 """
 
 
+def _excluye_abortadas(conn) -> str:
+    if not conn.execute(
+        "SELECT to_regclass('public.ubicacion_sin_aplicar') IS NOT NULL"
+    ).fetchone()[0]:
+        return ""
+    return (
+        " AND NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s"
+        " WHERE s.evaluacion_id = campana_ajuste.evaluacion_id)"
+    )
+
+
 def _toca_campo(
     conn, antes_id: int, despues: dict, campo: str, *, regresa_a: int | None = None
 ) -> bool:
@@ -264,6 +275,7 @@ def _superada(
     solo revisa ordenes confirmadas; con `True` bloquea tambien ante pendientes."""
     campo = campo_del_ajuste(ajuste)
     sql = _SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF if incluir_pendientes else _SQL_AJUSTE_POSTERIOR
+    sql = sql.format(excluye=_excluye_abortadas(conn))
     for _pid, antes_id, despues, regresa_a in conn.execute(
         sql, (campana_id, clase, ajuste_id)
     ).fetchall():
@@ -286,7 +298,8 @@ def _pendiente_posterior_con_otro_destino(
         return False
     valor = getattr(ConfigCampana.desde_json(fila[0]), campo)
     for pid, antes_id, despues, regresa_a in conn.execute(
-        _SQL_AJUSTE_POSTERIOR_PENDIENTE, (campana_id, clase, ajuste_id)
+        _SQL_AJUSTE_POSTERIOR_PENDIENTE.format(excluye=_excluye_abortadas(conn)),
+        (campana_id, clase, ajuste_id),
     ).fetchall():
         if not _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
             continue
