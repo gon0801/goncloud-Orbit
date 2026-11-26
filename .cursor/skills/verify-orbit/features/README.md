@@ -43,3 +43,4 @@ Todas las pantallas cargan `app/static/js/formato.js` antes que sus scripts: `ba
 - [Settings](./settings.md) — cascada de targets, caps y goals (lectura). POST de escritura queda fuera del baseline.
 - [Productos sin clics](./productos.md) — candidatos, impulsos, retiros y la meta por producto del ultimo ciclo (lectura). Los POST de impulso, retiro y reposicion quedan fuera del baseline.
 - [Precios](./precios.md) — compuerta, goals, Cobertura y no evaluados del motor de precios de Amazon (lectura). Sembrar goals y Soltar quedan fuera del baseline.
+- [Envíos](./envios.md) — pedidos y paquetes de 30 días de Amazon y Mercado Libre, con lo que requiere atención (lectura). La semilla baseline llega vacia.

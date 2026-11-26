@@ -40,6 +40,8 @@ class Clasificacion:
     motivo: Motivo | None
 
 
+ESTADOS_CERRADOS: frozenset[Estado] = frozenset({"entregado", "devuelto", "cancelado"})
+
 # Sonda 2026-11-25: solo estos pares reportan DELIVERED. Con el resto, SHIPPED
 # es lo ultimo que Amazon dice y esperar la entrega daria demoras falsas.
 AMAZON_CONFIRMA_ENTREGA = frozenset({("amazon_mx", "AMZMX"), ("amazon_mx", "DHLC")})
@@ -152,6 +154,16 @@ def _estado_meli(envio: EnvioObservado) -> Estado:
     return por_subestado.get(envio.subestado_fuente, sin_subestado)
 
 
+def fecha_limite(envio: EnvioObservado, estado: Estado) -> datetime | None:
+    """El plazo que corre en ese estado: despachar antes de salir, entregar
+    despues. Un envio cerrado ya no tiene plazo."""
+    if estado in ("pendiente", "por_despachar"):
+        return envio.despachar_antes_de
+    if estado in ESTADOS_CERRADOS:
+        return None
+    return envio.entrega_limite_el or envio.entrega_prometida_el
+
+
 def _vencido(limite: datetime | None, juzgado_al: datetime) -> bool:
     return limite is not None and juzgado_al > limite
 
@@ -163,15 +175,14 @@ def _motivo(
         return None
     if estado in ("problema", "en_devolucion"):
         return "problema_entrega"
+    plazo_vencido = _vencido(fecha_limite(envio, estado), juzgado_al)
     if estado == "por_despachar" and (
-        _vencido(envio.despachar_antes_de, juzgado_al)
+        plazo_vencido
         # xd_drop_off no manda plazo de despacho: el atraso llega por substatus.
         or (envio.platform == "meli" and envio.subestado_fuente in _MELI_DESPACHO_ATRASADO)
     ):
         return "despacho_vencido"
-    if estado in ("en_camino", "en_reparto") and _vencido(
-        envio.entrega_limite_el or envio.entrega_prometida_el, juzgado_al
-    ):
+    if estado in ("en_camino", "en_reparto") and plazo_vencido:
         return "entrega_vencida"
     return None
 

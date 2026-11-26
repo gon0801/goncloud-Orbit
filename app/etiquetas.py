@@ -84,6 +84,9 @@ Dominio = Literal[
     "origen_objetivo",
     "recurso_fabrica",
     "objetivo_puja",
+    "estado_envio",
+    "tipo_envio",
+    "motivo_envio",
 ]
 
 _SUBIDA_SIN_ECONOMIA = "Subida de puja frenada: las visitas de más no pagaron el gasto extra"
@@ -645,6 +648,7 @@ FUENTE_INGESTA: dict[str, str] = {
     "spapi_listings": "Publicaciones de Amazon",
     "spapi_fees": "Comisiones de Amazon",
     "spapi_inventario": "Inventario de Amazon",
+    "envios_meli": "Envíos de Mercado Libre",
 }
 
 REPORTE_ADS: dict[str, str] = {
@@ -895,6 +899,36 @@ MOTIVO_PRODUCTO: dict[str, str] = {
     "sin_historia": "la ventana es anterior al primer dato del reporte de productos: no es cero",
 }
 
+# ENVIOS 01 (envios.estado): estado, tipo logistico y motivo de atencion.
+ESTADO_ENVIO: dict[str, str] = {
+    "pendiente": "Pendiente",
+    "por_despachar": "Por despachar",
+    "en_camino": "En camino",
+    "en_reparto": "En reparto",
+    "esperando_recoleccion": "Esperando recolección en agencia",
+    "entregado": "Entregado",
+    "enviado_sin_confirmacion": "Enviado, sin confirmación de entrega",
+    "problema": "Con problema",
+    "en_devolucion": "En devolución",
+    "devuelto": "Devuelto",
+    "cancelado": "Cancelado",
+    "sin_clasificar": "Sin clasificar",
+}
+
+TIPO_ENVIO: dict[str, str] = {
+    "amazon_fba": "Envía Amazon (FBA)",
+    "amazon_fbm": "Envías tú (Amazon FBM)",
+    "meli_full": "Mercado Libre Full",
+    "meli_flex": "Mercado Libre Flex",
+    "meli_envios": "Mercado Envíos",
+}
+
+MOTIVO_ENVIO: dict[str, str] = {
+    "problema_entrega": "Problema o devolución en la entrega",
+    "despacho_vencido": "Despacho atrasado",
+    "entrega_vencida": "Entrega atrasada",
+}
+
 ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "plataforma": PLATAFORMA,
     "motivo_decision": MOTIVO_DECISION,
@@ -961,6 +995,9 @@ ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "origen_objetivo": ORIGEN_OBJETIVO,
     "recurso_fabrica": RECURSO_FABRICA,
     "objetivo_puja": OBJETIVO_PUJA,
+    "estado_envio": ESTADO_ENVIO,
+    "tipo_envio": TIPO_ENVIO,
+    "motivo_envio": MOTIVO_ENVIO,
 }
 
 

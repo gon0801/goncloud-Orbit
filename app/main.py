@@ -21,6 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api import router as ads_optimizer_router
 from app.api_common import mensaje_validacion
 from app.api_dashboard import router as dashboard_router
+from app.api_envios import router as envios_router
 from app.api_fabrica import router as fabrica_router
 from app.api_precios import router as precios_router
 from app.api_precios_write import router as precios_write_router
@@ -66,6 +67,7 @@ app.include_router(precios_router)
 app.include_router(precios_write_router)
 app.include_router(fabrica_router)
 app.include_router(reputacion_router)
+app.include_router(envios_router)
 app.include_router(dashboard_ui_router)
 
 

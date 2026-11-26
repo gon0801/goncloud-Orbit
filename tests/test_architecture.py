@@ -70,7 +70,9 @@ ALLOWLIST_TAMANO = {
 # pero NUNCA crecer silenciosamente sin justificar el techo en review.
 ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
-    "app/etiquetas.py": 1022,
+    # ENVIOS 01: tres vocabularios de la pantalla /envios (estado, tipo
+    # logistico y motivo de atencion) y la fuente `envios_meli`.
+    "app/etiquetas.py": 1057,
     # ARREGLOS 05 A: techo congelado del orquestador unico del ciclo.
     "app/cycle.py": 1148,
 }
