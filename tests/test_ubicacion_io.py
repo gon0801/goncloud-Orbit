@@ -765,3 +765,33 @@ def test_dias_topados_sin_presupuesto_es_none_y_con_presupuesto_mide():
         metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
         caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
         assert caso.dias_topados_7d == 5
+
+
+@_skip_db
+def test_lee_casos_produce_enteros_y_guarda_la_evaluacion():
+    """Devin #785: `sum(bigint)` vuelve Decimal; el JSON de auditoria exige
+    int y la evaluacion leida de SQL debe poder guardarse tal cual."""
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn)["campana"]
+        _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
+        ingest = _ingest(conn)
+        hasta = _HOY.date() - dt.timedelta(days=3)
+        _placement(conn, camp, "arriba_de_busqueda", hasta, cost=_D("10"), clics=10, pedidos=0)
+        _metrica(conn, camp, hasta, _D("10"), ingest)
+        metas = {datos_hoja: (_D("18"), "goal") for datos_hoja in _hojas(conn, camp)}
+        caso = next(c for c in _lee(conn, metas=metas) if c.campana_id == camp)
+        arriba = caso.ubicaciones[0]
+        assert isinstance(arriba.clics, int)
+        assert isinstance(arriba.pedidos, int)
+        assert arriba.pedidos_inmaduros is None  # sin ingesta en D-2..D-1
+
+        ids = guarda_evaluaciones(
+            conn,
+            cycle_id=_ciclo(conn),
+            config_version_id=_config_version(conn),
+            platform="amazon_mx",
+            decided_at=_HOY,
+            evaluaciones=[(caso, "shadow", MantenerUbicacion("sin_evidencia_ubicacion"))],
+        )
+        assert ids[camp]

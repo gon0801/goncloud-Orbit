@@ -231,7 +231,12 @@ def _inmaduros(
     hasta = hoy - dt.timedelta(days=1)
     desde = hoy - dt.timedelta(days=2)
     filas = conn.execute(_SQL_INMADUROS, (campana, platform, desde, hasta)).fetchall()
-    return {fila[0]: fila[1] for fila in filas}
+    return {fila[0]: _entero(fila[1]) for fila in filas}
+
+
+def _entero(valor):
+    """`sum(bigint)` llega como `Decimal`; los conteos del dominio son `int`."""
+    return None if valor is None else int(valor)
 
 
 def _medida(info: dict | None, hay_ingesta: bool) -> dict:
@@ -242,9 +247,9 @@ def _medida(info: dict | None, hay_ingesta: bool) -> dict:
             return {"clics": None, "gasto": None, "pedidos": None, "venta": None}
         return {"clics": 0, "gasto": Decimal(0), "pedidos": 0, "venta": Decimal(0)}
     return {
-        "clics": info["clics"],
+        "clics": _entero(info["clics"]),
         "gasto": info["gasto"],
-        "pedidos": info["pedidos"],
+        "pedidos": _entero(info["pedidos"]),
         "venta": info["venta"],
     }
 
