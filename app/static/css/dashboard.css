@@ -112,6 +112,8 @@ html[data-tema="noche"] {
 .grupo-metricas { display: grid; gap: 15px; }
 .seccion-encabezado { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .oportunidad-resumen { padding: 20px; }
+.historial-resumen,
+.rendimiento-resumen.superficie { padding: 20px; margin-bottom: 20px; }
 .oportunidad-contenido { margin-top: 20px; }
 .oportunidad-detalle { margin-top: 16px; }
 .oportunidad-contenido > .tabla-scroll,

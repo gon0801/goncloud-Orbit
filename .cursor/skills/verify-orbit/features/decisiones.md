@@ -5,7 +5,8 @@ Decisiones lista las decisiones que SI se tomaron, ahora agrupadas por dia. El m
 ## Sub-features
 
 - `decisiones-nav` abre `/decisiones` y marca `aria-current="page"`.
-- `decisiones-resumen` `section.tarjeta[aria-labelledby="h-res"]` con el titulo «En esta página», el rango (`50 decisiones · 31 oct – 11 nov`) y cuatro `.kpi`: Pausas, Pujas subidas, Pujas bajadas y Negativos. Cada contador dice «de 50 en esta página»: cuenta SOLO la pagina.
+- `decisiones-resumen` `section.historial-resumen.superficie.decisiones-resumen[aria-labelledby="h-res"]` con el titulo «En esta página», el rango (`50 decisiones · 31 oct – 11 nov`) y cuatro `.kpi`: Pausas, Pujas subidas, Pujas bajadas y Negativos. Cada contador dice «de 50 en esta página»: cuenta SOLO la pagina. Los filtros quedan inmediatamente despues y el historial conserva sus secciones por dia.
+- `ruido-jerarquia` agrupa la explicacion y los totales por ciclo en `section.historial-resumen.superficie`; los enlaces de mercado quedan fuera y el detalle mantiene abstenciones, reduccion de pujas y la comparacion antes/despues.
 - `decisiones-filtros` `form.decisiones-filtros` con `div.seg` de enlaces `a.seg-btn` (`?tipo=todas|pausa|puja_sube|puja_baja|negativo|captura`) e `input#f-buscar[name="q"]` (campaña, keyword o ASIN). Cada pestaña muestra el conteo de TODAS las decisiones de ese tipo que cumplen la busqueda; un `tipo` desconocido cae en `todas`.
 - `decisiones-dia` `section.decisiones-dia` por fecha. El encabezado `div.decisiones-dia-cab` trae la fecha (`h2.num`, «9 oct») y el resumen («33 decisiones · 31 pausas · …»). La tarjeta `div.decisiones-lista` contiene las filas del dia.
 - `decisiones-fila` `div.decisiones-fila`: chip de tipo, entidad en negritas + `· campaña` dentro de un `[data-dato-libre]`, motivo, linea gris `#ad_entity_id · decision #id` (con `search term: …` si existe), `Target usado X %` y, solo en pujas, `antes → despues MONEDA`. La hora del centro de Mexico va a la derecha.
@@ -28,7 +29,7 @@ Preconditions:
 - Doctor en verde.
 - Semilla: al menos una decision bid sobre `Campana A` con motivo `banda_menos_12` y `target_acos_pct_usado` 25.00; y dos pausas del mismo dia con el mismo motivo para ver el grupo plegable.
 
-- **Abrir la pagina.** Corre `curl -sS "$BASE/decisiones"`. Status 200. El HTML contiene `data-pantalla="decisiones"`, `h1` `Decisiones` y `section.tarjeta` con `h2` `En esta página`.
+- **Abrir la pagina.** Corre `curl -sS "$BASE/decisiones"`. Status 200. El HTML contiene `data-pantalla="decisiones"`, `h1` `Decisiones` y `section.historial-resumen.superficie` con `h2` `En esta página`.
 - **Leer la fila sembrada.** El HTML contiene `Campana A`, chip `Puja`, `Target usado 25.00 %`, `1.00` → `0.88` USD y el motivo `ACoS 15 % arriba de la meta`. En un negative, `search term: zapato blanco` va dentro de un `[data-dato-libre]`.
 - **Filtrar por tipo.** Corre `curl -sS "$BASE/decisiones?tipo=negativo"`. La pestaña `Negativos` queda `aria-pressed="true"` y el total del paginador baja al conteo de negativos. Un `tipo` inventado se comporta como `todas`.
 - **Buscar en todas.** Corre `curl -sS "$BASE/decisiones?q=wedding"`. El total y los conteos de cada pestaña bajan a lo que cumple la busqueda; la paginacion trae `q=wedding` en `rel="next"`.

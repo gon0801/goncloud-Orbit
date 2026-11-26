@@ -8,10 +8,11 @@
 <p class="contribucion-intro">Son 90 días que terminan hace 15, cuando las ventas ya no cambian.
    Cada campaña suma lo que dejan sus keywords y sus productos objetivo.</p>
 
-<section class="contribucion-plataformas" aria-label="Resumen por plataforma">
+<div class="rendimiento-resumen">
+<section class="contribucion-plataformas rendimiento-resumen" aria-label="Resumen por plataforma">
 {% for p in vista.plataformas %}
   <article class="tarjeta contribucion-tarjeta" id="contribucion-card-{{ p.id }}">
-    <div class="contribucion-cab">
+    <div class="contribucion-cab seccion-encabezado">
       <h2>{{ p.nombre }} <span class="num mutado">{{ p.moneda }} · {{ p.campanas }}</span></h2>
       <span class="num mutado">{{ p.rango }}</span>
     </div>
@@ -33,6 +34,7 @@
   </article>
 {% endfor %}
 </section>
+</div>
 
 <p class="contribucion-explica">Cada barra va del valor más bajo al más alto del rango.
    <strong>Positiva</strong>: todo el rango arriba de 0 ·
@@ -41,7 +43,7 @@
 
 {% for p in vista.plataformas %}
 <section class="tarjeta contribucion-tabla-tarjeta" aria-labelledby="h-contribucion-{{ p.id }}">
-  <div class="contribucion-cab">
+  <div class="contribucion-cab seccion-encabezado">
     <h2 id="h-contribucion-{{ p.id }}">{{ p.nombre }} <span class="num mutado">· {{ p.rango }}</span></h2>
     {% if p.filas %}
     <span class="leyenda">{{ p.leyenda }}</span>

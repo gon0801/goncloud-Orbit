@@ -25,7 +25,7 @@
 {% set filtro = filtro | default({'tipo': 'todas', 'q': ''}) %}
 {% set limpiar = href_limpiar | default('/decisiones') %}
 
-<section class="tarjeta decisiones-resumen" aria-labelledby="h-res">
+<section class="historial-resumen superficie decisiones-resumen" aria-labelledby="h-res">
   <div class="decisiones-resumen-cab">
     <h2 id="h-res">En esta página</h2>
     {% if vista.rango %}<span class="num mutado">{{ vista.rango }}</span>{% endif %}

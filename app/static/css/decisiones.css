@@ -8,7 +8,7 @@
 .dot-puja-sube { background: #14B8A6; }
 .dot-puja-baja { background: #F59E0B; }
 .dot-negativo { background: #C2410C; }
-.decisiones-resumen { display: flex; flex-direction: column; gap: 14px; }
+.historial-resumen.decisiones-resumen { display: flex; flex-direction: column; gap: 14px; }
 .decisiones-resumen-cab { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
 .decisiones-resumen-cab h2 { margin: 0; }
 .decisiones-kpis { margin-bottom: 0; }
