@@ -8,8 +8,7 @@ Sin JS: tarjetas y tabla server-rendered. No es decisoria (etiqueta fija).
 ## Sub-features
 
 - `contribucion-nav` abre `/contribucion` desde el nav y marca `aria-current="page"`.
-- `contribucion-resumen` `div.rendimiento-resumen` agrupa el resumen, con una tarjeta por plataforma (`section.contribucion-plataformas.rendimiento-resumen`,
-  `article.contribucion-tarjeta#contribucion-card-amazon_us` / `-amazon_mx`) con
+- `contribucion-resumen` una sola `section.contribucion-plataformas.rendimiento-resumen` agrupa una tarjeta por plataforma (`article.contribucion-tarjeta.superficie#contribucion-card-amazon_us` / `-amazon_mx`) con
   moneda, numero de campanas, rango de fechas, barra segmentada
   (`div.contribucion-segmentos`), conteo por clase (`ul.contribucion-clases`) y
   la leyenda `contribucion pre-cargos · no decisoria · MONEDA · el tipo de cambio

@@ -1818,7 +1818,7 @@ def cmd_drive_contribucion(args: argparse.Namespace) -> None:
         "data-pantalla=contribucion": 'data-pantalla="contribucion"' in texto,
         "h1_contribucion": "Contribución por campaña" in texto,
         "tarjetas_plataforma": "contribucion-plataformas" in texto
-        and texto.count('class="tarjeta contribucion-tarjeta"') == 2,
+        and len(re.findall(r'class="tarjeta contribucion-tarjeta(?:\s[^"]*)?"', texto)) == 2,
         "no_hay_filas": "Sin campañas con actividad madura en la ventana." in texto,
         "sin_estilos_inline": "style=" not in texto,
     }
