@@ -4,7 +4,7 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 
 ## Sub-features
 
-- `cortes-nav` abre `/cortes` y marca `aria-current="page"`.
+- `cortes-nav` abre `/cortes` desde el destino padre `Oportunidades`; el padre del sidebar usa `aria-current="true"` y `Propuestas` en `nav.subnavegacion` usa `aria-current="page"`. En móvil, el enlace `Oportunidades` de la tab bar marca `aria-current="page"`.
 - `cortes-tabla` parte la cola en `Crecen` y `Recortan`. Columnas: Tipo (chip Crece/Recorta, chip `Práctica` si la fila es `modo` `shadow`, y etiqueta), Entidad (`linea_entidad` + ids + plataforma como «Amazon US»), Search term, Por que, Vence (`se aplica solo el <8 nov, 11:58>` en filas `live`, `No se aplica: es práctica` en filas `shadow`, + estado en español y `propuesta el <fecha>` en detalle), Accion.
 - `cortes-etiqueta` la etiqueta de `pause` sale por la entidad: keyword `Apagar palabra`, product_target `Apagar segmentación de producto`, product_ad `Pausar anuncio del producto`. `negative` es `Bloquear busqueda` y `harvest` `Capturar termino que vende`.
 - `cortes-vacio` sin filas muestra `Sin propuestas pendientes: no hay nada esperando tu decisión.`
@@ -17,7 +17,7 @@ Cortes lista la cola de pause/negative/harvest en `pending_veto` o `released`. E
 
 ## How to get to it (user POV)
 
-- Elegir `Propuestas` en el sidebar (`<a href="/cortes">`). `/propuestas` es el mismo HTML.
+- Elegir `Oportunidades` en el sidebar o la tab bar (`<a href="/cortes">`) y después `Propuestas` en la subnavegación. `/propuestas` es el mismo HTML.
 - Pulsar `Rechazar` en una fila para ver el form (el submit real queda fuera del baseline).
 
 ## Driving it with curl

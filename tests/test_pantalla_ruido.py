@@ -592,7 +592,7 @@ def test_ruta_ruido_200_con_marcador_menu_y_headers(monkeypatch):
         assert "Es una comparación simple de antes y después. No es causal." in _plano(resp.text)
         assert "default-src 'self'" in resp.headers["content-security-policy"]
         assert resp.headers["cache-control"] == "no-store"
-        assert '<a href="/ruido" aria-current="page">Ruido</a>' in resp.text
+        assert '<a href="/ruido" aria-current="page">Detalle de ciclos</a>' in resp.text
         malo = cliente.get("/ruido", params={"plataforma": "meli"})
         assert malo.status_code == 422
     finally:

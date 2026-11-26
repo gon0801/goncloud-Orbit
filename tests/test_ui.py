@@ -1506,7 +1506,7 @@ def test_ui_propuestas_titulo_y_menu_d1():
     assert "Propuestas" in html
     assert "Cortes pendientes de veto" not in html
     assert 'href="/cortes"' in html, "el href NO cambia (enlaces vivos)"
-    assert ">Propuestas<span" in html, "el nav de base.html dice Propuestas"
+    assert ">Oportunidades<span" in html, "el nav agrupa Propuestas en Oportunidades"
     assert 'src="/static/js/cortes.js?v=' in html
 
 
@@ -1573,45 +1573,23 @@ def test_ui_cortes_sin_hermanas_no_nombra_nada():
     assert "Tampoco se negara en:" not in html
 
 
-def test_ui_menu_movil_es_tab_bar_no_drawer():
-    """El menu movil es una tab bar de 7 destinos, no el sidebar en overlay.
-
-    Falla contra el drawer con boton Menu/Cerrar menu y secciones PANEL.
-    """
+def test_ui_menu_movil_agrupado():
     html = ui.templates.env.get_template("cortes.html").render(**_ctx_propuestas())
-    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
-        encoding="utf-8"
-    )
-    js = (ui._TEMPLATES_DIR.parent / "static" / "js" / "shell.js").read_text(encoding="utf-8")
-    assert "Cerrar menu" not in html
-    assert "Cerrar menu" not in js
-    assert 'id="nav-toggle"' not in html
     assert 'class="tab-bar"' in html
-    assert html.count('class="tab-label"') == 7
+    assert html.count('class="tab-label"') == 5
+    assert 'id="nav-mas-toggle"' in html
+    assert 'aria-expanded="false"' in html
+    assert 'aria-controls="nav-mas"' in html
+    assert 'id="nav-mas"' in html
     assert ">Resumen<" in html
-    assert ">Contribucion<" in html
-    assert ">Reputacion<" in html
-    assert ">Decisiones<" in html
     assert ">Campañas<" in html
-    assert ">Settings<" in html
-    assert ">Inicio<" not in html
-    assert ">P&amp;L<" not in html
-    assert ">SKUs<" not in html
-    assert ">Gastos<" not in html
-    assert ">Saldos<" not in html
-    assert 'href="/"' in html
-    assert 'href="/contribucion"' in html
-    assert 'href="/reputacion"' in html
-    assert 'href="/decisiones"' in html
-    assert 'href="/campanas"' in html
-    assert 'href="/settings"' in html
+    assert ">Oportunidades<" in html
+    assert ">Decisiones<" in html
+    assert ">Más<" in html
+    assert ">Contribucion<" not in html
+    assert ">Settings<" not in html
     assert 'href="/cortes"' in html
-    assert ">Propuestas<span" in html
-    assert 'class="tab-bar"' in css or ".tab-bar" in css
-    assert "position: fixed" in css
-    assert "#nav-toggle { display: block" not in css
-    assert 'aria-current="page"' in html
-    assert "tab-activo" in html
+    assert 'data-rol="propuestas"' in html
 
 
 @pytest.mark.skipif(
@@ -3077,8 +3055,7 @@ def test_ui_busquedas_sin_venta_200_frase_tablas_y_menu(monkeypatch):
     assert "<button" not in fuente
     assert "<form" not in fuente
     assert (
-        '<a href="/busquedas-sin-venta" aria-current="page">Búsquedas que gastan sin vender</a>'
-        in resp.text
+        '<a href="/busquedas-sin-venta" aria-current="page">Búsquedas sin vender</a>' in resp.text
     )
     assert "default-src 'self'" in resp.headers["content-security-policy"]
     malo = _html_busquedas(monkeypatch, _pantalla_p6(), plataforma="meli")

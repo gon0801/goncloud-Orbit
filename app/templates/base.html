@@ -32,12 +32,43 @@
     'donde-poner-el-dinero': ('Dónde poner el dinero', 'Gasto y ACoS por tipo de campaña, solo lo encendido'),
     'productos-sin-clics': ('Productos sin clics', 'Venden y casi no reciben clics · impulsos'),
     'inertes': ('Inertes', 'Keywords y productos activos sin visitas desde hace 14 días o más'),
-    'settings': ('Settings', 'Metas de ACoS, topes diarios y metas por campaña'),
+    'settings': ('Configuración', 'Metas de ACoS, topes diarios y metas por campaña'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
     'reputacion': ('Reputación', 'Calificación, reseñas, preguntas y alertas por publicación'),
     'precios': ('Precios', 'Qué publicaciones revisa el motor de precios, qué decidió y qué no cuadra'),
     'familias': ('Familias', 'Etiquetas de producto en dos niveles para la fábrica')
   } %}
+  {% set grupos = {
+    'oportunidades': ('Oportunidades', [
+      ('cortes', '/cortes', 'Propuestas'),
+      ('gasto-sin-venta', '/gasto-sin-venta', 'Gasto sin venta'),
+      ('busquedas-sin-venta', '/busquedas-sin-venta', 'Búsquedas sin vender'),
+      ('keywords-danadas', '/keywords-danadas', 'Keywords dañadas'),
+      ('productos-sin-clics', '/productos-sin-clics', 'Productos sin clics'),
+      ('inertes', '/inertes', 'Inertes')
+    ]),
+    'decisiones': ('Decisiones', [
+      ('decisiones', '/decisiones', 'Historial'),
+      ('ruido', '/ruido', 'Detalle de ciclos')
+    ]),
+    'rendimiento': ('Rendimiento', [
+      ('contribucion', '/contribucion', 'Contribución'),
+      ('donde-poner-el-dinero', '/donde-poner-el-dinero', 'Dónde poner el dinero')
+    ]),
+    'catalogo': ('Catálogo', [
+      ('precios', '/precios', 'Precios'),
+      ('reputacion', '/reputacion', 'Reputación'),
+      ('familias', '/familias', 'Familias')
+    ])
+  } %}
+  {% set seccion = {
+    'cortes': 'oportunidades', 'gasto-sin-venta': 'oportunidades',
+    'busquedas-sin-venta': 'oportunidades', 'keywords-danadas': 'oportunidades',
+    'productos-sin-clics': 'oportunidades', 'inertes': 'oportunidades',
+    'decisiones': 'decisiones', 'ruido': 'decisiones',
+    'contribucion': 'rendimiento', 'donde-poner-el-dinero': 'rendimiento',
+    'precios': 'catalogo', 'reputacion': 'catalogo', 'familias': 'catalogo'
+  }.get(pantalla) %}
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
     <a class="marca" href="/" aria-label="Orbit, inicio">
@@ -46,38 +77,14 @@
     </a>
     <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
-      {% for grupo, enlaces in [
-        ('Panel', [('resumen', '/', 'Resumen'), ('campanas', '/campanas', 'Campañas'),
-                   ('decisiones', '/decisiones', 'Decisiones'), ('salud', '/salud', 'Salud'),
-                   ('contribucion', '/contribucion', 'Contribucion')]),
-        ('Decidir', [('cortes', '/cortes', 'Propuestas'),
-                    ('gasto-sin-venta', '/gasto-sin-venta', 'Gasto sin venta'),
-                    ('busquedas-sin-venta', '/busquedas-sin-venta', 'Búsquedas que gastan sin vender'),
-                    ('keywords-danadas', '/keywords-danadas', 'Keywords dañadas'),
-                    ('ruido', '/ruido', 'Ruido'),
-                    ('donde-poner-el-dinero', '/donde-poner-el-dinero', 'Dónde poner el dinero'),
-                    ('productos-sin-clics', '/productos-sin-clics', 'Productos sin clics'),
-                    ('inertes', '/inertes', 'Inertes'),
-                    ('fabrica', '/campanas/nuevas', 'Crear campañas')])
-      ] %}
-      <div class="nav-grupo">
-        <p class="nav-etiqueta">{{ grupo }}</p>
-        {% for id, href, nombre in enlaces %}
-        <a href="{{ href }}" {% if pantalla == id %}aria-current="page"{% endif %}>{{ nombre }}{% if id == 'cortes' %}<span id="propuestas-contador" class="contador" hidden></span>{% endif %}</a>
-        {% endfor %}
-      </div>
-      {% endfor %}
-      <div class="nav-grupo">
-        <p class="nav-etiqueta">Catalogo</p>
-        {# REPUTACION 01 A.6 (acta 0.5 §6): Reputacion deja "pronto" y el
-           chip Reviews se retira (pestana dentro de /reputacion). #}
-        <a href="/reputacion" {% if pantalla == 'reputacion' %}aria-current="page"{% endif %}>Reputacion<span id="reputacion-contador" class="contador" hidden></span></a>
-        <a href="/precios" {% if pantalla == 'precios' %}aria-current="page"{% endif %}>Precios</a>
-        <a href="/familias" {% if pantalla == 'familias' %}aria-current="page"{% endif %}>Familias</a>
-      </div>
-      <div class="nav-pie">
-        <a href="/settings" {% if pantalla == 'settings' %}aria-current="page"{% endif %}>Settings</a>
-      </div>
+      <a href="/"{% if pantalla == 'resumen' %} class="nav-activo" aria-current="page"{% endif %}>Resumen</a>
+      <a href="/campanas"{% if pantalla == 'campanas' %} class="nav-activo" aria-current="page"{% endif %}>Campañas</a>
+      <a href="/cortes"{% if seccion == 'oportunidades' %} class="nav-activo" aria-current="true"{% endif %}>Oportunidades<span id="propuestas-contador" class="contador" hidden></span></a>
+      <a href="/decisiones"{% if seccion == 'decisiones' %} class="nav-activo" aria-current="true"{% endif %}>Decisiones</a>
+      <a href="/contribucion"{% if seccion == 'rendimiento' %} class="nav-activo" aria-current="true"{% endif %}>Rendimiento</a>
+      <a href="/precios"{% if seccion == 'catalogo' %} class="nav-activo" aria-current="true"{% endif %}>Catálogo<span id="reputacion-contador" class="contador" hidden></span></a>
+      <a href="/salud"{% if pantalla == 'salud' %} class="nav-activo" aria-current="page"{% endif %}>Salud</a>
+      <a href="/settings"{% if pantalla == 'settings' %} class="nav-activo" aria-current="page"{% endif %}>Configuración</a>
     </nav>
     <div class="ultimo-ciclo">
       <p class="nav-etiqueta">Ultimo ciclo</p>
@@ -89,35 +96,33 @@
     <header class="pagina-header">
       <div><h1>{% block titulo_pagina %}{{ paginas[pantalla][0] }}{% endblock %}</h1><p>{% block subtitulo_pagina %}{{ paginas[pantalla][1] }}{% endblock %}</p></div>
       <div class="header-acciones">
-        {% block cabecera_accion %}{% endblock %}
+        {% block cabecera_accion %}
+        {% if pantalla == 'campanas' %}<a class="btn-crear" href="/campanas/nuevas">Crear campañas</a>{% endif %}
+        {% endblock %}
         <span class="leyenda-zona">{{ leyenda_zona }}</span>
         <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
         <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>
+    {% set grupo = grupos[seccion] if seccion else none %}
+    {% include '_subnavegacion.html' with context %}
     <main id="contenido" tabindex="-1">
     {% block contenido %}{% endblock %}
     </main>
   </div>
-  {# Tab bar movil: 7 destinos fijos. El sidebar de escritorio se conserva.
-     Las etiquetas visibles replican el nombre de su seccion en el sidebar:
-     inicio=Resumen (resumen/salud) · pnl=Contribucion · skus=Reputacion
-     ordenes=Decisiones · gastos=Campañas (campanas/fabrica/inertes)
-     saldos=Settings · revision=Propuestas (cortes) #}
   {% set tab_por_pantalla = {
-    'resumen': 'inicio', 'salud': 'inicio',
-    'contribucion': 'pnl', 'precios': 'pnl',
-    'reputacion': 'skus', 'familias': 'skus',
-    'decisiones': 'ordenes',
-    'campanas': 'gastos', 'fabrica': 'gastos', 'inertes': 'gastos',
-    'settings': 'saldos',
-    'cortes': 'revision', 'gasto-sin-venta': 'revision', 'busquedas-sin-venta': 'revision',
-    'keywords-danadas': 'revision',
-    'ruido': 'revision', 'donde-poner-el-dinero': 'revision',
-    'productos-sin-clics': 'revision'
+    'resumen': 'inicio',
+    'campanas': 'campanas', 'fabrica': 'campanas',
+    'cortes': 'oportunidades', 'gasto-sin-venta': 'oportunidades',
+    'busquedas-sin-venta': 'oportunidades', 'keywords-danadas': 'oportunidades',
+    'productos-sin-clics': 'oportunidades', 'inertes': 'oportunidades',
+    'decisiones': 'decisiones', 'ruido': 'decisiones',
+    'contribucion': 'mas', 'donde-poner-el-dinero': 'mas',
+    'precios': 'mas', 'reputacion': 'mas', 'familias': 'mas',
+    'salud': 'mas', 'settings': 'mas'
   } %}
-  {% set tab_activo = tab_por_pantalla.get(pantalla, 'inicio') %}
+  {% set tab_activo = tab_por_pantalla.get(pantalla) %}
   <nav class="tab-bar" aria-label="Navegacion movil">
     <svg class="tab-sprite" aria-hidden="true" focusable="false">
       <symbol id="ico-casa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
@@ -167,15 +172,18 @@
       <symbol id="ico-aviso-fill" viewBox="0 0 24 24" fill="currentColor">
         <path d="M10.7 3.7a1.5 1.5 0 0 1 2.6 0l8.4 14.6A1.5 1.5 0 0 1 20.4 20.5H3.6a1.5 1.5 0 0 1-1.3-2.2L10.7 3.7zM12 9.4a.9.9 0 0 0-.9.9v3.7a.9.9 0 0 0 1.8 0V10.3a.9.9 0 0 0-.9-.9zm0 7.1a1.05 1.05 0 1 0 0 2.1 1.05 1.05 0 0 0 0-2.1z"/>
       </symbol>
+      <symbol id="ico-mas" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/>
+      </symbol>
+      <symbol id="ico-mas-fill" viewBox="0 0 24 24" fill="currentColor">
+        <circle cx="5" cy="12" r="2.25"/><circle cx="12" cy="12" r="2.25"/><circle cx="19" cy="12" r="2.25"/>
+      </symbol>
     </svg>
     {% for id_tab, href, nombre, ico, rol in [
       ('inicio', '/', 'Resumen', 'casa', none),
-      ('pnl', '/contribucion', 'Contribucion', 'barras', none),
-      ('skus', '/reputacion', 'Reputacion', 'cubo', 'reputacion'),
-      ('ordenes', '/decisiones', 'Decisiones', 'lista', none),
-      ('gastos', '/campanas', 'Campañas', 'billetera', none),
-      ('saldos', '/settings', 'Settings', 'banco', none),
-      ('revision', '/cortes', 'Propuestas', 'aviso', 'propuestas')
+      ('campanas', '/campanas', 'Campañas', 'billetera', none),
+      ('oportunidades', '/cortes', 'Oportunidades', 'aviso', 'propuestas'),
+      ('decisiones', '/decisiones', 'Decisiones', 'lista', none)
     ] %}
     <a class="tab{% if tab_activo == id_tab %} tab-activo{% endif %}" href="{{ href }}"{% if tab_activo == id_tab %} aria-current="page"{% endif %}>
       <svg class="tab-ico tab-ico-off"><use href="#ico-{{ ico }}"/></svg>
@@ -184,6 +192,17 @@
       {% if rol %}<span class="contador tab-badge" data-rol="{{ rol }}" hidden></span>{% endif %}
     </a>
     {% endfor %}
+    <button type="button" id="nav-mas-toggle" class="tab{% if tab_activo == 'mas' %} tab-activo{% endif %}" aria-expanded="false" aria-controls="nav-mas">
+      <svg class="tab-ico tab-ico-off" aria-hidden="true"><use href="#ico-mas"/></svg>
+      <svg class="tab-ico tab-ico-on" aria-hidden="true"><use href="#ico-mas-fill"/></svg>
+      <span class="tab-label">Más</span>
+    </button>
+    <nav id="nav-mas" class="nav-mas" aria-label="Más secciones" hidden>
+      <a href="/contribucion"{% if seccion == 'rendimiento' %} aria-current="page"{% endif %}>Rendimiento</a>
+      <a href="/precios"{% if seccion == 'catalogo' %} aria-current="page"{% endif %}>Catálogo<span class="contador" data-rol="reputacion" hidden></span></a>
+      <a href="/salud"{% if pantalla == 'salud' %} aria-current="page"{% endif %}>Salud</a>
+      <a href="/settings"{% if pantalla == 'settings' %} aria-current="page"{% endif %}>Configuración</a>
+    </nav>
   </nav>
   <script type="application/json" id="orbit-etiquetas">{{ registro_etiquetas }}</script>
   <script src="/static/js/formato.js?v={{ asset_version }}"></script>

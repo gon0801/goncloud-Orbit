@@ -4,7 +4,7 @@ Campanas lista cada campaña con métricas 30d (cost, revenue, clicks, ACoS), el
 
 ## Sub-features
 
-- `campanas-nav` abre `/campanas` desde el nav y marca `aria-current="page"`.
+- `campanas-nav` abre `/campanas` desde el sidebar o la tab bar móvil y marca `aria-current="page"`. `Crear campañas` sigue siendo una acción del header, no una sección del nav.
 - `campanas-crear` enlace `Crear campañas` a `/campanas/nuevas` en el header (`a.btn-crear`). El texto va pegado al `>`.
 - `campanas-aviso` `p.aviso-inmaduro`: «La ventana 30d incluye siempre días inmaduros (D-8..D-1): los totales y el ACoS aún maduran.»
 - `campanas-tarjetas` `section.bloque-targets` con `h2#h-plat` «Campañas contra su target». Cada `article.tarjeta-plataforma` tiene `h3` «Amazon MX» o «Amazon US», moneda, «N campañas», «Target efectivo …». Si los targets de esa plataforma no son un solo número, el texto es «varios targets» y el ACoS no se colorea contra uno inventado. Métricas: ACoS (suma cost / suma revenue), Cost (30d), Revenue Ads (30d), Clicks. Un None en la suma pinta «—».

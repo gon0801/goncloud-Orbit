@@ -2,6 +2,32 @@
 "use strict";
 // El chrome lee las mismas APIs que Propuestas y Salud; no replica consultas.
 document.addEventListener("DOMContentLoaded", function () {
+  function configurarMas() {
+    const boton = document.getElementById("nav-mas-toggle");
+    const menu = document.getElementById("nav-mas");
+    if (!boton || !menu) return;
+    function cerrar() {
+      menu.hidden = true;
+      boton.setAttribute("aria-expanded", "false");
+    }
+    boton.addEventListener("click", function () {
+      const abrir = menu.hidden;
+      menu.hidden = !abrir;
+      boton.setAttribute("aria-expanded", abrir ? "true" : "false");
+      if (abrir) menu.querySelector("a").focus();
+    });
+    menu.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        cerrar();
+        boton.focus();
+      }
+    });
+    document.addEventListener("click", function (event) {
+      if (!menu.hidden && !menu.contains(event.target) && !boton.contains(event.target)) cerrar();
+    });
+  }
+  configurarMas();
+
   const contador = document.getElementById("propuestas-contador");
   const repContador = document.getElementById("reputacion-contador");
   const ciclo = document.getElementById("ciclo-resumen");
