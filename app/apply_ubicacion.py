@@ -26,10 +26,12 @@ from app.ads.campana_config import (
     guarda_config,
     mezcla_observacion,
 )
+from app.ads.client import AdsApiError, AdsAuthError, AdsClientError
 from app.apply_ajustes import (
     AjusteEnCurso,
     AjusteNoConfirmado,
     CambioExternoDetectado,
+    ErrorTrasPut,
     HuellaDesactualizada,
     _config_leida,
     aplica_ajuste_motor,
@@ -128,8 +130,11 @@ def hay_evaluaciones_a_aplicar(conn: psycopg.Connection, cycle_id: int, platform
     if not esquema_ubicaciones_disponible(conn):
         return False
     fila = conn.execute(
-        "SELECT 1 FROM ubicacion_evaluacion WHERE cycle_id = %s AND platform = %s"
-        " AND modo = 'live' AND veredicto = 'mover' LIMIT 1",
+        "SELECT 1 FROM ubicacion_evaluacion u WHERE u.cycle_id = %s AND u.platform = %s"
+        " AND u.modo = 'live' AND u.veredicto = 'mover'"
+        " AND NOT EXISTS (SELECT 1 FROM campana_ajuste a WHERE a.evaluacion_id = u.id)"
+        " AND NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s WHERE s.evaluacion_id = u.id)"
+        " LIMIT 1",
         (cycle_id, platform),
     ).fetchone()
     return fila is not None
@@ -277,16 +282,27 @@ def aplica_automaticos(
             descarta(eval_id, MOTIVO_CAMBIO_EXTERNO)
         except AjusteEnCurso:
             descarta(eval_id, MOTIVO_AJUSTE_EN_CURSO)
-        except AjusteNoConfirmado:
-            # El PUT pudo llegar: la intencion queda pendiente para que la
-            # reconciliacion la selle o la conserve sin trabas.
+        except (AjusteNoConfirmado, ErrorTrasPut):
+            # El PUT pudo llegar (o ya salio): la intencion queda pendiente
+            # para que la reconciliacion la selle. Nunca se marca no aplicada.
             pass
         except HuellaDesactualizada:
             descarta(eval_id, MOTIVO_CONFIG_CAMBIO)
-        except OrbitDbError:
+        except AdsAuthError:
+            # 401/403: fallo global de identidad, la fase aborta.
+            raise
+        except AdsApiError as exc:
+            # 4xx distinto de 429: rechazo determinista, Amazon no aplico.
+            # 5xx, 429 o red: el PUT pudo llegar; queda pendiente.
+            if exc.status is not None and 400 <= exc.status < 500 and exc.status != 429:
+                descarta(eval_id, MOTIVO_ERROR_PUT)
+            else:
+                pass
+        except AdsClientError:
             descarta(eval_id, MOTIVO_ERROR_PUT)
-        except psycopg.Error:
-            descarta(eval_id, MOTIVO_ERROR_PUT)
+        except (OrbitDbError, psycopg.Error):
+            # La base fallo sin poder distinguir si el PUT salio: pendiente.
+            pass
         finally:
             if conexion is not None:
                 conexion.close()

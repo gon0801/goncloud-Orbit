@@ -11,6 +11,8 @@ import pytest
 from test_schema import _postgres_obligatorio_ausente
 
 from app.ads.campana_config import ConfigCampana, cuerpo_put_campana, guarda_config
+from app.ads.client import AdsApiError
+from app.ads.write import AdsApiErrorMutacion
 from app.apply_ajustes import aplica_ajuste_motor
 from app.apply_ubicacion import aplica_automaticos, reconcilia_automaticos
 from app.campana_ajustes import CambiarAjusteUbicacion
@@ -519,3 +521,79 @@ def test_cuota_y_registro_sobreviven_al_rollback_del_ciclo():
             "la cuota cobrada no se revierte con el rollback del ciclo"
         )
         assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 1
+
+
+class ClienteFalla(ClienteFalso):
+    def __init__(self, actual, *, donde, exc):
+        super().__init__(actual, actual)
+        self.donde = donde
+        self.exc = exc
+        self.lecturas = 0
+
+    def list_sellado(self, path, payload):
+        self.lecturas += 1
+        if self.donde == "lectura_previa" or (self.donde == "readback" and self.lecturas > 1):
+            raise self.exc
+        return super().list_sellado(path, payload)
+
+    def ajustar_campana(self, externa, cuerpo):
+        if self.donde == "put":
+            raise self.exc
+        super().ajustar_campana(externa, cuerpo)
+
+
+def _corre(conn, dsn, ciclo, cliente):
+    return aplica_automaticos(
+        conn,
+        dsn=dsn,
+        cliente=cliente,
+        platform="amazon_mx",
+        cycle_id=ciclo,
+        settings=_settings(),
+        abrir_conexion=lambda: _abre_decide(dsn),
+    )
+
+
+@_skip_db
+def test_readback_500_deja_intencion_pendiente_sin_marcarla_no_aplicada():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        error = AdsApiError("status=500 readback")
+        error.status = 500
+        resumen = _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="readback", exc=error))
+        assert resumen.aplicadas == 0
+        assert resumen.sin_aplicar == ()
+        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE evaluacion_id IS NOT NULL"
+            ).fetchone()[0]
+            is True
+        )
+
+
+@_skip_db
+def test_put_500_ambiguo_no_se_marca_no_aplicado_y_4xx_si():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        error = AdsApiError("status=500 put")
+        error.status = 500
+        resumen = _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=error))
+        assert resumen.sin_aplicar == ()
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        rechazo = AdsApiErrorMutacion(
+            "status=400", cuerpo="{}", status=400, method="PUT", path="/sp/campaigns"
+        )
+        resumen = _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=rechazo))
+        assert resumen.sin_aplicar == ((eval_id, "error_put"),)

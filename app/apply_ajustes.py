@@ -23,6 +23,7 @@ from app.ads.campana_config import (
     guarda_config,
     mezcla_observacion,
 )
+from app.ads.client import AdsApiError, AdsClientError
 from app.apply import SinPerfilAjuste as SinPerfilAjuste
 from app.campana_ajustes import (
     AjusteSinCambio,
@@ -124,6 +125,18 @@ class CambioExternoDetectado(HuellaDesactualizada):
     """La lectura viva de Amazon difiere del valor juzgado: alguien cambio la
     campana en su consola despues del sync. No se manda PUT (ni manual ni
     automatico) para no pisar la mano del dueno."""
+
+
+class ErrorTrasPut(AdsApiError):
+    """Fallo de lectura o red DESPUES de que el PUT salio a Amazon: el
+    resultado es ambiguo y la intencion debe quedar pendiente para la
+    reconciliacion, nunca marcarse como no aplicada. Hereda de AdsApiError
+    para conservar el contrato de error del camino manual."""
+
+    def __init__(self, exc: AdsClientError) -> None:
+        super().__init__(str(exc))
+        self.status = getattr(exc, "status", None)
+        self.cuerpo = getattr(exc, "cuerpo", None)
 
 
 class AjusteNoConfirmado(Exception):
@@ -319,6 +332,7 @@ def _aplica_y_confirma(
         # anidado dentro del PUT del primero se interbloquearia, L).
         conn.rollback()
         raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
+    put_enviado = False
     try:
         ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
         if ya is not None and ya[0]:
@@ -376,6 +390,7 @@ def _aplica_y_confirma(
             destino.campana_externa,
             {k: v for k, v in cuerpo.items() if k != "campaignId"},
         )
+        put_enviado = True
         leida = _config_leida(cliente, plataforma, destino.campana_externa)
         if leida is None or not coincide_campo(ajuste, leida, destino):
             raise AjusteNoConfirmado(
@@ -387,6 +402,11 @@ def _aplica_y_confirma(
             conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
             guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
         conn.commit()
+    except AdsClientError as exc:
+        conn.rollback()
+        if put_enviado:
+            raise ErrorTrasPut(exc) from None
+        raise
     except BaseException:
         conn.rollback()
         raise
