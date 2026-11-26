@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -43,6 +44,21 @@ def test_crear_campana_es_accion_y_configuracion_es_destino():
     assert 'aria-label="Secciones de Campañas"' not in campanas
     assert 'href="/settings"' in settings
     assert 'aria-current="page"' in settings
+
+
+def test_fabrica_marca_campanas_en_el_sidebar_no_solo_en_movil():
+    html = _base("fabrica")
+    sidebar = re.search(r'<nav id="nav-secciones"[^>]*>(.*?)</nav>', html, re.DOTALL)
+    assert sidebar is not None
+    campanas = re.search(r'<a href="/campanas"[^>]*>', sidebar.group(1))
+    assert campanas is not None
+    assert 'class="nav-activo"' in campanas.group(0)
+    assert 'aria-current="true"' in campanas.group(0)
+    movil = re.search(r'<nav class="tab-bar"[^>]*>(.*)</nav>\s*<script', html, re.DOTALL)
+    assert movil is not None
+    assert re.search(
+        r'<a class="tab tab-activo" href="/campanas" aria-current="page">', movil.group(1)
+    )
 
 
 def test_menu_mas_funciona_sin_badges_y_con_apis_caidas():

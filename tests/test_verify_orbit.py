@@ -171,6 +171,37 @@ def test_captura_anterior_no_oculta_fallo_de_chrome(harness, monkeypatch, tmp_pa
     )
 
 
+def test_captura_390_exige_viewport_real_y_cinco_controles_visibles(harness, monkeypatch, tmp_path):
+    datos = {
+        "ancho390": {"ancho": 1280},
+        "menuMovil": {"cantidad": 5, "todosDentro": False},
+        "png": True,
+    }
+
+    def cdp_falso(url, png, detalle, **kwargs):
+        png.write_bytes(b"png")
+        return datos
+
+    def chrome_cli_falso(*args, **kwargs):
+        comando = args[0]
+        ruta = next(arg.split("=", 1)[1] for arg in comando if arg.startswith("--screenshot="))
+        Path(ruta).write_bytes(b"png")
+        return harness.subprocess.CompletedProcess(comando, 0, "", "")
+
+    monkeypatch.setattr(harness, "_foco_y_ancho", cdp_falso)
+    monkeypatch.setattr(harness.subprocess, "run", chrome_cli_falso)
+    png = tmp_path / "captura-390.png"
+    detalle = tmp_path / "captura-390.json"
+    assert harness._chrome_screenshot("http://127.0.0.1:18010", png, detalle, ancho=390) is False
+
+    datos = {
+        "ancho390": {"ancho": 390},
+        "menuMovil": {"cantidad": 5, "todosDentro": True},
+        "png": True,
+    }
+    assert harness._chrome_screenshot("http://127.0.0.1:18010", png, detalle, ancho=390) is True
+
+
 def test_run_duplicado_no_limpia_la_instancia_existente(harness, monkeypatch):
     harness._save_state({"run_id": "existente"})
     ruta = harness._state_path("existente")

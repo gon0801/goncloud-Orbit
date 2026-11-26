@@ -786,8 +786,73 @@ def _ws_leer(sock: socket.socket, pendiente: bytes) -> tuple[int, bytes, bytes]:
     return buf[0] & 0x0F, buf[i : i + largo], buf[i + largo :]
 
 
-def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
-    """Foco de teclado en la tabla y desborde real a 390 px, via el navegador."""
+def _auditar_estilos(llamar) -> dict:
+    """Lee accion, subtitulo y H1 en ambos temas por CDP."""
+    tema_original = llamar(
+        "Runtime.evaluate",
+        {"expression": "document.documentElement.dataset.tema", "returnByValue": True},
+    )["result"]["result"].get("value", "dia")
+    expresion = """(() => {
+      const accion = document.querySelector('.accion-primaria');
+      const subtitulo = document.querySelector('.pagina-header p');
+      const header = document.querySelector('.pagina-header');
+      const h1 = document.querySelector('h1');
+      if (!accion || !subtitulo || !h1) return null;
+      const muestra = document.createElement('span');
+      muestra.style.color = 'var(--o-on-ac)';
+      accion.appendChild(muestra);
+      const colorOnAc = getComputedStyle(muestra).color;
+      muestra.remove();
+      const rect = accion.getBoundingClientRect();
+      return {
+        color: getComputedStyle(accion).color,
+        colorOnAc,
+        hover: accion.matches(':hover'),
+        x: rect.x + rect.width / 2,
+        y: rect.y + rect.height / 2,
+        h1: parseFloat(getComputedStyle(h1).fontSize),
+        subtituloColor: getComputedStyle(subtitulo).color,
+        subtituloFondo: getComputedStyle(header).backgroundColor
+      };
+    })()"""
+    estilos = {}
+    for tema in ("dia", "noche"):
+        llamar(
+            "Runtime.evaluate",
+            {"expression": f"document.documentElement.dataset.tema = '{tema}'"},
+        )
+        llamar("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+        normal = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+            "result"
+        ]["result"].get("value")
+        hover = None
+        if normal:
+            llamar(
+                "Input.dispatchMouseEvent",
+                {"type": "mouseMoved", "x": normal["x"], "y": normal["y"]},
+            )
+            hover = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+                "result"
+            ]["result"].get("value")
+        estilos[tema] = {"normal": normal, "hover": hover}
+    llamar(
+        "Runtime.evaluate",
+        {"expression": f"document.documentElement.dataset.tema = '{tema_original}'"},
+    )
+    llamar("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": 0, "y": 0})
+    return estilos
+
+
+def _foco_y_ancho(
+    url: str,
+    png: Path,
+    detalle: Path,
+    *,
+    con_foco: bool = True,
+    auditar_estilos: bool = False,
+    alto: int = 844,
+) -> dict:
+    """Mide foco, estilos y geometria real a 390 px, via el navegador."""
     proc = None
     perfil = None
     try:
@@ -871,6 +936,7 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         llamar("Runtime.enable")
         llamar("Page.navigate", {"url": url})
         time.sleep(1.2)
+        estilos = _auditar_estilos(llamar) if auditar_estilos else {}
         llamar(
             "Runtime.evaluate",
             {
@@ -886,7 +952,7 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
             "windowsVirtualKeyCode": 9,
             "nativeVirtualKeyCode": 9,
         }
-        for _ in range(80):
+        for _ in range(80 if con_foco else 0):
             estado = llamar(
                 "Runtime.evaluate",
                 {
@@ -915,12 +981,14 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
             outlineColor: estilo.outlineColor
           };
         })()"""
-        foco = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
-            "result"
-        ]["result"]["value"]
+        foco = None
+        if con_foco:
+            foco = llamar("Runtime.evaluate", {"expression": expresion, "returnByValue": True})[
+                "result"
+            ]["result"]["value"]
         llamar(
             "Emulation.setDeviceMetricsOverride",
-            {"width": 390, "height": 844, "deviceScaleFactor": 1, "mobile": True},
+            {"width": 390, "height": alto, "deviceScaleFactor": 1, "mobile": True},
         )
         time.sleep(0.3)
         anchos = llamar(
@@ -929,10 +997,26 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
                 "expression": """(() => {
                   const tabla = document.querySelector('.tabla-scroll');
                   const body = document.body;
+                  const controles = [...document.querySelectorAll(
+                    '.tab-bar > a.tab, .tab-bar > button#nav-mas-toggle'
+                  )];
+                  const dentro = controles.map(control => {
+                    const r = control.getBoundingClientRect();
+                    return r.left >= 0 && r.top >= 0 && r.right <= window.innerWidth &&
+                      r.bottom <= window.innerHeight;
+                  });
                   return {
                     ancho: window.innerWidth,
                     bodyScroll: body.scrollWidth > body.clientWidth + 1,
-                    tablaScroll: !!(tabla && tabla.scrollWidth > tabla.clientWidth + 1)
+                    tablaScroll: !!(tabla && tabla.scrollWidth > tabla.clientWidth + 1),
+                    h1: parseFloat(getComputedStyle(document.querySelector('h1')).fontSize),
+                    menuMovil: {
+                      cantidad: controles.length,
+                      todosDentro: controles.length === 5 && dentro.every(Boolean)
+                    },
+                    subnavegacion: [...document.querySelectorAll('.subnavegacion a')].map(
+                      enlace => enlace.getBoundingClientRect().height
+                    )
                   };
                 })()""",
                 "returnByValue": True,
@@ -940,7 +1024,14 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
         )["result"]["result"]["value"]
         toma = llamar("Page.captureScreenshot", {"format": "png"})
         png.write_bytes(base64.b64decode(toma["result"]["data"]))
-        salida = {"foco": foco, "ancho390": anchos, "png": png.is_file() and png.stat().st_size > 0}
+        salida = {
+            "foco": foco,
+            "estilos": estilos,
+            "ancho390": anchos,
+            "menuMovil": anchos.get("menuMovil", {}),
+            "subnavegacion": anchos.get("subnavegacion", []),
+            "png": png.is_file() and png.stat().st_size > 0,
+        }
         detalle.write_text(json.dumps(salida, indent=2) + "\n", encoding="utf-8")
         sock.close()
         return salida
@@ -961,12 +1052,20 @@ def _foco_y_ancho(url: str, png: Path, detalle: Path) -> dict:
 def _chrome_screenshot(
     url: str, png: Path, stderr_path: Path, timeout_s: int = 30, ancho: int = 1280, alto: int = 900
 ) -> bool:
-    """Toma screenshot con Chrome headless.
-
-    Retorna true solo si el png existe y tiene tamano > 0.
-    """
+    """Toma screenshot; en movil exige viewport y controles medidos por CDP."""
 
     png.unlink(missing_ok=True)
+    if ancho == 390:
+        resultado = _foco_y_ancho(url, png, stderr_path, con_foco=False, alto=alto)
+        movil = resultado.get("ancho390") or {}
+        menu = resultado.get("menuMovil") or {}
+        return (
+            resultado.get("png") is True
+            and movil.get("ancho") == 390
+            and menu.get("cantidad") == 5
+            and menu.get("todosDentro") is True
+            and all(alto_enlace >= 44 for alto_enlace in resultado.get("subnavegacion", []))
+        )
     chrome = _navegador()
     try:
         shot = subprocess.run(
@@ -1607,7 +1706,12 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     )
     checks["css_foco"] = "tabla-scroll:focus-visible" in css
     checks["tabla_enfocable"] = 'class="tabla-scroll" tabindex="0"' in texto
-    foco = _foco_y_ancho(base + "/", evidence / "10-foco-390.png", evidence / "10-foco.json")
+    foco = _foco_y_ancho(
+        base + "/",
+        evidence / "10-foco-390.png",
+        evidence / "10-foco.json",
+        auditar_estilos=True,
+    )
     foco_datos = foco.get("foco") or {}
     ancho_datos = foco.get("ancho390") or {}
     checks["foco_tabla"] = (

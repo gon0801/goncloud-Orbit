@@ -1,6 +1,6 @@
-# Ruido (`/ruido`)
+# Detalle de ciclos (`/ruido`)
 
-Detalla decisiones y abstenciones por ciclo, la reducción de pujas en 90 días y una comparación simple antes/después del encendido. La comparación no se presenta como causal.
+El H1 y el H2 visibles dicen «Detalle de ciclos». Detalla decisiones y abstenciones por ciclo, la reducción de pujas en 90 días y una comparación simple antes/después del encendido. La comparación no se presenta como causal.
 
 ## Sub-features
 

@@ -28,7 +28,7 @@
     'gasto-sin-venta': ('Gasto sin venta', 'Búsquedas que gastan y no venden, agrupadas por lectura'),
     'busquedas-sin-venta': ('Búsquedas que gastan sin vender', 'Solo campañas encendidas · últimos 90 días'),
     'keywords-danadas': ('Keywords dañadas', 'Vendían y perdieron sus visitas después de bajarles la puja'),
-    'ruido': ('Ruido', 'Decisiones y abstenciones por ciclo, cuánto se encogió cada cambio y el antes y después'),
+    'ruido': ('Detalle de ciclos', 'Decisiones y abstenciones por ciclo, cuánto se encogió cada cambio y el antes y después'),
     'donde-poner-el-dinero': ('Dónde poner el dinero', 'Gasto y ACoS por tipo de campaña, solo lo encendido'),
     'productos-sin-clics': ('Productos sin clics', 'Venden y casi no reciben clics · impulsos'),
     'inertes': ('Inertes', 'Keywords y productos activos sin visitas desde hace 14 días o más'),
@@ -78,7 +78,7 @@
     <div class="canal-actual">Ads · Amazon y Mercado Libre</div>
     <nav id="nav-secciones" class="navegacion" aria-label="Secciones">
       <a href="/"{% if pantalla == 'resumen' %} class="nav-activo" aria-current="page"{% endif %}>Resumen</a>
-      <a href="/campanas"{% if pantalla == 'campanas' %} class="nav-activo" aria-current="page"{% endif %}>Campañas</a>
+      <a href="/campanas"{% if pantalla == 'campanas' %} class="nav-activo" aria-current="page"{% elif pantalla == 'fabrica' %} class="nav-activo" aria-current="true"{% endif %}>Campañas</a>
       <a href="/cortes"{% if seccion == 'oportunidades' %} class="nav-activo" aria-current="true"{% endif %}>Oportunidades<span id="propuestas-contador" class="contador" hidden></span></a>
       <a href="/decisiones"{% if seccion == 'decisiones' %} class="nav-activo" aria-current="true"{% endif %}>Decisiones</a>
       <a href="/contribucion"{% if seccion == 'rendimiento' %} class="nav-activo" aria-current="true"{% endif %}>Rendimiento</a>

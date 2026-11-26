@@ -5,7 +5,7 @@ Campanas lista cada campaña con métricas 30d (cost, revenue, clicks, ACoS), el
 ## Sub-features
 
 - `campanas-nav` abre `/campanas` desde el sidebar o la tab bar móvil y marca `aria-current="page"`. `Crear campañas` sigue siendo una acción del header, no una sección del nav.
-- `campanas-crear` una sola acción primaria `Crear campañas` a `/campanas/nuevas` en el header (`a.btn-crear.accion-primaria`). El texto va pegado al `>`.
+- `campanas-crear` una sola acción primaria `Crear campañas` a `/campanas/nuevas` en el header (`a.btn-crear.accion-primaria`). El texto va pegado al `>`. En `/campanas/nuevas`, Campañas queda activo en `nav#nav-secciones` con `aria-current="true"` y en la tab bar móvil con `aria-current="page"`.
 - `campanas-aviso` `p.aviso-inmaduro`: «La ventana 30d incluye siempre días inmaduros (D-8..D-1): los totales y el ACoS aún maduran.»
 - `campanas-tarjetas` `section.bloque-targets.campanas-resumen` con `h2#h-plat` «Campañas contra su target». Cada `article.tarjeta-plataforma` tiene `h3` «Amazon MX» o «Amazon US», moneda, «N campañas», «Target efectivo …». Si los targets de esa plataforma no son un solo número, el texto es «varios targets» y el ACoS no se colorea contra uno inventado. Métricas: ACoS (suma cost / suma revenue), Cost (30d), Revenue Ads (30d), Clicks. Un None en la suma pinta «—».
 - `campanas-barra` barra `.barra` y `ul.leyenda-estados`. Orden: En target, Sobre target, Gasto sin venta, Sin target (solo si hay), Sin actividad. Colores: en `#0F766E` / franja `#14B8A6`, sobre `#B45309` / `#F59E0B`, gasto `#9A3412` / `#C2410C`, sin actividad `#4B5563` / `#D1D5DB`, sin target `#4B5563` / `#9CA3AF`.
