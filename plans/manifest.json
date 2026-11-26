@@ -249,6 +249,11 @@
       "name": "arreglos-05",
       "path": "plans/arreglos-05.md",
       "description": "ARREGLOS 05 — CERRADO Y DESPLEGADO 2026-11-25 (PR #775 5caa67cd, PR #776 c16c8c55). BASE, A-K y Z completos: aceptacion integrada 31/31 (14 hallazgos + controles) sobre c16c8c55, 438/438 regresiones N a-k verdes, mapa UI verificado y 0 P0/P1. K-US adjudicado con SP-API Finances v2024 (164/164 items USD: 15% Base + 16% IVA = 17.40%), migracion 0100 (S4) aplicada en produccion y 99 metas US re-ancladas. Evidencia en docs/evidencia/arreglos-05/Z/."
+    },
+    {
+      "name": "envios-01",
+      "path": "docs/superpowers/plans/2026-11-25-envios-01.md",
+      "description": "ENVIOS 01 — INTEGRADO Y DESPLEGADO (PR #780, 52cb4b02, 2026-11-26 UTC): seguimiento de solo lectura de envios de Amazon y Mercado Libre, migracion 0102 aplicada y conciliacion en produccion. Abierto: primera corrida automatica del cron por verificar, decisiones del dueno sobre in_hub/in_packing_list y tope de relectura MeLi, vista limitada a 30 dias y sin enlace en telefono. Evidencia en docs/evidencia/envios-01/cierre-produccion.md."
     }
   ],
   "active": "arreglos-05"
