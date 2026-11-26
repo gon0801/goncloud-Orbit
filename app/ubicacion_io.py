@@ -126,9 +126,12 @@ SELECT DISTINCT ag.parent_id
 """
 
 _SQL_AJUSTES_EN_VUELO = """
-SELECT DISTINCT campana_id
-  FROM campana_ajuste
- WHERE platform = %s AND confirmado_el IS NULL
+SELECT DISTINCT a.campana_id
+  FROM campana_ajuste a
+ WHERE a.platform = %s AND a.confirmado_el IS NULL
+   AND (a.evaluacion_id IS NULL
+        OR NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s
+                        WHERE s.evaluacion_id = a.evaluacion_id))
 """
 
 

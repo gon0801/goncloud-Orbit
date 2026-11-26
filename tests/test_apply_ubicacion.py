@@ -160,6 +160,7 @@ def _config_version(conn, settings=None) -> int:
 
 def _settings(cap="2", espera=6) -> dict:
     datos = {
+        "ads_optimizer_mode": "live",
         "ads_ubicacion_amazon_mx": "live",
         "ads_ubicacion_max_en_espera_amazon_mx": str(espera),
     }
@@ -491,3 +492,30 @@ def test_no_aplica_si_el_dueno_apago_la_campana_tras_evaluar():
         assert resumen.aplicadas == 0
         assert resumen.sin_aplicar == ((eval_id, "modo_no_live"),)
         assert cliente.puts == 0
+
+
+@_skip_db
+def test_cuota_y_registro_sobreviven_al_rollback_del_ciclo():
+    """Neon #786: con `conn` sin autocommit, la cuota y el motivo se
+    confirman ANTES del HTTP para que un rollback posterior no los revierta."""
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = ClienteFalso(_config(25), _config(25))
+        resumen = aplica_automaticos(
+            conn,
+            dsn=dsn,
+            cliente=cliente,
+            platform="amazon_mx",
+            cycle_id=ciclo,
+            settings=_settings(),
+            abrir_conexion=lambda: _abre_decide(dsn),
+        )
+        assert resumen.aplicadas == 0
+        conn.rollback()
+        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 1, (
+            "la cuota cobrada no se revierte con el rollback del ciclo"
+        )
+        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 1

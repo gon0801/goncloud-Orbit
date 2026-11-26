@@ -30,13 +30,15 @@ from app.apply_ajustes import (
     AjusteEnCurso,
     AjusteNoConfirmado,
     CambioExternoDetectado,
+    HuellaDesactualizada,
     _config_leida,
     aplica_ajuste_motor,
 )
 from app.apply_cuota import consume_quota
 from app.campana_ajustes import CambiarAjusteUbicacion
+from app.db import OrbitDbError, settings_vigentes, tx_durable
 from app.db import connect as db_connect
-from app.db import settings_vigentes
+from app.optimizer import goals as g
 from app.optimizer.ubicacion import (
     max_en_espera_desde_settings,
     modo_ubicacion_desde_settings,
@@ -136,7 +138,8 @@ def hay_evaluaciones_a_aplicar(conn: psycopg.Connection, cycle_id: int, platform
 def registra_sin_aplicar(conn: psycopg.Connection, evaluacion_id: int, motivo: str) -> None:
     if motivo not in MOTIVOS_SIN_APLICAR:
         raise ValueError(f"motivo fuera del vocabulario de ubicaciones: {motivo}")
-    conn.execute(_SQL_SIN_APLICAR, (evaluacion_id, motivo, dt.datetime.now(dt.UTC)))
+    with tx_durable(conn):
+        conn.execute(_SQL_SIN_APLICAR, (evaluacion_id, motivo, dt.datetime.now(dt.UTC)))
 
 
 def _campo_movido(antes: ConfigCampana, despues: ConfigCampana) -> str | None:
@@ -234,11 +237,10 @@ def aplica_automaticos(
         if frescos is None or modo_ubicacion_desde_settings(frescos, platform) != "live":
             descarta(eval_id, MOTIVO_MODO_NO_LIVE)
             continue
-        if frescos.get("ads_optimizer_mode") not in (None, "live"):
+        if g.modo_desde_settings(frescos) != "live":
             descarta(eval_id, MOTIVO_MODO_NO_LIVE)
             continue
         from app.cycle_grupos import lee_goals
-        from app.optimizer import goals as g
 
         goal_plataforma, goals_campana = lee_goals(conn, platform, [caso.campana_id])
         objetivo = g.resuelve_goal(goals_campana.get(caso.campana_id), goal_plataforma)
@@ -252,7 +254,9 @@ def aplica_automaticos(
         if _cuenta_en_espera(conn, platform) >= maximo:
             descarta(eval_id, MOTIVO_TOPE)
             continue
-        if not consume_quota(conn, platform, "ubicacion"):
+        with tx_durable(conn):
+            usada = consume_quota(conn, platform, "ubicacion")
+        if not usada:
             descarta(eval_id, MOTIVO_CUOTA)
             continue
         conexion = None
@@ -274,6 +278,12 @@ def aplica_automaticos(
         except AjusteEnCurso:
             descarta(eval_id, MOTIVO_AJUSTE_EN_CURSO)
         except AjusteNoConfirmado:
+            # El PUT pudo llegar: la intencion queda pendiente para que la
+            # reconciliacion la selle o la conserve sin trabas.
+            pass
+        except HuellaDesactualizada:
+            descarta(eval_id, MOTIVO_CONFIG_CAMBIO)
+        except OrbitDbError:
             descarta(eval_id, MOTIVO_ERROR_PUT)
         except psycopg.Error:
             descarta(eval_id, MOTIVO_ERROR_PUT)

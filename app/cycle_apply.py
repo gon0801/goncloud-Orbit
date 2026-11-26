@@ -254,7 +254,7 @@ def _fase_reconciliacion(
             rec_rev = apply_cola.reconcilia_reversas_pause(
                 conn, aplicador_lectura, platform, tick=guard
             )
-        except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+        except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
             conn.rollback()
             return _Reconciliacion(
                 aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
@@ -299,7 +299,7 @@ def _fase_reconciliacion(
                 platform,
                 tick=guard,
             )
-    except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+    except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
         conn.rollback()
         return _Reconciliacion(
             aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
@@ -507,7 +507,12 @@ def _fase_apply(
                             "aplicadas": res_ubic_a.aplicadas,
                             "sin_aplicar": len(res_ubic_a.sin_aplicar),
                         }
-                    except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+                    except (
+                        AdsClientError,
+                        SinPerfilAplicar,
+                        apply.SinPerfilAjuste,
+                        AdsConfigError,
+                    ) as exc:
                         notas["ubicaciones_error"] = scrub(str(exc)) or type(exc).__name__
             total = (
                 res_bids.aplicadas

@@ -602,7 +602,11 @@ def _aplica_ubicacion(
             nuevo[clave] = validado
     if solo_bajadas is not None:
         clave = f"ads_ubicacion_solo_bajadas_{platform}"
-        texto = "true" if solo_bajadas else "false"
+        try:
+            validado_b = u.solo_bajadas_desde_settings({clave: solo_bajadas}, platform)
+        except ValueError as exc:
+            raise SettingsInvalido(str(exc)) from None
+        texto = "true" if validado_b else "false"
         if nuevo.get(clave) != texto:
             cambios.append(f"solo bajadas {platform} {_antes(nuevo.get(clave))} -> {texto}")
             nuevo[clave] = texto
@@ -615,6 +619,17 @@ def _aplica_ubicacion(
         if nuevo.get(clave) != str(validado_n):
             cambios.append(f"max en espera {platform} {_antes(nuevo.get(clave))} -> {validado_n}")
             nuevo[clave] = str(validado_n)
+
+
+def _valida_resultante_ubicacion(nuevo: Mapping, platform: str) -> None:
+    from app.optimizer import ubicacion as u
+
+    try:
+        u.modo_ubicacion_desde_settings(nuevo, platform)
+        u.solo_bajadas_desde_settings(nuevo, platform)
+        u.max_en_espera_desde_settings(nuevo, platform)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
 
 
 def proxima_config(
@@ -788,6 +803,7 @@ def proxima_config(
     _valida_precio_global(nuevo.get("precio_modo_global"), ausente_ok=True)
     _valida_precio_universo(nuevo.get("precio_modo_universo"), ausente_ok=True)
     _valida_resumen_acos_objetivo(nuevo.get(CLAVE_RESUMEN_ACOS), ausente_ok=True)
+    _valida_resultante_ubicacion(nuevo, platform)
     return nuevo, cambios
 
 
