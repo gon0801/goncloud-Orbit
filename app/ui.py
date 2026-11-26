@@ -29,10 +29,11 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from dataclasses import asdict, replace
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -41,11 +42,14 @@ from fastapi.templating import Jinja2Templates
 from jinja2.utils import htmlsafe_json_dumps
 
 from app import api_dashboard as dash
+from app import api_envios, familias, formato
 from app import api_reputacion as reput
-from app import familias, formato
 from app.api import ConexionLectura
 from app.dashboard_resumen import CANALES as CANALES_RESUMEN
 from app.dashboard_resumen import CANALES_POR_DEFECTO, PERIODOS
+from app.envios import lectura as envios_lectura
+from app.envios.estado import Estado, Tipo
+from app.envios.modelo import Plataforma
 from app.etiquetas import etiqueta, registro_navegador
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import PELDANOS_CASCADA
@@ -694,6 +698,64 @@ def pagina_reputacion(
             "resumen": resumen,
             "filtros": filtros,
             "ahora": dt.datetime.now(dt.UTC),
+        },
+    )
+
+
+_VOCABULARIOS_ENVIOS = {
+    "vista": get_args(envios_lectura.Vista),
+    "plataforma": get_args(Plataforma),
+    "tipo": get_args(Tipo),
+    "estado": get_args(Estado),
+}
+
+
+def _href_envios(filtros: envios_lectura.Filtros, page: int = 1) -> str:
+    """Enlace relativo que conserva vista, filtros y pagina."""
+    params = {clave: valor for clave, valor in asdict(filtros).items() if valor is not None}
+    if page > 1:
+        params["page"] = page
+    return "/envios?" + urlencode(params)
+
+
+@router.get("/envios", response_class=HTMLResponse)
+def pagina_envios(
+    request: Request,
+    conn: ConexionLectura,
+    vista: Annotated[str | None, Query()] = None,
+    plataforma: Annotated[str | None, Query()] = None,
+    tipo: Annotated[str | None, Query()] = None,
+    estado: Annotated[str | None, Query()] = None,
+    q: Annotated[str | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+) -> HTMLResponse:
+    """Envios (ENVIOS 01 §4): lecturas, vistas, filtros y paquetes. Solo
+    consulta, sin JS propio; los datos son los de `GET /api/envios`."""
+    recibidos = {"vista": vista, "plataforma": plataforma, "tipo": tipo, "estado": estado}
+    pedidos = {
+        nombre: _vocab_o_422(valor, frozenset(_VOCABULARIOS_ENVIOS[nombre]), nombre)
+        for nombre, valor in recibidos.items()
+    } | {"q": _limpia_query(q)}
+    filtros = envios_lectura.Filtros(**{k: v for k, v in pedidos.items() if v is not None})
+    datos = api_envios.carga_envios(conn, filtros, page)
+    return templates.TemplateResponse(
+        request,
+        "envios.html",
+        {
+            "pantalla": "envios",
+            "datos": datos,
+            "filtros": filtros,
+            "vocabularios": _VOCABULARIOS_ENVIOS,
+            "vistas": [
+                {"id": v, "href": _href_envios(replace(filtros, vista=v))}
+                for v in _VOCABULARIOS_ENVIOS["vista"]
+            ],
+            "href_limpiar": _href_envios(envios_lectura.Filtros(vista=filtros.vista)),
+            "href_buscar_en_todos": _href_envios(replace(filtros, vista="todos"))
+            if filtros.q and filtros.vista != "todos"
+            else None,
+            "href_anterior": _href_envios(filtros, page - 1) if page > 1 else None,
+            "href_siguiente": _href_envios(filtros, page + 1) if page < datos["paginas"] else None,
         },
     )
 

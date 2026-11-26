@@ -5,7 +5,9 @@ import pytest
 from app import ui
 
 
-@pytest.mark.parametrize("archivo", ["precios.html", "reputacion.html", "familias.html"])
+@pytest.mark.parametrize(
+    "archivo", ["precios.html", "reputacion.html", "envios.html", "familias.html"]
+)
 def test_catalogo_usa_resumen_y_conserva_contenido(archivo):
     fuente = (ui._TEMPLATES_DIR / archivo).read_text(encoding="utf-8")
     assert 'class="catalogo-resumen' in fuente

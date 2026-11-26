@@ -149,6 +149,7 @@ def test_drive_secundarias_recorre_rutas_sin_drive_especifico(dashboard):
         "ruido",
         "donde-poner-el-dinero",
         "reputacion",
+        "envios",
         "familias",
         "precios",
     }

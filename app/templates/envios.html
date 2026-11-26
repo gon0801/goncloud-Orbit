@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block subtitulo_pagina %}Pedidos de los últimos {{ datos.ventana_dias }} días y dónde va cada envío · solo consulta{% endblock %}
+{% block contenido %}
+{% set nombres_vista = {'atencion': 'Requieren atención', 'en_curso': 'En curso', 'cerrados': 'Cerrados', 'todos': 'Todos'} %}
+{% set atrasadas = datos.lecturas.items() | selectattr("1.atrasada") | map(attribute="0") | map("etiqueta", "plataforma") | join(", ") %}
+<section class="catalogo-resumen superficie" aria-label="Resumen de envíos">
+{% if atrasadas %}
+<p class="aviso" id="envios-atraso">Lectura atrasada: {{ atrasadas }}. Lo que ves de ahí puede estar viejo, y las demoras se calculan solo hasta lo último que se leyó.</p>
+{% endif %}
+<p class="leyenda" id="envios-lecturas">Última lectura correcta ·
+  {% for plataforma, lectura in datos.lecturas.items() %}
+  <span>{{ plataforma | etiqueta("plataforma") }}: {{ lectura.ultima_ok | fecha_hora if lectura.ultima_ok else "sin lectura correcta" }}{% if lectura.atrasada %} <span class="chip aviso">Atrasada</span>{% endif %}</span>{% if not loop.last %} · {% endif %}
+  {% endfor %}
+</p>
+<p class="leyenda" id="envios-vencimiento">Mercado Libre, en toda la historia: <strong>{{ datos.vencimiento.cerrados | numero }}</strong> en {{ 'cerrado_sin_confirmar' | etiqueta("estado_envio") }} (pasaron más de {{ datos.vencimiento.dias_cierre }} días desde la compra sin un estado final).</p>
+</section>
+
+<nav class="paginador" aria-label="Vistas">
+  {% for v in vistas %}
+  {% set rotulo = nombres_vista[v.id] ~ " (" ~ (datos.resumen[v.id] | numero) ~ ")" %}
+  <a href="{{ v.href }}"{% if v.id == filtros.vista %} aria-current="page"{% endif %}>{% if v.id == filtros.vista %}<strong>{{ rotulo }}</strong>{% else %}{{ rotulo }}{% endif %}</a>
+  {% endfor %}
+</nav>
+
+<form class="filtros" method="get" action="/envios" role="search">
+  <input type="hidden" name="vista" value="{{ filtros.vista }}">
+  <label>Buscar
+    <input type="search" name="q" value="{{ filtros.q or "" }}" placeholder="Pedido, guía o SKU">
+  </label>
+  {% for nombre, rotulo, dominio, actual, opciones in [
+    ('plataforma', 'Plataforma', 'plataforma', filtros.plataforma, vocabularios.plataforma),
+    ('tipo', 'Tipo de envío', 'tipo_envio', filtros.tipo, vocabularios.tipo),
+    ('estado', 'Estado', 'estado_envio', filtros.estado, vocabularios.estado)
+  ] %}
+  <label>{{ rotulo }}
+    <select name="{{ nombre }}">
+      <option value="">Cualquiera</option>
+      {% for opcion in opciones %}
+      <option value="{{ opcion }}"{% if actual == opcion %} selected{% endif %}>{{ opcion | etiqueta(dominio) }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  <button type="submit">Filtrar</button>
+  <a class="boton btn-limpiar" href="{{ href_limpiar }}">Limpiar</a>
+</form>
+
+<section class="tarjeta-lista" aria-label="Lista de envíos">
+  <div class="rep-cab">
+    <h3>{{ nombres_vista[filtros.vista] }}</h3>
+    <span class="mutado">· {{ datos.total | numero }} envío{{ "s" if datos.total != 1 }} en esta lista</span>
+  </div>
+  {% for e in datos.envios %}
+  <article class="rep-fila" data-envio="{{ e.envio_ref }}">
+    <div class="rep-crece">
+      <div class="rep-linea">
+        {% if e.motivo %}<span class="chip alerta">{{ e.motivo | etiqueta("motivo_envio") }}</span>{% endif %}
+        <span class="chip">{{ e.estado | etiqueta("estado_envio") }}</span>
+        <span class="mutado">{{ e.platform | etiqueta("plataforma") }} · {{ e.tipo | etiqueta("tipo_envio") }}</span>
+      </div>
+      <div class="rep-titulo">Pedido{{ "s" if e.pedidos | length > 1 }} <span class="mono" data-dato-libre>{{ e.pedidos | join(", ") }}</span>{% if e.pack_ref %} · Venta en carrito <span class="mono" data-dato-libre>{{ e.pack_ref }}</span>{% endif %}</div>
+      {% for a in e.articulos %}
+      <div class="rep-msg" data-dato-libre>{{ a.cantidad if a.cantidad is not none else "—" }} × {{ a.titulo or "—" }} <span class="mutado">· SKU {{ a.sku or "—" }}</span></div>
+      {% else %}
+      <div class="rep-msg">Sin productos reportados</div>
+      {% endfor %}
+      {# (rotulo, fecha, se muestra aunque falte) #}
+      <div class="rep-linea rep-msg">
+        {% for rotulo, fecha, siempre in [
+          ('Comprado', e.pedido_creado_el, true),
+          ('Despachar antes de', e.despachar_antes_de, true),
+          ('Entrega prometida', e.entrega_prometida_el, true),
+          ('Entrega límite', e.entrega_limite_el, false),
+          ('Entregado', e.entregado_el, false),
+          ('Devuelto', e.devuelto_el, false)
+        ] if siempre or fecha %}
+        <span>{{ rotulo }}: {{ fecha | fecha_hora }}</span>
+        {% endfor %}
+      </div>
+      {% for p in e.paquetes %}
+      <div class="rep-linea rep-msg">
+        <strong>Paquete {{ loop.index }} de {{ loop.length }}</strong>
+        <span>Transportista: <span data-dato-libre>{{ p.transportista or "—" }}</span></span>
+        <span>Guía: <span class="mono" data-dato-libre>{{ p.guia or "—" }}</span></span>
+        <span>Despachado: {{ p.despachado_el | fecha_hora }}</span>
+      </div>
+      {% else %}
+      <div class="rep-msg">Sin paquetes reportados</div>
+      {% endfor %}
+    </div>
+  </article>
+  {% else %}
+  <p class="rep-vacio"><span class="mutado">Sin envíos con esta vista y estos filtros.</span>
+    {% if href_buscar_en_todos %}<a href="{{ href_buscar_en_todos }}">Buscar en todos los envíos</a>{% endif %}</p>
+  {% endfor %}
+</section>
+
+<nav class="paginador" aria-label="Páginas">
+  {% if href_anterior %}<a rel="prev" href="{{ href_anterior }}">anterior</a>{% else %}<span class="mutado">anterior</span>{% endif %}
+  <span aria-current="page">página {{ datos.page }} de {{ datos.paginas }}</span>
+  {% if href_siguiente %}<a rel="next" href="{{ href_siguiente }}">siguiente</a>{% else %}<span class="mutado">siguiente</span>{% endif %}
+</nav>
+{% endblock %}

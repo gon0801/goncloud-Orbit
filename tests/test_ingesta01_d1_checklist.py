@@ -70,6 +70,7 @@ PATS = [
     "job_key=impulso-vigia",
     "job_key=jev-senales",
     "job_key=jev-vigia",
+    "job_key=envios:",
     "app.cli ingest",
     "app.cli ads-salud",
     "app.cli cycle",

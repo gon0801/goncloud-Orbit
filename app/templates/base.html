@@ -35,6 +35,7 @@
     'settings': ('Configuración', 'Metas de ACoS, topes diarios y metas por campaña'),
     'fabrica': ('Crear campañas', 'Un grupo de cinco campañas de Sponsored Products'),
     'reputacion': ('Reputación', 'Calificación, reseñas, preguntas y alertas por publicación'),
+    'envios': ('Envíos', 'Pedidos y dónde va cada envío'),
     'precios': ('Precios', 'Qué publicaciones revisa el motor de precios, qué decidió y qué no cuadra'),
     'familias': ('Familias', 'Etiquetas de producto en dos niveles para la fábrica')
   } %}
@@ -58,6 +59,7 @@
     'catalogo': ('Catálogo', [
       ('precios', '/precios', 'Precios'),
       ('reputacion', '/reputacion', 'Reputación'),
+      ('envios', '/envios', 'Envíos'),
       ('familias', '/familias', 'Familias')
     ])
   } %}
@@ -67,7 +69,8 @@
     'productos-sin-clics': 'oportunidades', 'inertes': 'oportunidades',
     'decisiones': 'decisiones', 'ruido': 'decisiones',
     'contribucion': 'rendimiento', 'donde-poner-el-dinero': 'rendimiento',
-    'precios': 'catalogo', 'reputacion': 'catalogo', 'familias': 'catalogo'
+    'precios': 'catalogo', 'reputacion': 'catalogo', 'familias': 'catalogo',
+    'envios': 'catalogo'
   }.get(pantalla) %}
   <a class="saltar-contenido" href="#contenido">Saltar al contenido</a>
   <aside class="sidebar" aria-label="Navegacion principal">
@@ -82,7 +85,7 @@
       <a href="/cortes"{% if seccion == 'oportunidades' %} class="nav-activo" aria-current="true"{% endif %}>Oportunidades<span id="propuestas-contador" class="contador" hidden></span></a>
       <a href="/decisiones"{% if seccion == 'decisiones' %} class="nav-activo" aria-current="true"{% endif %}>Decisiones</a>
       <a href="/contribucion"{% if seccion == 'rendimiento' %} class="nav-activo" aria-current="true"{% endif %}>Rendimiento</a>
-      <a href="/precios"{% if seccion == 'catalogo' %} class="nav-activo" aria-current="true"{% endif %}>Catálogo<span id="reputacion-contador" class="contador" hidden></span></a>
+      <a href="/precios"{% if seccion == 'catalogo' %} class="nav-activo" aria-current="true"{% endif %}>Catálogo<span id="reputacion-contador" class="contador" hidden></span><span id="envios-contador" class="contador" hidden></span></a>
       <a href="/salud"{% if pantalla == 'salud' %} class="nav-activo" aria-current="page"{% endif %}>Salud</a>
       <a href="/settings"{% if pantalla == 'settings' %} class="nav-activo" aria-current="page"{% endif %}>Configuración</a>
     </nav>
@@ -101,7 +104,7 @@
         {% endblock %}
         <span class="leyenda-zona">{{ leyenda_zona }}</span>
         <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
-        <span class="alcance">{% if pantalla == 'resumen' %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
+        <span class="alcance">{% if pantalla in ('resumen', 'envios') %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>
@@ -119,7 +122,7 @@
     'productos-sin-clics': 'oportunidades', 'inertes': 'oportunidades',
     'decisiones': 'decisiones', 'ruido': 'decisiones',
     'contribucion': 'mas', 'donde-poner-el-dinero': 'mas',
-    'precios': 'mas', 'reputacion': 'mas', 'familias': 'mas',
+    'precios': 'mas', 'reputacion': 'mas', 'familias': 'mas', 'envios': 'mas',
     'salud': 'mas', 'settings': 'mas'
   } %}
   {% set tab_activo = tab_por_pantalla.get(pantalla) %}
@@ -144,6 +147,14 @@
       </symbol>
       <symbol id="ico-cubo-fill" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2.8 20.5 7.5v9l-8.5 4.7-8.5-4.7v-9L12 2.8zm0 2.2L6.2 8.2 12 11.4l5.8-3.2L12 5zm6.6 4.4L13 12.7v6.6l5.6-3.1V9.4zM11 19.3v-6.6L5.4 9.4v6.4L11 19.3z"/>
+      </symbol>
+      <symbol id="ico-envios" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7h11v9H3zM14 10h4l3 3v3h-7v-6z"/>
+        <circle cx="7.5" cy="17.5" r="1.75"/><circle cx="17.5" cy="17.5" r="1.75"/>
+      </symbol>
+      <symbol id="ico-envios-fill" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3 6.2A1.2 1.2 0 0 0 1.8 7.4v8.2A1.2 1.2 0 0 0 3 16.8h1.9a2.7 2.7 0 0 1 5.2 0h4.8a2.7 2.7 0 0 1 5.2 0H21a1.2 1.2 0 0 0 1.2-1.2v-2.7a1.2 1.2 0 0 0-.35-.85l-2.9-2.9a1.2 1.2 0 0 0-.85-.35H15V7.4a1.2 1.2 0 0 0-1.2-1.2H3z"/>
+        <circle cx="7.5" cy="17.5" r="1.9"/><circle cx="17.5" cy="17.5" r="1.9"/>
       </symbol>
       <symbol id="ico-lista" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
         <path d="M9 7h11M9 12h11M9 17h11M5 7h.01M5 12h.01M5 17h.01"/>
@@ -199,7 +210,7 @@
     </button>
     <nav id="nav-mas" class="nav-mas" aria-label="Más secciones" hidden>
       <a href="/contribucion"{% if seccion == 'rendimiento' %} aria-current="page"{% endif %}>Rendimiento</a>
-      <a href="/precios"{% if seccion == 'catalogo' %} aria-current="page"{% endif %}>Catálogo<span class="contador" data-rol="reputacion" hidden></span></a>
+      <a href="/precios"{% if seccion == 'catalogo' %} aria-current="page"{% endif %}>Catálogo<span class="contador" data-rol="reputacion" hidden></span><span class="contador" data-rol="envios" hidden></span></a>
       <a href="/salud"{% if pantalla == 'salud' %} aria-current="page"{% endif %}>Salud</a>
       <a href="/settings"{% if pantalla == 'settings' %} aria-current="page"{% endif %}>Configuración</a>
     </nav>

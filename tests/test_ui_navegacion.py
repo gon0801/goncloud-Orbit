@@ -25,9 +25,10 @@ def test_subnavegacion_agrupa_todas_las_rutas():
         "ruido": ("Decisiones", "/decisiones", "/ruido"),
         "contribucion": ("Rendimiento", "/donde-poner-el-dinero", "/contribucion"),
         "donde-poner-el-dinero": ("Rendimiento", "/contribucion", "/donde-poner-el-dinero"),
-        "precios": ("Catálogo", "/reputacion", "/familias"),
-        "reputacion": ("Catálogo", "/precios", "/familias"),
-        "familias": ("Catálogo", "/precios", "/reputacion"),
+        "precios": ("Catálogo", "/reputacion", "/envios"),
+        "reputacion": ("Catálogo", "/precios", "/envios"),
+        "envios": ("Catálogo", "/reputacion", "/familias"),
+        "familias": ("Catálogo", "/precios", "/envios"),
     }
     for pantalla, (grupo, primera, ultima) in esperado.items():
         html = _base(pantalla)

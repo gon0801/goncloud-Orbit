@@ -38,6 +38,7 @@ from decimal import Decimal
 
 from app import (
     cli_bids,
+    cli_envios,
     cli_productos,
     cobertura,
     costs,
@@ -246,6 +247,11 @@ def _ingest(args, rest: list[str]) -> int:
     if args.pipeline == "spapi_inventario":
         # SP-API 01 A.4: recorrido de Inventario FBA v1 (--platform).
         return spapi_inventario.main(rest)
+    if args.pipeline == "envios_meli":
+        # ENVIOS 01: pedidos y envios de Mercado Libre, solo GET.
+        from app.envios import meli_ingesta
+
+        return meli_ingesta.main(rest)
     raise AssertionError(f"pipeline inalcanzable: {args.pipeline!r}")
 
 
@@ -457,7 +463,7 @@ def _construye_parser() -> argparse.ArgumentParser:
         "ingest",
         help=(
             "pipelines de ingesta (app/ads, app/costs, app/listings, app/fx,"
-            " app/ledger, app/estimacion_ingest, app/spapi/orders)"
+            " app/ledger, app/estimacion_ingest, app/spapi/orders, app/envios)"
         ),
     )
     p_ingest.add_argument(
@@ -475,6 +481,7 @@ def _construye_parser() -> argparse.ArgumentParser:
             "spapi_pricing",
             "spapi_listings",
             "spapi_inventario",
+            "envios_meli",
         ),
         help=(
             "structure: sync de estructura;"
@@ -489,7 +496,8 @@ def _construye_parser() -> argparse.ArgumentParser:
             " spapi_orders: resumenes Orders SP-API (--platform);"
             " spapi_pricing: pase Pricing SP-API (--platform);"
             " spapi_listings: estado Listings SP-API (--platform);"
-            " spapi_inventario: inventario FBA SP-API (--platform)"
+            " spapi_inventario: inventario FBA SP-API (--platform);"
+            " envios_meli: pedidos y envios de Mercado Libre"
         ),
     )
 
@@ -638,6 +646,7 @@ def _construye_parser() -> argparse.ArgumentParser:
     cli_precio.registra(sub)
     cli_bids.registra(sub)
     cli_productos.registra(sub)
+    cli_envios.registra(sub)
 
     return parser
 
@@ -689,13 +698,18 @@ def main(argv: list[str] | None = None) -> int:
         from app import bloqueo_dueno_efecto
 
         return bloqueo_dueno_efecto.main(rest)
-    if args.comando in ("precio", "productos-modo"):
+    escritores = {
+        "precio": _precio,
+        "productos-modo": cli_productos.corre,
+        "envios-ventana": cli_envios.corre,
+    }
+    if args.comando in escritores:
         # Escriben decisiones, cambios o config: tokens extra SIEMPRE error
         # del operador (patron cycle).
         if rest:
             print(f"argumentos desconocidos para '{args.comando}': {rest}", file=sys.stderr)
             return 2
-        return _precio(args) if args.comando == "precio" else cli_productos.corre(args)
+        return escritores[args.comando](args)
     if args.comando in cli_bids.COMANDOS:
         return cli_bids.despacha(args.comando, rest)
     return _ingest(args, rest)

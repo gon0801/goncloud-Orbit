@@ -76,6 +76,7 @@ SECUNDARIAS = {
     "/ruido": "ruido",
     "/donde-poner-el-dinero": "donde-poner-el-dinero",
     "/reputacion": "reputacion",
+    "/envios": "envios",
     "/familias": "familias",
     "/precios": "precios",
 }

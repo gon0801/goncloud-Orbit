@@ -29,7 +29,7 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en l
 - Prueba de lado: cuando exista, el JSON gemelo debe coincidir con lo visible.
 - Anota feature id y entry point en cada artefacto.
 - Un camino inalcanzable se reporta con el comando intentado y la precondición que faltó. No lo des por verificado por otro path.
-- Los 18 recorridos completos exigen HTTP 200 y navegación activa; un 503 fail-closed no se marca como `ok`.
+- Los 19 recorridos completos exigen HTTP 200 y navegación activa; un 503 fail-closed no se marca como `ok`.
 
 ## Features por tarea
 
@@ -59,6 +59,7 @@ Este directorio es la fuente mantenida del comportamiento que un usuario ve en l
 
 - [Precios](./precios.md) — `/precios`; compuerta, goals, cobertura y no evaluados. Sembrar goals y Soltar fuera del baseline.
 - [Reputación](./reputacion.md) — `/reputacion`; alertas, rating, reviews, preguntas y listings.
+- [Envíos](./envios.md) — `/envios`; pedidos y paquetes de Amazon y Mercado Libre, con lo que requiere atención.
 - [Familias](./familias.md) — `/familias`; árbol de dos niveles y asignación de productos. POST fuera del baseline.
 - [Salud](./salud.md) — `/salud`; último ciclo, 14 anteriores, skips y cambios permitidos.
 - [Configuración](./settings.md) — `/settings`; cascada de targets, caps y goals. POST fuera del baseline.

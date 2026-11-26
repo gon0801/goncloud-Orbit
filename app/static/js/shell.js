@@ -30,6 +30,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   const contador = document.getElementById("propuestas-contador");
   const repContador = document.getElementById("reputacion-contador");
+  const enviosContador = document.getElementById("envios-contador");
   const ciclo = document.getElementById("ciclo-resumen");
   const watermark = document.getElementById("watermark-resumen");
   if (!contador || !ciclo || !watermark) return;
@@ -97,6 +98,18 @@ document.addEventListener("DOMContentLoaded", function () {
       if (total > 0) {
         pintarBadge(repContador, total, etiqueta);
         badges("reputacion").forEach(function (nodo) { pintarBadge(nodo, total, etiqueta); });
+      }
+    }).catch(() => {});
+  }
+
+  // Envios que requieren atencion: mismo trato que el contador de reputacion.
+  if (enviosContador) {
+    leer("/api/envios/contador").then(datos => {
+      const total = Number(datos.atencion) || 0;
+      const etiqueta = "Envíos que requieren atención: " + total;
+      if (total > 0) {
+        pintarBadge(enviosContador, total, etiqueta);
+        badges("envios").forEach(function (nodo) { pintarBadge(nodo, total, etiqueta); });
       }
     }).catch(() => {});
   }

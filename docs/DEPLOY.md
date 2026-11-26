@@ -872,6 +872,9 @@ El server está en UTC: estas horas SON UTC.
 | 11:30 | `meli-catalogo` | `python -m app.meli.catalogo` (REPRICING 02 D.4: catalogo MeLi antes de la corrida) |
 | 12:25 | `precio-muestras:meli` | `python -m app.envio_muestras --platform meli --canal meli` (REPRICING 02 D.4: muestras MeLi antes de la estimacion) |
 | 13:10 + repasos 15-23/2 | `precio:meli` | `python -m app.cli precio --platform meli` (REPRICING 02 D.4: diaria 13:10 + repasos cada 2 h; flock propio + log, lineas exactas abajo) |
+| 02:25, 06:25, 10:25, 14:25, 18:25, 22:25 | `envios:amazon_mx` | `python -m app.cli ingest spapi_orders --platform amazon_mx` (ENVIOS 01: pedidos y paquetes; en el bloque canónico, ver «Envíos cada 4 h») |
+| 02:32, 06:32, 10:32, 14:32, 18:32, 22:32 | `envios:amazon_us` | `python -m app.cli ingest spapi_orders --platform amazon_us` (ENVIOS 01: pedidos y paquetes; en el bloque canónico, ver «Envíos cada 4 h») |
+| 02:40, 06:40, 10:40, 14:40, 18:40, 22:40 | `envios:meli` | `python -m app.cli ingest envios_meli` (ENVIOS 01: pedidos y envíos de Mercado Libre; en el bloque canónico, ver «Envíos cada 4 h») |
 
 Corrida diaria de precios (REPRICING 02 D.3), `amazon_mx` y `amazon_us`
 en serie: la diaria de las 13:10 UTC mas los repasos de las 15:10 a las
@@ -993,6 +996,118 @@ episodios y acuses; no reescribe metricas. Comprobar con
 se puede repetir: antes de 10:30 UTC no abre atraso y despues reintenta hasta
 seis veces los avisos pendientes. La ausencia de `telegram.json` deja pending;
 no cuenta como entrega. El cron de productos nunca cierra un incidente principal.
+
+### Envíos cada 4 h (ENVIOS 01)
+
+Tres líneas del bloque canónico `tools/despliegue/crontab-orbit.txt`, con
+`job_key=envios:amazon_mx`, `envios:amazon_us` y `envios:meli`, escalonadas
+7 y 8 minutos. Solo leen de Amazon SP-API y de Mercado Libre. Cada una lleva
+`cron-avisa --cada 4` y su propio candado (`flock -n -E 75` sobre
+`/tmp/envios-amazon-mx.lock`, `/tmp/envios-amazon-us.lock` y
+`/tmp/envios-meli.lock`): si la corrida anterior sigue viva, la nueva sale 75
+sin arrancar. Según la lectura de `cron-avisa` del 2026-11-09
+(`docs/evidencia/arreglos-2026-11-09/operacion/SINTESIS.md`; el script vive
+solo en el servidor), la salida 75 no toca el estado del aviso. Las tres
+escriben en `/mnt/data/appdata/orbit/logs/envios.log`. Las pinza
+`tests/test_envios_cron.py`.
+
+**Instalación.** No se agregan a mano. `desplegar.sh` aplica la migración
+`0102_envios01_seguimiento.sql` en el paso (4), copia el código y recrea
+`orbit-app-1` en el (5), y recién en el (5b) instala el bloque con
+`cron_orbit.sh prepara` e `instala`; `checklist.sh` falla si el bloque del
+crontab de `gon` no es el canónico. La reversa (`rollback.sh`) restaura el
+bloque anterior antes de revertir el código y la migración.
+
+**Prerrequisitos** dentro de `orbit-app-1` (`docker exec` no pasa el entorno
+del host): `ORBIT_DSN_INGEST`, las credenciales SP-API que ya usa
+`spapi_orders` y `meli_tokens.json` en `secrets/`. Orbit no renueva ese pase
+de Mercado Libre: si está vencido, `envios_meli` sale 1.
+
+**Verificación** tras desplegar, en `goncloud`:
+
+```bash
+crontab -u gon -l | grep -A1 'job_key=envios:'   # tres comentarios, cada uno con su línea
+docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_mx
+docker exec orbit-app-1 python -m app.cli ingest spapi_orders --platform amazon_us
+docker exec orbit-app-1 python -m app.cli ingest envios_meli
+tail -n 20 /mnt/data/appdata/orbit/logs/envios.log   # corridas del cron
+```
+
+Cada comando sale 0 si la lectura quedó completa y distinto de 0 si no. En
+Mercado Libre, un envío sin leer o con respuesta ilegible deja la corrida como
+fallida (los demás se guardan igual). La excepción es un envío abierto que ya
+no vino en la búsqueda y se compró antes de su ventana de 30 días: queda en
+`skip_reason` como `envio_viejo_no_leido` o `envio_viejo_ilegible`, pinta aviso
+en `/salud` y por sí solo no hace fallar la corrida. Un 401 la aborta siempre.
+La pantalla `/envios` muestra la última lectura correcta por mercado y la marca
+`Atrasada` cuando pasan más de 8 h.
+
+#### Cierre por vencimiento (Mercado Libre)
+
+Un envío sin estado final (entregado, devuelto o cancelado) con más de N días
+desde la compra se muestra como `Cerrado por vencimiento, sin confirmar
+entrega` y deja de releerse. No se borra nada. N vive en `config_version`
+(`envios_meli_dias_cierre`, de 30 a 365; sin la clave, 90). La migración
+`0103_envios01_ventana_cierre.sql` la siembra en 90 con una config nueva
+(reversa `0103_reversa_envios01_ventana_cierre.sql`); la aplica `desplegar.sh`
+en el paso (4). Un valor presente e inválido hace fallar `envios_meli` y deja
+`/envios` y `/api/envios` en 503 con el motivo.
+
+```bash
+# cambiar N (config_version nueva; si ya es el vigente no escribe nada)
+docker exec orbit-app-1 python -m app.cli envios-ventana --dias 90
+# releer envíos concretos aunque estén cerrados o vencidos (repetible);
+# REF es el id del envío (shipment.id), no el del pedido
+docker exec orbit-app-1 python -m app.cli ingest envios_meli --releer REF --releer OTRA_REF
+```
+
+`--releer` corre la ingesta normal y además lee esas referencias; si una de
+ellas falla o llega ilegible, la corrida sale 1 sea cual sea su edad. Si la
+fuente informa la entrega, queda una observación nueva y gana ese estado. Una
+referencia que no está en la base sale 2 sin consultar nada.
+
+Cuántos van cerrados por vencimiento, en toda la historia (solo lectura; el
+mismo número que `/envios` y `vencimiento.cerrados` en `GET /api/envios`):
+
+```sql
+WITH ventana AS (
+    SELECT COALESCE(
+        (SELECT settings ->> 'envios_meli_dias_cierre'
+           FROM config_version ORDER BY id DESC LIMIT 1), '90')::int AS dias
+)
+SELECT v.dias, count(e.envio_ref) AS cerrados_por_vencimiento
+  FROM ventana v
+  LEFT JOIN v_envio_actual e
+    ON e.platform = 'meli'
+   AND e.pedido_creado_el < now() - make_interval(hours => 24 * v.dias)
+   AND NOT COALESCE(
+           e.estado_fuente IN ('delivered', 'cancelled')
+           OR (e.estado_fuente = 'not_delivered' AND e.devuelto_el IS NOT NULL),
+           false)
+ GROUP BY v.dias;
+```
+
+Cuáles son esas referencias, para pasarlas a `--releer` (solo lectura; la misma
+regla que el conteo, de la compra más antigua a la más reciente; `envio_ref` es
+el REF):
+
+```sql
+WITH ventana AS (
+    SELECT COALESCE(
+        (SELECT settings ->> 'envios_meli_dias_cierre'
+           FROM config_version ORDER BY id DESC LIMIT 1), '90')::int AS dias
+)
+SELECT e.envio_ref, e.pedidos, e.estado_fuente, e.subestado_fuente, e.pedido_creado_el
+  FROM ventana v
+  JOIN v_envio_actual e
+    ON e.platform = 'meli'
+   AND e.pedido_creado_el < now() - make_interval(hours => 24 * v.dias)
+   AND NOT COALESCE(
+           e.estado_fuente IN ('delivered', 'cancelled')
+           OR (e.estado_fuente = 'not_delivered' AND e.devuelto_el IS NOT NULL),
+           false)
+ ORDER BY e.pedido_creado_el, e.envio_ref;
+```
 
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 

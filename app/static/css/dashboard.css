@@ -394,6 +394,8 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
   }
   .tab-bar {
     display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -421,16 +423,17 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
   .nav-mas a { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 10px 12px; border-radius: 8px; color: var(--o-ink2); }
   .nav-mas a:hover { background: var(--o-hover); color: var(--o-ink); }
   .nav-mas a[aria-current="page"] { background: var(--o-ac-bg); color: var(--o-ac); font-weight: 600; }
+  .tab-bar::-webkit-scrollbar { display: none; }
   .tab-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
   .tab {
-    flex: 1;
+    flex: 1 0 54px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 3px;
     min-height: 44px;
-    min-width: 0;
+    min-width: 54px;
     padding: 4px 2px 2px;
     color: #9aa0b0;
     text-decoration: none;
