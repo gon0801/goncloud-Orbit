@@ -1082,6 +1082,28 @@ SELECT v.dias, count(e.envio_ref) AS cerrados_por_vencimiento
  GROUP BY v.dias;
 ```
 
+Cuáles son esas referencias, para pasarlas a `--releer` (solo lectura; la misma
+regla que el conteo, de la compra más antigua a la más reciente; `envio_ref` es
+el REF):
+
+```sql
+WITH ventana AS (
+    SELECT COALESCE(
+        (SELECT settings ->> 'envios_meli_dias_cierre'
+           FROM config_version ORDER BY id DESC LIMIT 1), '90')::int AS dias
+)
+SELECT e.envio_ref, e.pedidos, e.estado_fuente, e.subestado_fuente, e.pedido_creado_el
+  FROM ventana v
+  JOIN v_envio_actual e
+    ON e.platform = 'meli'
+   AND e.pedido_creado_el < now() - make_interval(hours => 24 * v.dias)
+   AND NOT COALESCE(
+           e.estado_fuente IN ('delivered', 'cancelled')
+           OR (e.estado_fuente = 'not_delivered' AND e.devuelto_el IS NOT NULL),
+           false)
+ ORDER BY e.pedido_creado_el, e.envio_ref;
+```
+
 ### Ingestas SP-API diarias 05:00–06:30 (A.5, PROPUESTA — NO instalada)
 
 Ocho corridas **en serie dentro de UN wrapper**, no ocho líneas de

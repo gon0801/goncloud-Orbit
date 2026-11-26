@@ -653,11 +653,9 @@ def test_dias_de_cierre_invalidos_son_un_error_visible(monkeypatch, ruta):
         assert "envios-ventana --dias" in detalle
 
 
-def _consulta_documentada() -> str:
+def _consulta_documentada(marca: str = "cerrados_por_vencimiento") -> str:
     texto = (Path(__file__).resolve().parents[1] / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
-    bloques = [
-        b for b in re.findall(r"```sql\n(.*?)```", texto, re.S) if "cerrados_por_vencimiento" in b
-    ]
+    bloques = [b for b in re.findall(r"```sql\n(.*?)```", texto, re.S) if marca in b]
     assert len(bloques) == 1
     return bloques[0]
 
@@ -686,6 +684,46 @@ def test_la_consulta_documentada_cuenta_lo_mismo_que_el_contador(monkeypatch):
             " FROM config_version ORDER BY id DESC LIMIT 1"
         )
         assert conn.execute(consulta).fetchone() == (90, 2)
+        assert cliente.get("/api/envios").json()["vencimiento"]["cerrados"] == 2
+
+
+@_skip_db
+def test_la_consulta_documentada_lista_las_referencias_que_cuenta_el_contador(monkeypatch):
+    # La consulta usa now(): aqui todo se siembra contra el reloj real.
+    ahora = datetime.now(UTC)
+    consulta = _consulta_documentada("e.subestado_fuente")
+    fila_100 = ("100", ["1100"], "shipped", None, ahora - 200 * D)
+    fila_300 = ("300", ["1300"], "not_delivered", None, ahora - 91 * D)
+    fila_400 = ("400", ["1400"], "ready_to_ship", "delayed", ahora - 31 * D)
+    with _base(monkeypatch) as (conn, cliente):
+        monkeypatch.setattr(api_envios, "ahora_utc", lambda: ahora)
+        _siembra_vencimiento(conn, ahora)
+        for dias, filas in (
+            ("90", [fila_100, fila_300]),
+            ("30", [fila_100, fila_300, fila_400]),
+            ("365", []),
+        ):
+            _fija_dias(conn, dias)
+            conn.execute("SET ROLE app_read")
+            cursor = conn.execute(consulta)
+            assert [columna.name for columna in cursor.description] == [
+                "envio_ref",
+                "pedidos",
+                "estado_fuente",
+                "subestado_fuente",
+                "pedido_creado_el",
+            ]
+            assert cursor.fetchall() == filas
+            contador = cliente.get("/api/envios").json()["vencimiento"]["cerrados"]
+            assert contador == len(filas)
+            conn.execute("RESET ROLE")
+        # Sin la clave en la config vigente, el listado usa el valor por omision.
+        conn.execute(
+            "INSERT INTO config_version (label, settings)"
+            " SELECT 'sin clave', settings - 'envios_meli_dias_cierre'"
+            " FROM config_version ORDER BY id DESC LIMIT 1"
+        )
+        assert conn.execute(consulta).fetchall() == [fila_100, fila_300]
         assert cliente.get("/api/envios").json()["vencimiento"]["cerrados"] == 2
 
 
