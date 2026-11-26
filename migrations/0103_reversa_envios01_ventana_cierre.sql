@@ -8,6 +8,10 @@
 -- en una sola transaccion (psql -1). Re-runnable.
 -- ---------------------------------------------------------------------------
 
+-- El candado de app/config_write.lock_config_version, en sentencia aparte: el
+-- INSERT lee la vigente despues de que confirme un guardado en curso.
+SELECT pg_advisory_xact_lock(hashtext('config_version'));
+
 INSERT INTO config_version (label, settings)
 SELECT 'ENVIOS 01: reversa 0103, sin envios_meli_dias_cierre',
        v.settings - 'envios_meli_dias_cierre'

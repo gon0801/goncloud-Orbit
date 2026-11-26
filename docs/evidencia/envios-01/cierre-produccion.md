@@ -50,13 +50,15 @@ Las cifras de pruebas, `ai-review`, las corridas bajo `flock`, las cifras "antes
 
 ## Hallazgo en producción
 
+Esta sección describe `52cb4b02` y ya no es la regla: ver [Cambio posterior: #782](#cambio-posterior-782). La regla vigente en la rama `feat/envios-01-vencimiento` (aún sin desplegar) es `in_packing_list` = Por despachar e `in_hub` = En camino.
+
 - Mercado Libre reporta `ready_to_ship/in_packing_list` (4) y `ready_to_ship/in_hub` (1). La sonda no los vio.
-- Por spec se muestran como Por despachar.
+- En `52cb4b02`, por el spec de entonces, ambos se mostraban como Por despachar.
 - Su historia trae `date_handling` y `date_ready_to_ship`, sin `date_shipped` ni plazo de despacho.
 - El catálogo `/shipment_statuses` los nombra "In hub" e "In packing list".
 - Que ya salieron de manos del vendedor es una inferencia por confirmar.
 - La sonda vio 5 envíos `ready_to_ship/dropped_off`. Producción muestra 0 `dropped_off` y 5 entre `in_hub` e `in_packing_list`. Que sean etapas posteriores a la entrega en agencia es inferencia.
-- En esos dos subestados no se genera ninguna atención: no hay plazo de despacho y `entrega_vencida` exige en camino o en reparto. Un paquete atorado ahí no se resaltaría.
+- En `52cb4b02` esos dos subestados no generaban ninguna atención: no había plazo de despacho y `entrega_vencida` exige en camino o en reparto. Un paquete atorado ahí no se resaltaba.
 
 ## Cambio posterior: #782
 

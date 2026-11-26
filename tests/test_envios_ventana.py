@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
+import threading
+import time
 from pathlib import Path
 
 import pglast
+import psycopg
 import pytest
 from helpers.pg import db_desde_template
 from psycopg.types.json import Json
@@ -107,6 +111,76 @@ def test_0103_con_config_vacia_no_inserta(base):
         _aplica(conn, ruta)
         assert _filas(conn) == 0
         assert _sonda(conn) is False
+
+
+def _espera_candado(conn, pid: int, hilo: threading.Thread) -> bool:
+    """True si la sesion `pid` queda esperando un candado de aplicacion."""
+    limite = time.monotonic() + 15
+    while hilo.is_alive() and time.monotonic() < limite:
+        fila = conn.execute(
+            "SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = %s", (pid,)
+        ).fetchone()
+        if fila == ("Lock", "advisory"):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+@_skip_db
+@pytest.mark.parametrize(
+    ("ruta", "sembrada", "esperada"),
+    [
+        pytest.param(IDA, VIGENTE, {CLAVE: "90"}, id="ida"),
+        pytest.param(REVERSA, VIGENTE | {CLAVE: "90"}, {}, id="reversa"),
+    ],
+)
+def test_0103_espera_al_guardado_en_curso_y_conserva_su_clave(base, ruta, sembrada, esperada):
+    conn, dsn = base
+    _siembra(conn, sembrada)
+    antes = _filas(conn)
+    errores: list[BaseException] = []
+
+    with psycopg.connect(dsn) as editor, psycopg.connect(dsn) as migrador:
+        config_write.guarda_config(
+            editor,
+            platform="meli",
+            base_config_version_id=config_write.config_vigente_id(editor),
+            ahora=dt.datetime(2026, 11, 26, tzinfo=dt.UTC),
+            confirma=False,
+            precio_modo_global="shadow",
+        )
+        migrador.execute("SET statement_timeout = '30s'")
+        migrador.commit()
+
+        def migra() -> None:
+            # Como tools/despliegue (psql -1): el archivo entero en una transaccion.
+            try:
+                with migrador.transaction():
+                    _aplica(migrador, ruta)
+            except BaseException as exc:
+                errores.append(exc)
+
+        hilo = threading.Thread(target=migra)
+        hilo.start()
+        try:
+            espero = _espera_candado(conn, migrador.info.backend_pid, hilo)
+        finally:
+            editor.commit()
+            hilo.join(timeout=40)
+
+        assert not hilo.is_alive()
+
+    assert errores == []
+    assert espero, "la migracion no espero al guardado en curso"
+    assert _filas(conn) == antes + 2
+    assert (
+        _vigente(conn)[2]
+        == {
+            "ads_optimizer_mode": "shadow",
+            "precio_modo_global": "shadow",
+        }
+        | esperada
+    )
 
 
 @_skip_db

@@ -59,7 +59,7 @@ def _orden(orden_id: int, envio_id: int | None, *, creada=RECIENTE, pack=None, *
     }
 
 
-def _envio(envio_id: int, status: str | None = "shipped", **mas) -> dict:
+def _envio(envio_id: int, status: str = "shipped", **mas) -> dict:
     return {
         "id": envio_id,
         "logistic_type": "xd_drop_off",
@@ -367,7 +367,8 @@ def test_devuelto_es_terminal_y_sin_devolucion_sigue_abierto(base):
     )
     paginas = [[_orden(1701, 701), _orden(1702, 702)]]
     primera = MeliFalso(
-        paginas, {"702": devuelto, "703": _envio(703, None), "704": _envio(704, "estado_nuevo")}
+        paginas,
+        {"702": devuelto, "703": _envio(703, "otro_nuevo"), "704": _envio(704, "estado_nuevo")},
     )
 
     _correr(dsn, primera)
@@ -375,7 +376,9 @@ def test_devuelto_es_terminal_y_sin_devolucion_sigue_abierto(base):
     assert primera.leidos == ["702", "703", "704"]
     assert _filas(conn)[1]["devuelto_el"] == datetime(2026, 11, 24, 14, 0, tzinfo=UTC)
 
-    segunda = MeliFalso(paginas, {"703": _envio(703, None), "704": _envio(704, "estado_nuevo")})
+    segunda = MeliFalso(
+        paginas, {"703": _envio(703, "otro_nuevo"), "704": _envio(704, "estado_nuevo")}
+    )
     resultado = _correr(dsn, segunda, ahora=AHORA + timedelta(hours=4))
 
     assert segunda.leidos == ["703", "704"]
@@ -433,6 +436,8 @@ def test_fallo_viejo_no_baja_ok_y_el_vencido_no_se_consulta(base):
 
 # Respuesta sin id: no hay forma de armar el envio.
 _ILEGIBLE = {"status": "shipped"}
+# Con el id correcto pero sin estado: tampoco es una lectura.
+_SIN_ESTADO = {"id": 853}
 
 
 @_skip_db
@@ -442,6 +447,15 @@ _ILEGIBLE = {"status": "shipped"}
         pytest.param(45, 500, False, False, True, "1x envio_viejo_no_leido", id="antiguo"),
         pytest.param(
             45, _ILEGIBLE, False, False, True, "1x envio_viejo_ilegible", id="antiguo-ilegible"
+        ),
+        pytest.param(
+            45,
+            _SIN_ESTADO,
+            False,
+            False,
+            True,
+            "1x envio_viejo_ilegible",
+            id="antiguo-sin-estado",
         ),
         pytest.param(30, 500, False, False, False, "1x envio_no_leido", id="borde-30"),
         pytest.param(20, 500, False, False, False, "1x envio_no_leido", id="reciente"),
@@ -478,6 +492,48 @@ def test_que_fallo_de_envio_baja_el_sello(base, dias, respuesta, en_busqueda, re
     assert saltos_inesperados(corrida["rows_skipped"], motivo) == (0 if motivo is None else 1)
     with psycopg.connect(dsn) as sesion:
         assert (lectura.ultimas_lecturas(sesion)["meli"] is None) is not ok
+
+
+@_skip_db
+@pytest.mark.parametrize(
+    "estado",
+    [
+        pytest.param({}, id="ausente"),
+        pytest.param({"status": None}, id="nulo"),
+        pytest.param({"status": ""}, id="vacio"),
+        pytest.param({"status": "  "}, id="blancos"),
+        pytest.param({"status": 200}, id="numero"),
+        pytest.param({"status": {"id": "delivered"}}, id="objeto"),
+    ],
+)
+def test_releer_sin_estado_conserva_la_entrega_confirmada(base, estado):
+    conn, dsn = base
+    entregado_el = datetime(2026, 11, 10, 18, 0, tzinfo=UTC)
+    _sembrar(
+        conn,
+        [
+            _previo(
+                "853",
+                "delivered",
+                pedido_creado_el=AHORA - timedelta(days=91),
+                entregado_el=entregado_el,
+            )
+        ],
+    )
+    antes = _filas(conn)
+    respuesta = {k: v for k, v in _envio(853).items() if k != "status"} | estado
+
+    resultado = _correr(dsn, MeliFalso([], {"853": respuesta}), releer=("853",))
+
+    assert (resultado.ok, resultado.escritos, resultado.skip_reason) == (
+        False,
+        0,
+        "1x envio_ilegible",
+    )
+    assert _corridas(conn)[-1]["ok"] is False
+    assert _total(conn) == 1
+    assert _filas(conn) == antes
+    assert (antes[0]["estado_fuente"], antes[0]["entregado_el"]) == ("delivered", entregado_el)
 
 
 @_skip_db
