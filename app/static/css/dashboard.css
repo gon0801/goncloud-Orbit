@@ -284,6 +284,8 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
   }
   .tab-bar {
     display: flex;
+    overflow-x: auto;
+    scrollbar-width: none;
     position: fixed;
     bottom: 0;
     left: 0;
@@ -295,16 +297,17 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
     border-top: 1px solid var(--o-borde);
     box-shadow: 0 -8px 24px rgba(23, 21, 29, .06);
   }
+  .tab-bar::-webkit-scrollbar { display: none; }
   .tab-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
   .tab {
-    flex: 1;
+    flex: 1 0 54px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 3px;
     min-height: 44px;
-    min-width: 0;
+    min-width: 54px;
     padding: 4px 2px 2px;
     color: #9aa0b0;
     text-decoration: none;

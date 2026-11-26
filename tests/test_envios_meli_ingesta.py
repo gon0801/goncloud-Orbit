@@ -21,6 +21,7 @@ from app.envios.estado import clasificar
 from app.envios.meli import creada_el, envio_desde_meli, envio_ref_de_orden
 from app.envios.modelo import Articulo, PaqueteObservado, huella
 from app.envios.store import guardar
+from app.ingest_run import saltos_inesperados
 from app.meli.client import ClienteMeli, MeliCredentials, ReputacionError
 
 AHORA = datetime(2026, 11, 25, 2, 25, tzinfo=UTC)
@@ -379,6 +380,118 @@ def test_devuelto_es_terminal_y_sin_devolucion_sigue_abierto(base):
 
     assert segunda.leidos == ["703", "704"]
     assert (resultado.ok, resultado.escritos, resultado.sin_cambio) == (True, 0, 2)
+
+
+@_skip_db
+def test_fallo_viejo_no_baja_ok_y_el_vencido_no_se_consulta(base):
+    conn, dsn = base
+    _sembrar(
+        conn,
+        [
+            # Mas de 90 dias (sin la clave de config): vencido, no se consulta.
+            _previo("851", "shipped", pedido_creado_el=AHORA - timedelta(days=91)),
+            # A los 90 dias exactos sigue abierto.
+            _previo("852", "shipped", pedido_creado_el=AHORA - timedelta(days=90)),
+            # Abierto de 45 dias (>30d): si falla su GET, se anota sin bajar ok.
+            _previo("853", "shipped", pedido_creado_el=AHORA - timedelta(days=45)),
+        ],
+    )
+    falso = MeliFalso(
+        paginas=[[_orden(1854, 854)]],
+        envios={
+            "852": _envio(852, "delivered"),
+            "853": 500,
+            "854": _envio(854, "shipped"),
+        },
+    )
+
+    resultado = _correr(dsn, falso)
+
+    assert "851" not in falso.leidos
+    assert falso.leidos == ["852", "853", "853", "853", "854"]
+    assert (resultado.ok, resultado.escritos, resultado.omitidos) == (True, 2, 1)
+    assert resultado.skip_reason == "1x envio_viejo_no_leido"
+    (corrida,) = _corridas(conn)[-1:]
+    assert (corrida["ok"], corrida["rows_written"], corrida["rows_skipped"]) == (True, 2, 1)
+    assert corrida["skip_reason"] == "1x envio_viejo_no_leido"
+
+    # Un 401 en un envio viejo (>30d) sigue abortando la corrida completa.
+    vencido = MeliFalso(paginas=[], envios={"853": 401})
+    with pytest.raises(meli_ingesta.PaseVencidoError):
+        _correr(dsn, vencido, ahora=AHORA + timedelta(hours=4))
+    assert _corridas(conn)[-1]["ok"] is False
+
+    # Un abierto reciente (<=30d) que falla si baja ok aunque no salga en busqueda.
+    _sembrar(conn, [_previo("855", "shipped", pedido_creado_el=AHORA - timedelta(days=20))])
+    fallo_reciente = MeliFalso(paginas=[], envios={"853": 500, "854": _envio(854), "855": 500})
+    res_reciente = _correr(dsn, fallo_reciente, ahora=AHORA + timedelta(hours=8))
+    assert res_reciente.ok is False
+    assert res_reciente.skip_reason == (
+        "1x envio_no_leido, 1x envio_sin_cambio, 1x envio_viejo_no_leido"
+    )
+
+
+# Respuesta sin id: no hay forma de armar el envio.
+_ILEGIBLE = {"status": "shipped"}
+
+
+@_skip_db
+@pytest.mark.parametrize(
+    ("dias", "respuesta", "en_busqueda", "releer", "ok", "motivo"),
+    [
+        pytest.param(45, 500, False, False, True, "1x envio_viejo_no_leido", id="antiguo"),
+        pytest.param(
+            45, _ILEGIBLE, False, False, True, "1x envio_viejo_ilegible", id="antiguo-ilegible"
+        ),
+        pytest.param(30, 500, False, False, False, "1x envio_no_leido", id="borde-30"),
+        pytest.param(20, 500, False, False, False, "1x envio_no_leido", id="reciente"),
+        pytest.param(
+            20, _ILEGIBLE, False, False, False, "1x envio_ilegible", id="reciente-ilegible"
+        ),
+        pytest.param(None, 500, False, False, False, "1x envio_no_leido", id="sin-fecha"),
+        pytest.param(45, 500, True, False, False, "1x envio_no_leido", id="en-busqueda"),
+        pytest.param(
+            45, _ILEGIBLE, True, False, False, "1x envio_ilegible", id="en-busqueda-ilegible"
+        ),
+        pytest.param(45, 500, False, True, False, "1x envio_no_leido", id="releer-antiguo"),
+        pytest.param(45, _ILEGIBLE, False, True, False, "1x envio_ilegible", id="releer-ilegible"),
+        pytest.param(91, 500, False, True, False, "1x envio_no_leido", id="releer-vencido"),
+        pytest.param(91, 500, False, False, True, None, id="vencido"),
+    ],
+)
+def test_que_fallo_de_envio_baja_el_sello(base, dias, respuesta, en_busqueda, releer, ok, motivo):
+    conn, dsn = base
+    creado = None if dias is None else AHORA - timedelta(days=dias)
+    _sembrar(conn, [_previo("853", "shipped", pedido_creado_el=creado)])
+    paginas = [[_orden(1853, 853)]] if en_busqueda else []
+    falso = MeliFalso(paginas, {"853": respuesta})
+
+    resultado = _correr(dsn, falso, releer=("853",) if releer else ())
+
+    # Un 500 se intenta tres veces; el vencido sin pedirlo no se consulta.
+    intentos = 0 if motivo is None else 3 if respuesta == 500 else 1
+    assert falso.leidos == ["853"] * intentos
+    assert (resultado.ok, resultado.skip_reason) == (ok, motivo)
+    corrida = _corridas(conn)[-1]
+    assert (corrida["ok"], corrida["skip_reason"]) == (ok, motivo)
+    # Tolerado o no, el salto pinta aviso en /salud.
+    assert saltos_inesperados(corrida["rows_skipped"], motivo) == (0 if motivo is None else 1)
+    with psycopg.connect(dsn) as sesion:
+        assert (lectura.ultimas_lecturas(sesion)["meli"] is None) is not ok
+
+
+@_skip_db
+def test_releer_por_cli_que_falla_en_un_antiguo_sale_uno(base, tmp_path, monkeypatch):
+    conn, dsn = base
+    _tokens(tmp_path, monkeypatch)
+    monkeypatch.setenv("ORBIT_DSN_INGEST", dsn)
+    # main() lee el reloj real.
+    antiguo = datetime.now(UTC) - timedelta(days=45)
+    _sembrar(conn, [_previo("853", "shipped", pedido_creado_el=antiguo)])
+    transporte = httpx.MockTransport(MeliFalso([], {"853": 500}))
+
+    assert meli_ingesta.main([], transport=transporte) == 0
+    assert meli_ingesta.main(["--releer", "853"], transport=transporte) == 1
 
 
 @_skip_db

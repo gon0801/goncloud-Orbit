@@ -16,7 +16,7 @@ import logging
 import os
 import sys
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Sequence, Set
 from dataclasses import dataclass
 
 import httpx
@@ -149,8 +149,14 @@ def _leer_envios(
     refs: list[str],
     traducir: Callable[[str, dict], EnvioObservado],
     saltos: Counter,
+    *,
+    viejos: Set[str],
 ) -> list[EnvioObservado]:
-    """Un envio que falla se cuenta y no tumba a los demas; un 401 aborta todo."""
+    """Un envio que falla se cuenta y no tumba a los demas; un 401 aborta todo.
+
+    Los fallos de `viejos` se cuentan aparte (`envio_viejo_*`): quedan en el
+    sello sin bajar `ok`.
+    """
     leidos: list[EnvioObservado] = []
     for ref in refs:
         try:
@@ -158,15 +164,16 @@ def _leer_envios(
         except PaseVencidoError:
             raise
         except ReputacionError as exc:
-            saltos["envio_no_leido"] += 1
-            logger.warning("envios_meli: envio %s no leido: %s", ref, exc)
+            clave = "envio_viejo_no_leido" if ref in viejos else "envio_no_leido"
+            saltos[clave] += 1
+            logger.warning("envios_meli: envio %s no leido (%s): %s", ref, clave, exc)
             continue
         try:
             envio = traducir(ref, crudo)
         except EnvioIlegible:
             envio = None
         if envio is None or envio.envio_ref != ref:
-            saltos["envio_ilegible"] += 1
+            saltos["envio_viejo_ilegible" if ref in viejos else "envio_ilegible"] += 1
             continue
         leidos.append(envio)
     return leidos
@@ -200,8 +207,14 @@ def ejecutar_ingesta(
 ) -> ResultadoIngestaMeli:
     """Una corrida completa. `ok=False` si quedo algun envio sin leer o ilegible,
     o la busqueda incompleta; lo que si se leyo queda escrito. `releer` suma
-    envios conocidos aunque esten cerrados."""
+    envios conocidos aunque esten cerrados.
+
+    No baja `ok` el fallo de un envio que ya no vino en la busqueda y cuya compra
+    es anterior a su ventana (la pantalla no lo muestra), salvo que este en
+    `releer`.
+    """
     momento = ahora or dt.datetime.now(dt.UTC)
+    desde_ventana = momento - dt.timedelta(days=DIAS_SEGUIMIENTO)
     if releer:
         _exige_conocidos(conn, releer)
     with conn.transaction():
@@ -219,19 +232,24 @@ def ejecutar_ingesta(
         }
         hallado = descubrir_ordenes(
             cliente,
-            desde=momento - dt.timedelta(days=DIAS_SEGUIMIENTO),
+            desde=desde_ventana,
             max_paginas=max_paginas,
         )
         saltos.update(hallado.saltos)
         pendientes = (hallado.envios.keys() | conocidos.keys()) - cerrados
         por_leer = sorted(pendientes | set(releer))
+        viejos = {
+            ref
+            for ref in pendientes - hallado.envios.keys() - set(releer)
+            if (creado := conocidos[ref].pedido_creado_el) is not None and creado < desde_ventana
+        }
 
         def traducir(ref: str, crudo: dict) -> EnvioObservado:
             if ref in hallado.envios:
                 return envio_desde_meli(hallado.envios[ref], crudo)
             return envio_actualizado_desde_meli(conocidos[ref], crudo)
 
-        envios = _leer_envios(cliente, por_leer, traducir, saltos)
+        envios = _leer_envios(cliente, por_leer, traducir, saltos, viejos=viejos)
         with conn.transaction():
             escritos, sin_cambio = envios_store.guardar(
                 conn, envios, observed_at=momento, run_id=run_id

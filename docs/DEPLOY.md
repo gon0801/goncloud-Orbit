@@ -1035,8 +1035,18 @@ tail -n 20 /mnt/data/appdata/orbit/logs/envios.log   # corridas del cron
 
 Cada comando sale 0 si la lectura quedó completa y distinto de 0 si no. En
 Mercado Libre, un envío sin leer o con respuesta ilegible deja la corrida como
-fallida (los demás se guardan igual). La pantalla `/envios` muestra la última
-lectura correcta por mercado y la marca `Atrasada` cuando pasan más de 8 h.
+fallida (los demás se guardan igual). La excepción es un envío abierto que ya
+no vino en la búsqueda y se compró antes de su ventana de 30 días: queda en
+`skip_reason` como `envio_viejo_no_leido` o `envio_viejo_ilegible`, pinta aviso
+en `/salud` y por sí solo no hace fallar la corrida. Un 401 la aborta siempre.
+La pantalla `/envios` muestra la última lectura correcta por mercado y la marca
+`Atrasada` cuando pasan más de 8 h.
+
+Producción (26-nov UTC, dato del coordinador) corre #782 (`3c5e53fb`), con
+`in_packing_list` como En camino y un tope fijo de relectura de 90 días. El
+cierre por vencimiento, `--releer`, la migración `0103` y la corrección de ese
+mapeo que describe esta sección son de la rama de seguimiento, que aún no está
+desplegada.
 
 #### Cierre por vencimiento (Mercado Libre)
 
@@ -1057,8 +1067,9 @@ docker exec orbit-app-1 python -m app.cli envios-ventana --dias 90
 docker exec orbit-app-1 python -m app.cli ingest envios_meli --releer REF --releer OTRA_REF
 ```
 
-`--releer` corre la ingesta normal y además lee esas referencias. Si la fuente
-informa la entrega, queda una observación nueva y gana ese estado. Una
+`--releer` corre la ingesta normal y además lee esas referencias; si una de
+ellas falla o llega ilegible, la corrida sale 1 sea cual sea su edad. Si la
+fuente informa la entrega, queda una observación nueva y gana ese estado. Una
 referencia que no está en la base sale 2 sin consultar nada.
 
 Cuántos van cerrados por vencimiento, en toda la historia (solo lectura; el

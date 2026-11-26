@@ -58,15 +58,23 @@ Las cifras de pruebas, `ai-review`, las corridas bajo `flock`, las cifras "antes
 - La sonda vio 5 envíos `ready_to_ship/dropped_off`. Producción muestra 0 `dropped_off` y 5 entre `in_hub` e `in_packing_list`. Que sean etapas posteriores a la entrega en agencia es inferencia.
 - En esos dos subestados no se genera ninguna atención: no hay plazo de despacho y `entrega_vencida` exige en camino o en reparto. Un paquete atorado ahí no se resaltaría.
 
+## Cambio posterior: #782
+
+Posterior a las lecturas de arriba, que describen `52cb4b02`.
+
+- #782 (`3c5e53fb`) se desplegó el 26-nov UTC. Es dato del coordinador; este recibo no guarda mediciones de ese despliegue.
+- Según su código: `in_hub` e `in_packing_list` se muestran En camino; los envíos abiertos se releen hasta un tope fijo de 90 días (desde `pedido_creado_el` o, sin él, desde su última observación); un envío sin leer con compra anterior a 30 días que ya no viene en la búsqueda no baja `ok`; la barra móvil tiene enlace a `/envios` con contador.
+- La rama de seguimiento `feat/envios-01-vencimiento` corrige `in_packing_list` a Por despachar y **aún no está desplegada**.
+
 ## Pendientes
 
-1. **Decidido por el coordinador (26-nov UTC), aún sin desplegar:** `in_hub` se muestra En camino; `in_packing_list` queda Por despachar. Los substatus que no están en la tabla del spec §3 pasan a Sin clasificar.
-2. **Decidido por el coordinador (26-nov UTC), aún sin desplegar:** cierre por vencimiento a los 90 días desde `pedido_creado_el` (ajustable, migración `0103`), como `Cerrado por vencimiento, sin confirmar entrega`. No se adoptó que el fallo de un envío con más de 30 días deje `ok` arriba.
+1. **Decidido por el coordinador (26-nov UTC):** `in_hub` se muestra En camino; `in_packing_list` queda Por despachar (el vendedor aún tiene el paquete). #782 desplegó ambos En camino; la corrección, y el paso a Sin clasificar de los substatus que no están en la tabla del spec §3, están en la rama, **aún sin desplegar**.
+2. **Decidido por el coordinador (26-nov UTC), aún sin desplegar:** cierre por vencimiento a los 90 días desde `pedido_creado_el` (ajustable, migración `0103`), como `Cerrado por vencimiento, sin confirmar entrega`, en lugar del tope fijo de #782; sin `pedido_creado_el` no vence. Se conserva la tolerancia de #782 (un envío antiguo fuera de la búsqueda no baja `ok`), se extiende a la respuesta ilegible (`envio_viejo_ilegible`) y no aplica a `--releer`.
 3. Verificar la primera corrida automática del cron (2026-11-26 06:25-06:40 UTC), en especial que el pase de Mercado Libre siga vigente. La revisa David o el coordinador: si falla el candado o la redirección del log, `cron-avisa` no se entera y la señal sería "Atrasada" en `/envios` tras 8 h.
 4. La pantalla muestra 30 días: un problema sin resolver sale de la vista.
-5. En teléfono no hay enlace a `/envios`.
+5. Enlace a `/envios` en teléfono: resuelto por #782, desplegado.
 6. Notas menores abiertas:
    - El vigilante de las 07:30 UTC puede tapar un fallo de pedidos de las 05:00.
-   - Un envío ilegible de Mercado Libre no marca la corrida como fallida (corregido en el seguimiento, aún sin desplegar).
+   - Un envío ilegible de Mercado Libre no marca la corrida como fallida (corregido en el seguimiento para envíos recientes y `--releer`, aún sin desplegar).
    - `spapi_order_observation` crece más rápido por las 6 corridas diarias.
    - Los enviados sin confirmación de entrega nunca salen de En curso (por spec).
