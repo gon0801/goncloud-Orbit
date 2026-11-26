@@ -136,7 +136,7 @@ def test_kinds_quota_es_el_espejo_del_trigger():
     """La UNICA lista de kinds de quota en app: el endpoint de /salud la
     recorre y consume_quota/motor_quota la respetan. kind nuevo = decision
     del dueno (sellado 8); desalinearla del trigger de 0002 rompe el mapeo."""
-    assert KINDS_QUOTA == ("bid", "pause", "negative", "harvest")
+    assert KINDS_QUOTA == ("bid", "pause", "negative", "harvest", "ubicacion")
 
 
 def test_kinds_quota_es_el_espejo_real_del_trigger():
@@ -144,10 +144,15 @@ def test_kinds_quota_es_el_espejo_real_del_trigger():
     (el CASE de apply_cap_de_config en migrations/0002_apply.sql), no contra
     una tupla escrita a mano: un kind nuevo en el trigger sin KINDS_QUOTA
     deja este test rojo (y viceversa)."""
-    fuente = (Path(__file__).resolve().parent.parent / "migrations" / "0002_apply.sql").read_text(
-        encoding="utf-8"
-    )
-    bloque = fuente.split("CREATE FUNCTION apply_cap_de_config", 1)[1].split("$$;", 1)[0]
+    raiz = Path(__file__).resolve().parent.parent / "migrations"
+    fuentes = [
+        ruta
+        for ruta in sorted(raiz.glob("*.sql"))
+        if "_reversa_" not in ruta.name
+        and "FUNCTION apply_cap_de_config" in ruta.read_text(encoding="utf-8")
+    ]
+    fuente = fuentes[-1].read_text(encoding="utf-8")
+    bloque = fuente.split("FUNCTION apply_cap_de_config", 1)[1].split("$$;", 1)[0]
     motores = set(re.findall(r"WHEN 'ads_optimizer:([a-z_]+):([a-z_]+)'", bloque))
     assert motores, "el CASE del trigger no se encontro: revisar el parseo"
     assert {p for p, _k in motores} == set(PLATAFORMAS_MONEDA), (

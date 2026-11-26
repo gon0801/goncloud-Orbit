@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -29,6 +30,12 @@ from app.ads.config import AdsConfigError, AdsCredentials
 from app.apply import Aplicador, DuenoDelClaimCambio
 from app.apply_cuota import CapSaturado
 from app.apply_estados import AccionCambio
+from app.apply_ubicacion import (
+    aplica_automaticos,
+    hay_evaluaciones_a_aplicar,
+    hay_pendientes_automaticos,
+    reconcilia_automaticos,
+)
 from app.db import tx_durable
 from app.lock import SQL_OWNER as _SQL_OWNER_LOCK
 from app.optimizer import goals as g
@@ -284,6 +291,14 @@ def _fase_reconciliacion(
         reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
         confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
         rec_rev = apply_cola.reconcilia_reversas_pause(conn, aplicador, platform, tick=guard)
+        res_ubic = None
+        if hay_pendientes_automaticos(conn, platform):
+            res_ubic = reconcilia_automaticos(
+                conn,
+                apply._cliente_ajuste(platform, transport=None),
+                platform,
+                tick=guard,
+            )
     except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
         conn.rollback()
         return _Reconciliacion(
@@ -298,6 +313,11 @@ def _fase_reconciliacion(
             "fallidas": reconciliacion.pausas_fallidas,
         },
     }
+    if res_ubic is not None:
+        notas_rec["ubicaciones_reconciliadas"] = {
+            "revisadas": res_ubic.revisadas,
+            "selladas": res_ubic.selladas,
+        }
     if res_rev.confirmadas or res_rev.fallidas or res_rev.omitidas or res_rev.pendientes_de_lectura:
         notas_rec["reversas_reconciliadas"] = {
             "confirmadas": res_rev.confirmadas,
@@ -335,6 +355,7 @@ def _fase_apply(
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
     origen: int | None = None,
     reconciliacion: _Reconciliacion | None = None,
+    settings: dict | None = None,
 ) -> _FaseApply:
     """Cortes a la cola y, en live, pujas, liberacion de cortes y reactivaciones.
 
@@ -464,6 +485,30 @@ def _fase_apply(
                 "omitidas": res_react.omitidas,
                 "pendientes_de_lectura": res_react.pendientes_de_lectura + extras_pendientes,
             }
+            if (
+                settings is not None
+                and not res_bids.inciertos
+                and hay_evaluaciones_a_aplicar(conn, cycle_id, platform)
+            ):
+                dsn_ubic = os.environ.get("ORBIT_DSN_DECIDE")
+                if dsn_ubic:
+                    try:
+                        res_ubic_a = aplica_automaticos(
+                            conn,
+                            dsn=dsn_ubic,
+                            cliente=apply._cliente_ajuste(platform, transport=None),
+                            platform=platform,
+                            cycle_id=cycle_id,
+                            settings=settings,
+                            tick=guard,
+                        )
+                        notas["ubicaciones"] = {
+                            "candidatas": res_ubic_a.candidatas,
+                            "aplicadas": res_ubic_a.aplicadas,
+                            "sin_aplicar": len(res_ubic_a.sin_aplicar),
+                        }
+                    except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+                        notas["ubicaciones_error"] = scrub(str(exc)) or type(exc).__name__
             total = (
                 res_bids.aplicadas
                 + res_cola.aplicadas

@@ -104,6 +104,31 @@ class ResumenAplica:
     sin_aplicar: tuple[tuple[int, str], ...]
 
 
+def esquema_ubicaciones_disponible(conn: psycopg.Connection) -> bool:
+    """False en una base anterior a la migracion 0104: el motor no existe y
+    ninguna capa intenta leer sus tablas."""
+    return bool(
+        conn.execute("SELECT to_regclass('public.ubicacion_evaluacion') IS NOT NULL").fetchone()[0]
+    )
+
+
+def hay_pendientes_automaticos(conn: psycopg.Connection, platform: str) -> bool:
+    if not esquema_ubicaciones_disponible(conn):
+        return False
+    return bool(conn.execute(_SQL_PENDIENTES, (platform,)).fetchone())
+
+
+def hay_evaluaciones_a_aplicar(conn: psycopg.Connection, cycle_id: int, platform: str) -> bool:
+    if not esquema_ubicaciones_disponible(conn):
+        return False
+    fila = conn.execute(
+        "SELECT 1 FROM ubicacion_evaluacion WHERE cycle_id = %s AND platform = %s"
+        " AND modo = 'live' AND veredicto = 'mover' LIMIT 1",
+        (cycle_id, platform),
+    ).fetchone()
+    return fila is not None
+
+
 def registra_sin_aplicar(conn: psycopg.Connection, evaluacion_id: int, motivo: str) -> None:
     if motivo not in MOTIVOS_SIN_APLICAR:
         raise ValueError(f"motivo fuera del vocabulario de ubicaciones: {motivo}")

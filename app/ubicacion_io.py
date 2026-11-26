@@ -100,6 +100,12 @@ SELECT placement,
  GROUP BY placement
 """
 
+_SQL_CAMPANAS_DE_HOJAS = """
+SELECT DISTINCT campana_id
+  FROM v_hoja_activa
+ WHERE platform = %s AND hoja_id = ANY(%s)
+"""
+
 _SQL_DIAS_PLACEMENTS = """
 SELECT DISTINCT metric_date
   FROM ads_placement_observation
@@ -192,6 +198,14 @@ def _placements(conn, campana: int, platform: str, desde: dt.date, hasta: dt.dat
         }
         for fila in filas
     }
+
+
+def campanas_de_hojas(conn, platform: str, hojas) -> frozenset:
+    if not hojas:
+        return frozenset()
+    return frozenset(
+        fila[0] for fila in conn.execute(_SQL_CAMPANAS_DE_HOJAS, (platform, list(hojas)))
+    )
 
 
 def _dias_con_placements(conn, platform: str, desde: dt.date, hasta: dt.date) -> frozenset:

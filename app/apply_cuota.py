@@ -242,7 +242,7 @@ class ReservaCiclo:
 # apply_cap_de_config (0002) — la UNICA lista en app; los lectores
 # (estado_quota y el endpoint de /salud) la recorren. kind nuevo = decision
 # nueva del dueno (sellado 8), aca y en el trigger.
-KINDS_QUOTA = ("bid", "pause", "negative", "harvest")
+KINDS_QUOTA = ("bid", "pause", "negative", "harvest", "ubicacion")
 
 # apply_quota_state.cap es INTEGER (0001:823) y el trigger apply_cap_de_config
 # castea ::INTEGER (0039:1175): un cap que no cabe ahi revienta el INSERT de la
