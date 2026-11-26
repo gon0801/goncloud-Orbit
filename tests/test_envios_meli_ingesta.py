@@ -358,6 +358,55 @@ def test_devuelto_es_terminal_y_sin_devolucion_sigue_abierto(base):
 
 
 @_skip_db
+def test_tope_relectura_90_dias_y_fallo_viejo_no_baja_ok(base):
+    conn, dsn = base
+    _sembrar(
+        conn,
+        [
+            # Mas de 90 dias: deja de releerse por completo.
+            _previo("851", "shipped", pedido_creado_el=AHORA - timedelta(days=91)),
+            # En el borde de 90 dias: aun se relee.
+            _previo("852", "shipped", pedido_creado_el=AHORA - timedelta(days=90)),
+            # Abierto de 45 dias (>30d): si falla su GET, se anota sin bajar ok.
+            _previo("853", "shipped", pedido_creado_el=AHORA - timedelta(days=45)),
+        ],
+    )
+    falso = MeliFalso(
+        paginas=[[_orden(1854, 854)]],
+        envios={
+            "852": _envio(852, "delivered"),
+            "853": 500,
+            "854": _envio(854, "shipped"),
+        },
+    )
+
+    resultado = _correr(dsn, falso)
+
+    assert "851" not in falso.leidos
+    assert falso.leidos == ["852", "853", "853", "853", "854"]
+    assert (resultado.ok, resultado.escritos, resultado.omitidos) == (True, 2, 1)
+    assert resultado.skip_reason == "1x envio_viejo_no_leido"
+    (corrida,) = _corridas(conn)[-1:]
+    assert (corrida["ok"], corrida["rows_written"], corrida["rows_skipped"]) == (True, 2, 1)
+    assert corrida["skip_reason"] == "1x envio_viejo_no_leido"
+
+    # Un 401 en un envio viejo (>30d) sigue abortando la corrida completa.
+    vencido = MeliFalso(paginas=[], envios={"853": 401})
+    with pytest.raises(meli_ingesta.PaseVencidoError):
+        _correr(dsn, vencido, ahora=AHORA + timedelta(hours=4))
+    assert _corridas(conn)[-1]["ok"] is False
+
+    # Un abierto reciente (<=30d) que falla si baja ok aunque no salga en busqueda.
+    _sembrar(conn, [_previo("855", "shipped", pedido_creado_el=AHORA - timedelta(days=20))])
+    fallo_reciente = MeliFalso(paginas=[], envios={"853": 500, "854": _envio(854), "855": 500})
+    res_reciente = _correr(dsn, fallo_reciente, ahora=AHORA + timedelta(hours=8))
+    assert res_reciente.ok is False
+    assert res_reciente.skip_reason == (
+        "1x envio_no_leido, 1x envio_sin_cambio, 1x envio_viejo_no_leido"
+    )
+
+
+@_skip_db
 def test_releer_abierto_sin_cambios_no_inserta_fila(base):
     conn, dsn = base
     ordenes = [_orden(1802, 801, pack=9801), _orden(1801, 801, pack=9801)]
