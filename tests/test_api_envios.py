@@ -538,6 +538,9 @@ def test_pantalla_envios_html_y_etiquetas(monkeypatch):
 
         assert 'href="/envios"' in html
         assert 'id="envios-contador"' in html
+        assert 'class="tab tab-activo" href="/envios" aria-current="page"' in html
+        assert 'data-rol="envios"' in html
+        assert 'class="tab tab-activo" href="/reputacion"' not in html
         assert "Amazon MX · Amazon US · Mercado Libre" in _texto_visible(
             re.search(r'<span class="alcance">.*?</span>', html, re.S)[0]
         )
@@ -582,9 +585,11 @@ async function corre(respuesta) {
     setAttribute(k, v) { this.attrs[k] = v; }, replaceChildren() {}, append() {} });
   ["propuestas-contador", "envios-contador", "ciclo-resumen", "watermark-resumen"]
     .forEach(id => { nodos[id] = nodo(); });
+  const movil = nodo();
   let listo;
   global.document = { addEventListener(_, f) { listo = f; },
-    getElementById(id) { return nodos[id] || null; }, querySelectorAll() { return []; } };
+    getElementById(id) { return nodos[id] || null; },
+    querySelectorAll(sel) { return sel === '[data-rol="envios"]' ? [movil] : []; } };
   global.Orbit = { async getJson(url) {
     if (url === "/api/envios/contador") return respuesta;
     return { ok: true, jsonOk: true, data: {} };
@@ -592,15 +597,21 @@ async function corre(respuesta) {
   vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
   listo();
   await new Promise(r => setImmediate(r));
-  return nodos["envios-contador"];
+  return { sidebar: nodos["envios-contador"], movil };
 }
 (async () => {
   const tres = await corre({ ok: true, jsonOk: true, data: { atencion: 3 } });
-  assert.equal(tres.hidden, false);
-  assert.equal(tres.textContent, "3");
-  assert.equal(tres.attrs["aria-label"], "Envíos que requieren atención: 3");
-  assert.equal((await corre({ ok: true, jsonOk: true, data: { atencion: 0 } })).hidden, true);
-  assert.equal((await corre({ ok: false, jsonOk: false })).hidden, true);
+  for (const n of [tres.sidebar, tres.movil]) {
+    assert.equal(n.hidden, false);
+    assert.equal(n.textContent, "3");
+    assert.equal(n.attrs["aria-label"], "Envíos que requieren atención: 3");
+  }
+  const cero = await corre({ ok: true, jsonOk: true, data: { atencion: 0 } });
+  assert.equal(cero.sidebar.hidden, true);
+  assert.equal(cero.movil.hidden, true);
+  const error = await corre({ ok: false, jsonOk: false });
+  assert.equal(error.sidebar.hidden, true);
+  assert.equal(error.movil.hidden, true);
 })().catch(e => { console.error(e); process.exit(1); });
 """
     r = subprocess.run(

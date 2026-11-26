@@ -100,7 +100,12 @@ _MELI: dict[str, tuple[Estado, dict[str, Estado]]] = {
     "handling": ("por_despachar", {}),
     "ready_to_ship": (
         "por_despachar",
-        {"dropped_off": "en_camino", "picked_up": "en_camino"},
+        {
+            "dropped_off": "en_camino",
+            "picked_up": "en_camino",
+            "in_packing_list": "en_camino",
+            "in_hub": "en_camino",
+        },
     ),
     "shipped": (
         "en_camino",

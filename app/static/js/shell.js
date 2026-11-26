@@ -80,7 +80,11 @@ document.addEventListener("DOMContentLoaded", function () {
   if (enviosContador) {
     leer("/api/envios/contador").then(datos => {
       const total = Number(datos.atencion) || 0;
-      if (total > 0) pintarBadge(enviosContador, total, "Envíos que requieren atención: " + total);
+      const etiqueta = "Envíos que requieren atención: " + total;
+      if (total > 0) {
+        pintarBadge(enviosContador, total, etiqueta);
+        badges("envios").forEach(function (nodo) { pintarBadge(nodo, total, etiqueta); });
+      }
     }).catch(() => {});
   }
 });

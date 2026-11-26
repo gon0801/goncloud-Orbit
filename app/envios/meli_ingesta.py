@@ -48,6 +48,7 @@ SOURCE = "envios_meli"
 PLATAFORMA = "meli"
 LIMITE_PAGINA = 50
 MAX_PAGINAS_DEFAULT = 100
+DIAS_TOPE_RELECTURA = 90
 
 # Regla unica de envio terminal (no se relee). Un `not_delivered` sin
 # devolucion, un estado nulo o uno desconocido siguen abiertos.
@@ -58,6 +59,12 @@ _SQL_TERMINAL = """coalesce(
 _SQL_ABIERTOS = f"""
 SELECT * FROM v_envio_actual
  WHERE platform = 'meli' AND NOT {_SQL_TERMINAL}
+"""
+_SQL_ABIERTOS_DESDE = f"""
+SELECT * FROM v_envio_actual
+ WHERE platform = 'meli'
+   AND NOT {_SQL_TERMINAL}
+   AND COALESCE(pedido_creado_el, observed_at) >= %s
 """
 _SQL_CERRADOS = f"""
 SELECT envio_ref FROM v_envio_actual
@@ -157,15 +164,21 @@ def _armar(clase: type, fila: dict, **ya_armados: object):
     return clase(**{n: ya_armados[n] if n in ya_armados else fila[n] for n in nombres})
 
 
-def envios_abiertos(conn: psycopg.Connection) -> dict[str, EnvioObservado]:
+def envios_abiertos(
+    conn: psycopg.Connection, *, desde: dt.datetime | None = None
+) -> dict[str, EnvioObservado]:
     """Ultima observacion de cada envio de Mercado Libre que aun se relee.
 
     Solo la fuente mueve un envio a terminal: al reportar en una lectura que se
     guarda `delivered`, `cancelled`, o `not_delivered` con fecha de devolucion.
-    No hay tope por antiguedad ni por numero de relecturas.
+    Con `desde`, corta relecturas de envios abiertos mas viejos que el tope
+    (`COALESCE(pedido_creado_el, observed_at) >= desde`).
     """
     with conn.transaction(), cursor_dict(conn) as cur:
-        filas = cur.execute(_SQL_ABIERTOS).fetchall()
+        if desde is None:
+            filas = cur.execute(_SQL_ABIERTOS).fetchall()
+        else:
+            filas = cur.execute(_SQL_ABIERTOS_DESDE, (desde,)).fetchall()
         paquetes: dict[int, list[PaqueteObservado]] = {}
         for fila in cur.execute(_SQL_PAQUETES, ([f["id"] for f in filas],)).fetchall():
             paquetes.setdefault(fila["envio_obs_id"], []).append(_armar(PaqueteObservado, fila))
@@ -191,8 +204,14 @@ def _leer_envios(
     refs: list[str],
     traducir: Callable[[str, dict], EnvioObservado],
     saltos: Counter,
+    *,
+    viejos: frozenset[str] | set[str] = frozenset(),
 ) -> list[EnvioObservado]:
-    """Un envio que falla se cuenta y no tumba a los demas; un 401 aborta todo."""
+    """Un envio que falla se cuenta y no tumba a los demas; un 401 aborta todo.
+
+    Los envios abiertos con mas de 30 dias (`viejos`) cuentan bajo
+    `envio_viejo_no_leido` para quedar registrados sin tumbar `ok`.
+    """
     leidos: list[EnvioObservado] = []
     for ref in refs:
         try:
@@ -200,8 +219,9 @@ def _leer_envios(
         except PaseVencidoError:
             raise
         except ReputacionError as exc:
-            saltos["envio_no_leido"] += 1
-            logger.warning("envios_meli: envio %s no leido: %s", ref, exc)
+            clave = "envio_viejo_no_leido" if ref in viejos else "envio_no_leido"
+            saltos[clave] += 1
+            logger.warning("envios_meli: envio %s no leido (%s): %s", ref, clave, exc)
             continue
         try:
             envio = traducir(ref, crudo)
@@ -226,29 +246,43 @@ def ejecutar_ingesta(
     ahora: dt.datetime | None = None,
     max_paginas: int = MAX_PAGINAS_DEFAULT,
 ) -> ResultadoIngestaMeli:
-    """Una corrida completa. `ok=False` si quedo algun envio sin leer o la
-    busqueda incompleta; lo que si se leyo queda escrito."""
+    """Una corrida completa. `ok=False` si quedo algun envio reciente sin leer o
+    la busqueda incompleta; lo que si se leyo queda escrito.
+
+    Los envios abiertos de mas de `DIAS_TOPE_RELECTURA` dias dejan de releerse,
+    y un fallo de lectura sobre un envio abierto de mas de `DIAS_SEGUIMIENTO`
+    dias queda en `skip_reason` (`envio_viejo_no_leido`) sin bajar `ok`.
+    """
     momento = ahora or dt.datetime.now(dt.UTC)
+    desde_ventana = momento - dt.timedelta(days=DIAS_SEGUIMIENTO)
+    desde_relectura = momento - dt.timedelta(days=DIAS_TOPE_RELECTURA)
     with conn.transaction():
         run_id = abrir_run(conn, SOURCE, platform=PLATAFORMA)
     saltos: Counter = Counter()
     try:
         hallado = descubrir_ordenes(
             cliente,
-            desde=momento - dt.timedelta(days=DIAS_SEGUIMIENTO),
+            desde=desde_ventana,
             max_paginas=max_paginas,
         )
         saltos.update(hallado.saltos)
-        abiertos = envios_abiertos(conn)
+        abiertos = envios_abiertos(conn, desde=desde_relectura)
         cerrados = _envios_cerrados(conn, list(hallado.envios))
         por_leer = sorted((hallado.envios.keys() - cerrados) | abiertos.keys())
+        viejos = {
+            ref
+            for ref, envio in abiertos.items()
+            if ref not in hallado.envios
+            and envio.pedido_creado_el is not None
+            and envio.pedido_creado_el < desde_ventana
+        }
 
         def traducir(ref: str, crudo: dict) -> EnvioObservado:
             if ref in hallado.envios:
                 return envio_desde_meli(hallado.envios[ref], crudo)
             return envio_actualizado_desde_meli(abiertos[ref], crudo)
 
-        envios = _leer_envios(cliente, por_leer, traducir, saltos)
+        envios = _leer_envios(cliente, por_leer, traducir, saltos, viejos=viejos)
         with conn.transaction():
             escritos, sin_cambio = envios_store.guardar(
                 conn, envios, observed_at=momento, run_id=run_id

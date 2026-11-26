@@ -1574,7 +1574,7 @@ def test_ui_cortes_sin_hermanas_no_nombra_nada():
 
 
 def test_ui_menu_movil_es_tab_bar_no_drawer():
-    """El menu movil es una tab bar de 7 destinos, no el sidebar en overlay.
+    """El menu movil es una tab bar de 8 destinos, no el sidebar en overlay.
 
     Falla contra el drawer con boton Menu/Cerrar menu y secciones PANEL.
     """
@@ -1587,10 +1587,11 @@ def test_ui_menu_movil_es_tab_bar_no_drawer():
     assert "Cerrar menu" not in js
     assert 'id="nav-toggle"' not in html
     assert 'class="tab-bar"' in html
-    assert html.count('class="tab-label"') == 7
+    assert html.count('class="tab-label"') == 8
     assert ">Resumen<" in html
     assert ">Contribucion<" in html
     assert ">Reputacion<" in html
+    assert ">Envíos<" in html
     assert ">Decisiones<" in html
     assert ">Campañas<" in html
     assert ">Settings<" in html
@@ -1602,6 +1603,7 @@ def test_ui_menu_movil_es_tab_bar_no_drawer():
     assert 'href="/"' in html
     assert 'href="/contribucion"' in html
     assert 'href="/reputacion"' in html
+    assert 'href="/envios"' in html
     assert 'href="/decisiones"' in html
     assert 'href="/campanas"' in html
     assert 'href="/settings"' in html

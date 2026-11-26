@@ -363,6 +363,8 @@ def test_amazon_sin_paquetes(estado_fuente, estado):
         ("ready_to_ship", None, "por_despachar", None),
         ("ready_to_ship", "dropped_off", "en_camino", None),
         ("ready_to_ship", "picked_up", "en_camino", None),
+        ("ready_to_ship", "in_packing_list", "en_camino", None),
+        ("ready_to_ship", "in_hub", "en_camino", None),
         ("ready_to_ship", "delayed", "por_despachar", "despacho_vencido"),
         ("ready_to_ship", "stale", "por_despachar", "despacho_vencido"),
         ("shipped", None, "en_camino", None),
@@ -391,9 +393,13 @@ def test_meli_estados_y_excepciones(status, substatus, estado, motivo):
 
 
 def test_meli_entregado_a_agencia_ignora_plazo_de_despacho_vencido():
-    assert _meli(
-        "ready_to_ship", "dropped_off", despachar_antes_de=VENCIDO, entrega_prometida_el=VIGENTE
-    ) == Clasificacion("en_camino", "meli_envios", None)
+    for subestado in ("dropped_off", "in_packing_list", "in_hub"):
+        assert _meli(
+            "ready_to_ship", subestado, despachar_antes_de=VENCIDO, entrega_prometida_el=VIGENTE
+        ) == Clasificacion("en_camino", "meli_envios", None)
+        assert _meli("ready_to_ship", subestado, entrega_prometida_el=VENCIDO) == Clasificacion(
+            "en_camino", "meli_envios", "entrega_vencida"
+        )
 
 
 def test_meli_plazo_de_despacho_vencido():

@@ -5,7 +5,7 @@ Envíos muestra los pedidos de los últimos 30 días de Amazon MX, Amazon US y M
 ## Sub-features
 
 - `envios-nav` abre `/envios` desde el grupo Catalogo (después de Reputacion) y marca `aria-current="page"`. El header dice `Amazon MX · Amazon US · Mercado Libre` (`span.alcance`) y el subtítulo `Pedidos de los últimos 30 días y dónde va cada envío · solo consulta`.
-- `envios-contador` `span#envios-contador` en el menú: `shell.js` lo llena desde `GET /api/envios/contador`. Solo aparece cuando hay envíos que requieren atención; en cero o con error queda oculto.
+- `envios-contador` `span#envios-contador` en el sidebar y `[data-rol="envios"]` en la barra móvil: `shell.js` los llena desde `GET /api/envios/contador`. Solo aparecen cuando hay envíos que requieren atención; en cero o con error quedan ocultos.
 - `envios-lecturas` `p#envios-lecturas`: la última lectura correcta por mercado (`Amazon MX: 24 nov, 22:00` o `sin lectura correcta`) con el chip `Atrasada` si pasó más de 8 h o nunca hubo.
 - `envios-atraso` `p#envios-atraso` (solo si algún mercado está atrasado): `Lectura atrasada: Amazon US, Mercado Libre. …`. Las demoras de ese mercado se calculan solo hasta su última lectura.
 - `envios-vistas` `nav[aria-label="Vistas"]`: `Requieren atención (N)`, `En curso (N)` (por defecto), `Cerrados (N)`, `Todos (N)`. Los conteos no cambian con los filtros.
@@ -17,7 +17,7 @@ Envíos muestra los pedidos de los últimos 30 días de Amazon MX, Amazon US y M
 
 ## How to get to it (user POV)
 
-- Elegir `Envíos` en el sidebar (`<a href="/envios">`). En el teléfono el sidebar no se muestra y la barra inferior no tiene destino propio: se entra por la dirección `/envios` y se resalta el destino Reputacion.
+- Elegir `Envíos` en el sidebar (`<a href="/envios">`) o el tab `Envíos` en la barra inferior móvil (`nav.tab-bar a[href="/envios"]`, con contador `[data-rol="envios"]`), que se marca activo con `aria-current="page"`.
 
 ## Driving it with curl
 
