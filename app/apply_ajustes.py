@@ -398,7 +398,7 @@ def _aplica_y_confirma(
     except AdsClientError as exc:
         conn.rollback()
         if put_enviado:
-            raise ErrorTrasPut(str(exc)) from None
+            raise ErrorTrasPut(exc) from None
         raise
     except BaseException:
         conn.rollback()

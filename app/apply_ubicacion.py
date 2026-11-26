@@ -326,8 +326,9 @@ def aplica_automaticos(
         except AdsClientError:
             descarta(eval_id, MOTIVO_ERROR_PUT)
         except (OrbitDbError, psycopg.Error):
-            # La base fallo sin poder distinguir si el PUT salio: pendiente.
-            pass
+            # La base fallo sin poder distinguir si el PUT salio: no se marca
+            # no aplicado y se aborta la fase para que el ciclo sea recuperable.
+            raise
         finally:
             if conexion is not None:
                 conexion.close()

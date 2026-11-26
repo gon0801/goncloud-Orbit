@@ -13,6 +13,7 @@ from test_schema import _postgres_obligatorio_ausente
 from app.ads.campana_config import ConfigCampana, cuerpo_put_campana, guarda_config
 from app.ads.client import AdsApiError
 from app.ads.write import AdsApiErrorMutacion
+from app.db import OrbitDbError
 from app.apply_ajustes import aplica_ajuste_motor
 from app.apply_ubicacion import aplica_automaticos, reconcilia_automaticos
 from app.campana_ajustes import CambiarAjusteUbicacion
@@ -597,3 +598,23 @@ def test_put_500_ambiguo_no_se_marca_no_aplicado_y_4xx_si():
         )
         resumen = _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=rechazo))
         assert resumen.sin_aplicar == ((eval_id, "error_put"),)
+
+
+@_skip_db
+def test_fallo_de_base_aborta_la_fase_y_no_marca_no_aplicado():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        with pytest.raises(OrbitDbError):
+            aplica_automaticos(
+                conn,
+                dsn=dsn,
+                cliente=ClienteFalso(_config(0), _config(15)),
+                platform="amazon_mx",
+                cycle_id=ciclo,
+                settings=_settings(),
+                abrir_conexion=lambda: (_ for _ in ()).throw(OrbitDbError("sin base")),
+            )
+        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 0
