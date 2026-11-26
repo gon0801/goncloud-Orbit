@@ -8,7 +8,12 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from app.envios.estado import AMAZON_CONFIRMA_ENTREGA, Clasificacion, clasificar
+from app.envios.estado import (
+    AMAZON_CONFIRMA_ENTREGA,
+    Clasificacion,
+    clasificar,
+    fecha_limite,
+)
 from app.envios.modelo import (
     DIAS_SEGUIMIENTO,
     Articulo,
@@ -20,6 +25,8 @@ from app.envios.modelo import (
 AHORA = datetime(2026, 11, 25, 12, 0, tzinfo=UTC)
 VENCIDO = AHORA - timedelta(days=1)
 VIGENTE = AHORA + timedelta(days=1)
+DESPACHO = datetime(2026, 11, 20, 10, 0, tzinfo=UTC)
+ENTREGA = datetime(2026, 11, 22, 10, 0, tzinfo=UTC)
 
 
 def envio_de_prueba(**cambios) -> EnvioObservado:
@@ -461,6 +468,28 @@ def test_meli_full_nunca_pide_atencion(status, substatus):
 # ---------------------------------------------------------------------------
 # Desconocidos, fechas ausentes y reloj inyectado
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("estado", "limite"),
+    [
+        ("pendiente", DESPACHO),
+        ("por_despachar", DESPACHO),
+        ("en_camino", ENTREGA),
+        ("en_reparto", ENTREGA),
+        ("problema", ENTREGA),
+        ("en_devolucion", ENTREGA),
+        ("esperando_recoleccion", None),
+        ("enviado_sin_confirmacion", None),
+        ("sin_clasificar", None),
+        ("entregado", None),
+        ("devuelto", None),
+        ("cancelado", None),
+    ],
+)
+def test_fecha_limite_solo_donde_corre_un_plazo(estado, limite):
+    envio = envio_de_prueba(despachar_antes_de=DESPACHO, entrega_prometida_el=ENTREGA)
+    assert fecha_limite(envio, estado) == limite
 
 
 def test_desconocido_fechas_none_y_reloj_congelado():

@@ -59,6 +59,15 @@ class EnvioObservado:
     paquetes: tuple[PaqueteObservado, ...]
 
 
+def texto_de_fuente(valor: object) -> str | None:
+    """Texto crudo de la fuente listo para guardar; vacio o no texto es `None`."""
+    if not isinstance(valor, str):
+        return None
+    # Postgres no admite NUL ni sustitutos sueltos: uno solo tumbaria el lote.
+    limpio = valor.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
+    return limpio.strip() or None
+
+
 def _json(valor: object) -> str:
     return json.dumps(valor, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 

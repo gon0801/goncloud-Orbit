@@ -12,10 +12,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from app.envios.modelo import Articulo, EnvioObservado, PaqueteObservado
+from app.envios.modelo import Articulo, EnvioObservado, PaqueteObservado, texto_de_fuente
 
 if TYPE_CHECKING:
     from app.spapi.orders import OrdenParseada
+
+_texto = texto_de_fuente
 
 
 def _objeto(valor: object) -> dict:
@@ -24,10 +26,6 @@ def _objeto(valor: object) -> dict:
 
 def _objetos(valor: object) -> list[dict]:
     return [v for v in valor if isinstance(v, dict)] if isinstance(valor, list) else []
-
-
-def _texto(valor: object) -> str | None:
-    return (valor.strip() or None) if isinstance(valor, str) else None
 
 
 def _fecha(valor: object) -> datetime | None:

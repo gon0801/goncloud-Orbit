@@ -40,13 +40,15 @@ ML_ENTREGADO = "44000000002"
 ML_ATRASADO = "44000000003"
 
 # Atencion primero y, dentro de cada grupo, el plazo mas proximo; sin plazo al final.
+# Enviado sin confirmacion y esperando recoleccion no tienen plazo: quedan junto
+# al cerrado, desempatados por plataforma y referencia (misma fecha de pedido).
 ORDEN_TODOS = [
     US_SIN_DESPACHAR,
     MX_DEVOLUCION,
     ML_ATRASADO,
+    MX_FBA,
     US_DHL,
     ML_RECOGER,
-    MX_FBA,
     ML_ENTREGADO,
 ]
 
@@ -302,6 +304,54 @@ def test_api_envios_pagina_de_50(monkeypatch):
         segunda = cliente.get("/envios?plataforma=meli&page=2").text
         assert 'href="/envios?vista=en_curso&amp;plataforma=meli"' in segunda
         assert re.findall(r'data-envio="(\d+)"', segunda) == ["55000051"]
+
+
+@_skip_db
+def test_por_despachar_no_queda_bajo_los_enviados_sin_confirmacion(monkeypatch):
+    # Poblacion de la sonda: los enviados sin confirmacion nunca cierran y su
+    # fecha de entrega ya paso.
+    with _base(monkeypatch) as (conn, cliente):
+        run = _corrida(conn, "spapi_orders", "amazon_us", 1 * H)
+        enviados_us = [
+            _envio(
+                f"111-{n:07d}-0000000",
+                platform="amazon_us",
+                estado_fuente="SHIPPED",
+                entrega_prometida_el=AHORA - 10 * D,
+                paquetes=(_paquete("1", transportista="DHL", estado_fuente="SHIPPED"),),
+            )
+            for n in range(40)
+        ]
+        enviados_fba = [
+            _envio(
+                f"701-{n:07d}-0000000",
+                logistica_fuente="AMAZON",
+                estado_fuente="SHIPPED",
+                entrega_prometida_el=AHORA - 8 * D,
+            )
+            for n in range(14)
+        ]
+        por_despachar = [
+            _envio(
+                f"111-9999999-000000{n}",
+                platform="amazon_us",
+                estado_fuente="UNSHIPPED",
+                despachar_antes_de=AHORA + n * H,
+                entrega_prometida_el=AHORA + 5 * D,
+            )
+            for n in (1, 2, 3)
+        ]
+        envios = enviados_us + enviados_fba + por_despachar
+        guardar(conn, envios, observed_at=AHORA - H, run_id=run)
+
+        primera = cliente.get("/api/envios").json()
+        assert (primera["total"], primera["paginas"]) == (57, 2)
+        assert primera["resumen"]["atencion"] == 0
+        assert [e["envio_ref"] for e in primera["envios"][:3]] == [
+            "111-9999999-0000001",
+            "111-9999999-0000002",
+            "111-9999999-0000003",
+        ]
 
 
 @pytest.mark.parametrize(

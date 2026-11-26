@@ -155,13 +155,15 @@ def _estado_meli(envio: EnvioObservado) -> Estado:
 
 
 def fecha_limite(envio: EnvioObservado, estado: Estado) -> datetime | None:
-    """El plazo que corre en ese estado: despachar antes de salir, entregar
-    despues. Un envio cerrado ya no tiene plazo."""
+    """El plazo que corre en ese estado: despachar antes de salir; entregar en
+    ruta, con problema o en devolucion. En los demas no corre ninguno: los
+    enviados sin confirmacion nunca cierran y su fecha vieja enterraria lo
+    pendiente."""
     if estado in ("pendiente", "por_despachar"):
         return envio.despachar_antes_de
-    if estado in ESTADOS_CERRADOS:
-        return None
-    return envio.entrega_limite_el or envio.entrega_prometida_el
+    if estado in ("en_camino", "en_reparto", "problema", "en_devolucion"):
+        return envio.entrega_limite_el or envio.entrega_prometida_el
+    return None
 
 
 def _vencido(limite: datetime | None, juzgado_al: datetime) -> bool:

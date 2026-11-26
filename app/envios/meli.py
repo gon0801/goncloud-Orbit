@@ -13,7 +13,9 @@ from collections.abc import Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from app.envios.modelo import Articulo, EnvioObservado, PaqueteObservado
+from app.envios.modelo import Articulo, EnvioObservado, PaqueteObservado, texto_de_fuente
+
+_texto = texto_de_fuente
 
 
 class EnvioIlegible(ValueError):
@@ -26,14 +28,6 @@ def _objeto(valor: object) -> dict:
 
 def _objetos(valor: object) -> list[dict]:
     return [v for v in valor if isinstance(v, dict)] if isinstance(valor, list) else []
-
-
-def _texto(valor: object) -> str | None:
-    if not isinstance(valor, str):
-        return None
-    # Postgres no admite NUL ni sustitutos sueltos: uno solo tumbaria el lote.
-    limpio = valor.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
-    return limpio.strip() or None
 
 
 def _id(valor: object) -> str | None:

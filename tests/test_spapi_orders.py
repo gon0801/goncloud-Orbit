@@ -1083,6 +1083,74 @@ def test_orders_una_llamada_llena_resumen_y_envio_sin_inflar_resumenes(caplog):
 
 
 @_skip_db
+@pytest.mark.parametrize(
+    ("campo", "sucio", "limpio"),
+    [
+        ("titulo", "Pie\u0000za", "Pieza"),
+        ("guia", "GUIA\u0000-1", "GUIA-1"),
+        ("sku", "SKU\ud800-1", "SKU?-1"),
+        ("transportista", "AM\u0000ZMX", "AMZMX"),
+    ],
+)
+def test_texto_que_postgres_no_admite_se_guarda_limpio(campo, sucio, limpio):
+    # Resumen y envio comparten transaccion: un solo texto ilegible frenaria
+    # tambien los resumenes en cada corrida de la ventana.
+    textos = {
+        "titulo": "Pieza",
+        "guia": "GUIA-1",
+        "sku": "SKU-1",
+        "transportista": "AMZMX",
+    } | {campo: sucio}
+    orden = _resumen(
+        "MX-N",
+        createdTime="2026-09-07T10:00:00Z",
+        lastUpdatedTime="2026-09-07T11:00:00Z",
+        orderItems=[
+            {
+                "quantityOrdered": 1,
+                "product": {"title": textos["titulo"], "sellerSku": textos["sku"]},
+            }
+        ],
+        packages=[
+            {
+                "packageReferenceId": "1",
+                "carrier": textos["transportista"],
+                "trackingNumber": textos["guia"],
+            }
+        ],
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "api.amazon.com":
+            return httpx.Response(200, json={"access_token": _TOKEN_LWA, "expires_in": 3600})
+        # Con escapes ASCII, como puede mandarlo la API: admite sustitutos sueltos.
+        cuerpo = json.dumps({"payload": {"orders": [orden]}}).encode("ascii")
+        return httpx.Response(200, content=cuerpo)
+
+    cliente = SpapiClient(
+        credentials=CRED,
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _s: None,
+        clock=lambda: 1000.0,
+    )
+    with db_orders() as conn:
+        resultado = orders.ejecutar_ingesta(conn, cliente, platform="amazon_mx", ahora=AHORA)
+        assert (resultado.ok, resultado.escritas, resultado.envios_escritos) == (True, 1, 1)
+        assert conn.execute("SELECT amazon_order_id FROM spapi_order_observation").fetchall() == [
+            ("MX-N",)
+        ]
+        fila = conn.execute(
+            "SELECT e.articulos->0->>'titulo', p.guia, e.articulos->0->>'sku', p.transportista"
+            " FROM envio_observation e"
+            " JOIN envio_paquete_observation p ON p.envio_obs_id = e.id"
+        ).fetchone()
+        assert (
+            dict(zip(("titulo", "guia", "sku", "transportista"), fila, strict=True))[campo]
+            == limpio
+        )
+
+
+@_skip_db
 def test_fallo_al_escribir_envios_revierte_tambien_los_resumenes():
     # Resumen y envio van en la misma transaccion: si avanzara solo el resumen,
     # el maximo observado dejaria atras pedidos sin envio.
