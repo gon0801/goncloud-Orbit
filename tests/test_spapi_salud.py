@@ -28,6 +28,7 @@ from app import notifica
 from app.spapi import inventario, listings, orders, pricing
 from app.spapi.client import SpapiAuthError, SpapiClient, SpapiRechazoLWA, prefijo_motivo
 from app.spapi.salud import FUENTES_SPAPI, bloque_salud, evaluar_alertas
+from app.ui_salud import vista_salud
 
 ROOT = Path(__file__).resolve().parents[1]
 ORDEN = (
@@ -988,6 +989,69 @@ def test_ui_salud_renderiza_spapi(monkeypatch):
         assert celdas[2] == "2", celdas
         assert celdas[3] == "2x duplicada", celdas
         assert "sin corridas" in mx
+
+
+def _sello(rows_skipped, skip_reason, *, ok=True):
+    ultima = {"id": 1, "ok": ok, "rows_written": 3}
+    ultima |= {"rows_skipped": rows_skipped, "skip_reason": skip_reason}
+    return {"ultima": ultima, "ultima_429": None, "ultimo_lwa": None}
+
+
+def _salud_spapi(**fuentes):
+    """(chequeo SP-API de la tarjeta, filas del detalle) para una plataforma."""
+    vista = vista_salud({"amazon_mx": {"spapi": fuentes}}, None, "amazon_mx")["plataformas"][0]
+    chequeo = next(c for c in vista["checks"] if c["label"] == "SP-API")
+    return chequeo, vista["spapi"]
+
+
+# Sello literal de una corrida normal de spapi_orders (ENVIOS 01).
+_SOLO_ESPERADOS = "3x envio_sin_cambio, 2x resumen_ya_cubierto"
+
+
+def test_ui_salud_saltos_esperados_no_pintan_ambar():
+    chequeo, filas = _salud_spapi(spapi_orders=_sello(5, _SOLO_ESPERADOS))
+    assert chequeo["tono"] == "ok"
+    # El numero que se muestra sigue siendo el total.
+    assert chequeo["valor"] == "1 de 1 fuentes ok · 5 filas saltadas"
+    assert filas[0]["saltadas"] == "5"
+    assert filas[0]["saltadas_aviso"] is False
+
+
+@pytest.mark.parametrize(
+    "saltadas,motivo",
+    [
+        (6, "3x envio_sin_cambio, 2x resumen_ya_cubierto, 1x sin_identidad"),
+        (6, "3x envio_sin_cambio, 2x resumen_ya_cubierto, 1x tiempo_incoherente"),
+        (5, None),
+        (5, ""),
+        (5, "texto libre"),
+        (5, "3x envio_sin_cambio, 2x resumen_ya_cu"),
+        (5, "3x envio_sin_cambio_raro, 2x resumen_ya_cubierto"),
+        # El motivo no cuadra con el total: no se puede leer.
+        (1, _SOLO_ESPERADOS),
+    ],
+)
+def test_ui_salud_salto_inesperado_o_ilegible_pinta_ambar(saltadas, motivo):
+    chequeo, filas = _salud_spapi(spapi_orders=_sello(saltadas, motivo))
+    assert chequeo["tono"] == "aviso"
+    assert filas[0]["saltadas_aviso"] is True
+
+
+def test_ui_salud_saltos_esperados_no_tapan_otra_fuente():
+    chequeo, filas = _salud_spapi(
+        spapi_orders=_sello(5, _SOLO_ESPERADOS),
+        spapi_pricing=_sello(1, "1x http_404"),
+    )
+    assert chequeo["tono"] == "aviso"
+    assert chequeo["valor"] == "2 de 2 fuentes ok · 6 filas saltadas"
+    assert [f["saltadas_aviso"] for f in filas] == [False, True]
+
+
+def test_ui_salud_paginacion_incompleta_sigue_ambar_sin_marcar_esperados():
+    motivo = "paginacion_incompleta:next_token_repetido; 2x resumen_ya_cubierto"
+    chequeo, filas = _salud_spapi(spapi_orders=_sello(2, motivo, ok=False))
+    assert chequeo["tono"] == "aviso"
+    assert filas[0]["saltadas_aviso"] is False
 
 
 @_skip_db

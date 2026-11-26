@@ -48,7 +48,7 @@ import psycopg
 from app.envios import store as envios_store
 from app.envios.amazon import envio_desde_orden
 from app.envios.modelo import DIAS_SEGUIMIENTO
-from app.ingest_run import formato_skip_reason
+from app.ingest_run import SALTO_ENVIO_SIN_CAMBIO, SALTO_RESUMEN_CUBIERTO, formato_skip_reason
 from app.redaction import install_scrub_filter
 from app.spapi._ingesta import (
     abrir_run_spapi,
@@ -425,7 +425,7 @@ def ejecutar_ingesta(
                     continue
                 envios.append(envio_desde_orden(cruda, platform=platform, orden=orden))
                 if corte is not None and orden.last_updated_time < corte:
-                    skips["resumen_ya_cubierto"] += 1
+                    skips[SALTO_RESUMEN_CUBIERTO] += 1
                     continue
                 cur = conn.execute(
                     _SQL_INSERTAR,
@@ -444,7 +444,7 @@ def ejecutar_ingesta(
             envios_escritos, envios_sin_cambio = envios_store.guardar(
                 conn, envios, observed_at=momento, run_id=run_id
             )
-            skips["envio_sin_cambio"] += envios_sin_cambio
+            skips[SALTO_ENVIO_SIN_CAMBIO] += envios_sin_cambio
             # Paginacion incompleta no es exito: las filas parciales ya se
             # escriben y el siguiente watermark avanza sobre el hueco, asi que
             # ok=False deja rastro en ingest_run para reparar con --desde.
