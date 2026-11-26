@@ -182,7 +182,8 @@ def test_subtitulo_ink3_alcanza_aa_sobre_superficie_en_ambos_temas():
     assert dia is not None and noche is not None and subtitulo is not None
     assert "color: var(--o-ink3)" in subtitulo.group(1)
     for tema in (dia.group(1), noche.group(1)):
-        assert _contraste(_token(tema, "--o-ink3"), _token(tema, "--o-card")) >= 4.5
+        for fondo in ("--o-card", "--o-bg", "--o-bg2"):
+            assert _contraste(_token(tema, "--o-ink3"), _token(tema, fondo)) >= 4.5
 
 
 def test_h1_tiene_24_en_escritorio_y_reduccion_en_movil():

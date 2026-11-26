@@ -1016,7 +1016,21 @@ def _foco_y_ancho(
                     },
                     subnavegacion: [...document.querySelectorAll('.subnavegacion a')].map(
                       enlace => enlace.getBoundingClientRect().height
-                    )
+                    ),
+                    senal: [...document.querySelectorAll('.senal-bloque .action-row')].map(fila => {
+                      const cuerpo = fila.querySelector('.action-body');
+                      if (!cuerpo) return {contenido: 0, disponible: 0, ok: false};
+                      const estilo = getComputedStyle(fila);
+                      const disponible = fila.clientWidth - parseFloat(estilo.paddingLeft) -
+                        parseFloat(estilo.paddingRight);
+                      const contenido = cuerpo.getBoundingClientRect().width;
+                      return {
+                        contenido,
+                        disponible,
+                        columnas: estilo.gridTemplateColumns,
+                        ok: Math.abs(contenido - disponible) <= 1
+                      };
+                    })
                   };
                 })()""",
                 "returnByValue": True,
@@ -1030,6 +1044,7 @@ def _foco_y_ancho(
             "ancho390": anchos,
             "menuMovil": anchos.get("menuMovil", {}),
             "subnavegacion": anchos.get("subnavegacion", []),
+            "senal": anchos.get("senal", []),
             "png": png.is_file() and png.stat().st_size > 0,
         }
         detalle.write_text(json.dumps(salida, indent=2) + "\n", encoding="utf-8")
@@ -2063,6 +2078,19 @@ def cmd_drive_cortes(args: argparse.Namespace) -> None:
     checks["api_sin_asesoria"] = "asesoria_disponible" not in data and not any(
         "asesoria" in i for i in items
     )
+    if 'class="senal-bloque"' in texto:
+        captura = _foco_y_ancho(
+            base + "/cortes",
+            evidence / "04-senal-390.png",
+            evidence / "04-senal.json",
+            con_foco=False,
+        )
+        medidas = captura.get("senal") or []
+        checks["senal_ancho_calculado"] = (
+            captura.get("png") is True
+            and bool(medidas)
+            and all(medida.get("ok") is True for medida in medidas)
+        )
 
     prueba = {
         "feature": "cortes",

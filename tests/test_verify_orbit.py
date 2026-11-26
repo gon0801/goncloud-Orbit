@@ -95,6 +95,49 @@ def test_drives_conducen_el_dashboard_vigente(dashboard, monkeypatch, pantalla):
     assert prueba["ok"] is True
 
 
+def test_drive_cortes_exige_ancho_calculado_de_senal(harness, monkeypatch):
+    harness._save_state({"run_id": "prueba", "base_url": "http://127.0.0.1:18010", "port": 18010})
+    html = """
+    <body data-pantalla="cortes"><h2>Propuestas pendientes de decisión</h2>
+    Crecen Recortan Por que Confirmar rechazo zapato blanco Campana A
+    <button data-vetar="1"></button><form data-veto="1">
+    <input name="dias" value="30"><input name="actor"><input name="token"></form>
+    <div class="senal-bloque"><div class="action-row"><div class="action-body">Señal</div>
+    </div></div></body>
+    """
+    api = {
+        "items": [
+            {
+                "kind": "negative",
+                "search_term": "zapato blanco",
+                "estado": "pending_veto",
+                "nombre": "Campana A",
+            }
+        ]
+    }
+
+    def http(url, timeout=5):
+        if url.endswith("/api/dashboard/cortes"):
+            return 200, {}, json.dumps(api).encode()
+        if url.endswith("/cortes"):
+            return 200, {}, html.encode()
+        return 200, {}, b'<body data-pantalla="resumen"></body>'
+
+    medicion = {"senal": [{"contenido": 28, "disponible": 300, "ok": False}], "png": True}
+    monkeypatch.setattr(harness, "_http", http)
+    monkeypatch.setattr(harness, "_foco_y_ancho", lambda *args, **kwargs: medicion)
+    with pytest.raises(SystemExit):
+        harness.cmd_drive_cortes(argparse.Namespace(run_id="prueba"))
+    prueba = json.loads((harness.EVIDENCE_ROOT / "prueba/cortes/PROOF.json").read_text())
+    assert prueba["checks"]["senal_ancho_calculado"] is False
+
+    medicion["senal"] = [{"contenido": 300, "disponible": 300, "ok": True}]
+    harness.cmd_drive_cortes(argparse.Namespace(run_id="prueba"))
+    prueba = json.loads((harness.EVIDENCE_ROOT / "prueba/cortes/PROOF.json").read_text())
+    assert prueba["checks"]["senal_ancho_calculado"] is True
+    assert prueba["ok"] is True
+
+
 def test_drive_secundarias_recorre_rutas_sin_drive_especifico(dashboard):
     dashboard.cmd_drive_secundarias(argparse.Namespace(run_id="prueba"))
     prueba = json.loads((dashboard.EVIDENCE_ROOT / "prueba/secundarias/PROOF.json").read_text())

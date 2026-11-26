@@ -9,7 +9,7 @@
   --o-borde-h: #d5d8e4;
   --o-ink: #20232d;
   --o-ink2: #656b7a;
-  --o-ink3: #6f7685;
+  --o-ink3: #6b7280;
   --o-ink4: #a8adb9;
   --o-ac: #6673e8;
   --o-ac2: #7c68e9;
@@ -113,6 +113,7 @@ html[data-tema="noche"] {
   border-bottom: 1px solid var(--o-borde2);
 }
 .action-row:last-child { border-bottom: none; }
+.senal-bloque .action-row { grid-template-columns: minmax(0, 1fr); }
 .action-rank {
   width: 24px;
   height: 24px;
