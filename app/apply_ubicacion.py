@@ -219,7 +219,7 @@ def _motivo_error_put(exc: Exception) -> str | None:
         return MOTIVO_ERROR_PUT
     if not getattr(exc, "put_iniciado", False):
         return MOTIVO_ERROR_PUT
-    if status is not None and status < 500 and status != 429:
+    if status is not None and status < 500 and status not in (429, 207):
         return MOTIVO_ERROR_PUT
     return None
 
