@@ -34,7 +34,7 @@ SELECT id, entrada, veredicto, motivo, ubicacion, de_pct, a_pct
   FROM ubicacion_evaluacion
  WHERE politica = %(politica)s
    AND (%(platform)s::platform IS NULL OR platform = %(platform)s::platform)
-   AND (%(desde)s::date IS NULL OR decided_at >= %(desde)s::date)
+   AND (%(desde)s::date IS NULL OR (decided_at AT TIME ZONE 'UTC')::date >= %(desde)s::date)
  ORDER BY id
 """
 
@@ -42,14 +42,16 @@ _SQL_POR_MODO = """
 SELECT modo, count(*),
        count(DISTINCT (decided_at AT TIME ZONE 'UTC')::date) FILTER (WHERE modo = 'shadow')
   FROM ubicacion_evaluacion
- WHERE platform = %s::platform AND decided_at >= %s::date
+ WHERE platform = %s::platform
+   AND (decided_at AT TIME ZONE 'UTC')::date BETWEEN %s::date AND %s::date
  GROUP BY modo
 """
 
 _SQL_MOVER_POR_MOTIVO = """
 SELECT motivo, count(*)
   FROM ubicacion_evaluacion
- WHERE platform = %s::platform AND decided_at >= %s::date AND veredicto = 'mover'
+ WHERE platform = %s::platform AND veredicto = 'mover'
+   AND (decided_at AT TIME ZONE 'UTC')::date BETWEEN %s::date AND %s::date
  GROUP BY motivo
 """
 
@@ -87,13 +89,15 @@ def resumen_practica(conn, platform: str, *, hoy: dt.date, dias: int = 14) -> di
     """Evaluaciones por modo, dias con practica y movimientos por motivo en la
     ventana; la compuerta a `live` pide 14 dias de practica (spec seccion 9)."""
     desde = hoy - dt.timedelta(days=dias - 1)
-    por_modo = conn.execute(_SQL_POR_MODO, (platform, desde)).fetchall()
+    por_modo = conn.execute(_SQL_POR_MODO, (platform, desde, hoy)).fetchall()
     return {
         "platform": platform,
         "desde": desde.isoformat(),
         "evaluaciones": {modo: total for modo, total, _dias in por_modo},
         "dias_en_practica": sum(dias_shadow or 0 for _modo, _total, dias_shadow in por_modo),
-        "mover_por_motivo": dict(conn.execute(_SQL_MOVER_POR_MOTIVO, (platform, desde)).fetchall()),
+        "mover_por_motivo": dict(
+            conn.execute(_SQL_MOVER_POR_MOTIVO, (platform, desde, hoy)).fetchall()
+        ),
     }
 
 

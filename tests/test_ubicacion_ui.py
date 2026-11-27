@@ -106,7 +106,7 @@ def test_salud_incluye_cuota_y_resumen_ubicaciones():
             ],
         )
         datos = leer_salud(
-            conn, hoy_pantalla_fn=lambda: _ANCLA.date(), spapi_salud_fn=lambda *_a, **_k: None
+            conn, hoy_pantalla_fn=lambda *_a: _ANCLA.date(), spapi_salud_fn=lambda *_a, **_k: None
         )
         mx = datos["plataformas"]["amazon_mx"]
         assert mx["quota"]["ubicacion"]["cap"] == 2

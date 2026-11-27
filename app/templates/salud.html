@@ -254,7 +254,7 @@
       <table>
         <thead><tr><th class="num">Evaluadas</th><th class="num">Para mover</th><th class="num">En práctica</th><th class="num">Aplicadas</th></tr></thead>
         <tbody>
-          <tr><td class="num">{{ p.ubicaciones.evaluadas }}</td><td class="num">{{ p.ubicaciones.mover }}</td><td class="num">{{ p.ubicaciones.en_practica }}</td><td class="num">{{ p.ubicaciones.aplicadas }}</td></tr>
+          <tr><td class="num">{{ p.ubicaciones.evaluadas | numero }}</td><td class="num">{{ p.ubicaciones.mover | numero }}</td><td class="num">{{ p.ubicaciones.en_practica | numero }}</td><td class="num">{{ p.ubicaciones.aplicadas | numero }}</td></tr>
         </tbody>
       </table>
       </div>
