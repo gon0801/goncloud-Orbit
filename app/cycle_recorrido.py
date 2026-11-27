@@ -73,6 +73,12 @@ from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import BidVigente, EconomiaPlataforma, InsumosRecuperacion
 from app.optimizer.politica import Mantener, Pausar, decide
+from app.optimizer.ubicacion import (
+    decide_ubicacion,
+    modo_efectivo,
+    modo_ubicacion_desde_settings,
+)
+from app.ubicacion_io import lee_casos
 
 _SQL_CAMPANAS = """
 SELECT c.id, s.acos_target
@@ -558,15 +564,15 @@ def _recorre_plataforma(
             )
         if modo_r is not None or modo_t is not None:
             topada_r = temporada.campana_topada_desde_settings(settings)
+    economia = EconomiaPlataforma(
+        moneda=PLATAFORMAS_MONEDA[platform],
+        equilibrio_acos_pct=target_ciclo.margen_neto_pct,
+        gasto_para_concluir=g.gasto_para_concluir_desde_settings(settings, platform),
+        confianza_recorte=g.confianza_recorte_desde_settings(settings, platform),
+        confianza_subida=g.confianza_subida_desde_settings(settings, platform),
+    )
     lecturas: LecturasPlataforma | None = None
     if politica is not None:
-        economia = EconomiaPlataforma(
-            moneda=PLATAFORMAS_MONEDA[platform],
-            equilibrio_acos_pct=target_ciclo.margen_neto_pct,
-            gasto_para_concluir=g.gasto_para_concluir_desde_settings(settings, platform),
-            confianza_recorte=g.confianza_recorte_desde_settings(settings, platform),
-            confianza_subida=g.confianza_subida_desde_settings(settings, platform),
-        )
         lecturas = lee_plataforma(
             conn,
             platform,
@@ -625,6 +631,26 @@ def _recorre_plataforma(
         for pendiente in _pendientes_pausa_producto(contadores.productos, decided_at=decided_at):
             pendientes.append(pendiente)
             contadores.decisiones["pause"] += 1
+    modo_ubicacion = modo_ubicacion_desde_settings(settings, platform)
+    if modo_ubicacion != "off":
+        casos = lee_casos(
+            conn,
+            platform,
+            decided_at,
+            settings=settings,
+            goals=goals[1],
+            metas_hoja=contadores.targets,
+            goal_plataforma=goals[0],
+            economia=economia,
+            fase_temporada=plat_t.estacion.fase if plat_t is not None else None,
+        )
+        for caso in casos:
+            objetivo = g.resuelve_goal(goals[1].get(caso.campana_id), goals[0])
+            modo_caso = modo_efectivo(
+                modo, modo_ubicacion, objetivo.mode if objetivo is not None else "off"
+            )
+            if modo_caso != "off":
+                contadores.ubicaciones.append((caso, modo_caso, decide_ubicacion(caso)))
     return target_ciclo
 
 

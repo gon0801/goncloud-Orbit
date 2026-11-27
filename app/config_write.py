@@ -576,6 +576,62 @@ def _valida_resultante_temporada(nuevo: Mapping) -> None:
         temporada_mod.memoria_recuperacion_desde_settings(nuevo, plataforma)
 
 
+def _aplica_ubicacion(
+    nuevo: dict,
+    cambios: list[str],
+    platform: str,
+    *,
+    modo: str | None,
+    solo_bajadas: bool | None,
+    max_en_espera: int | None,
+) -> None:
+    """AUTO-04: settings del motor de ubicaciones. `off` quita la clave."""
+    from app.optimizer import ubicacion as u
+
+    if modo is not None:
+        clave = f"ads_ubicacion_{platform}"
+        try:
+            validado = u.modo_ubicacion_desde_settings({clave: modo}, platform)
+        except ValueError as exc:
+            raise SettingsInvalido(str(exc)) from None
+        if validado == "off":
+            if clave in nuevo:
+                cambios.append(f"ubicaciones {platform} {nuevo.pop(clave)} -> ausente")
+        elif nuevo.get(clave) != validado:
+            cambios.append(f"ubicaciones {platform} {_antes(nuevo.get(clave))} -> {validado}")
+            nuevo[clave] = validado
+    if solo_bajadas is not None:
+        clave = f"ads_ubicacion_solo_bajadas_{platform}"
+        try:
+            validado_b = u.solo_bajadas_desde_settings({clave: solo_bajadas}, platform)
+        except ValueError as exc:
+            raise SettingsInvalido(str(exc)) from None
+        texto = "true" if validado_b else "false"
+        if nuevo.get(clave) != texto:
+            cambios.append(f"solo bajadas {platform} {_antes(nuevo.get(clave))} -> {texto}")
+            nuevo[clave] = texto
+    if max_en_espera is not None:
+        clave = f"ads_ubicacion_max_en_espera_{platform}"
+        try:
+            validado_n = u.max_en_espera_desde_settings({clave: max_en_espera}, platform)
+        except ValueError as exc:
+            raise SettingsInvalido(str(exc)) from None
+        if nuevo.get(clave) != str(validado_n):
+            cambios.append(f"max en espera {platform} {_antes(nuevo.get(clave))} -> {validado_n}")
+            nuevo[clave] = str(validado_n)
+
+
+def _valida_resultante_ubicacion(nuevo: Mapping, platform: str) -> None:
+    from app.optimizer import ubicacion as u
+
+    try:
+        u.modo_ubicacion_desde_settings(nuevo, platform)
+        u.solo_bajadas_desde_settings(nuevo, platform)
+        u.max_en_espera_desde_settings(nuevo, platform)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -604,6 +660,9 @@ def proxima_config(
     recuperacion_modo: str | None = None,
     recuperacion_memoria_dias: int | float | str | None = None,
     envios_dias_cierre: int | None = None,
+    ubicacion_modo: str | None = None,
+    ubicacion_solo_bajadas: bool | None = None,
+    ubicacion_max_en_espera: int | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -705,6 +764,15 @@ def proxima_config(
             cambios.append(f"cap {kind} {_antes(nuevo.get(k_cap))} -> {valor}")
             nuevo[k_cap] = str(valor)
 
+    _aplica_ubicacion(
+        nuevo,
+        cambios,
+        platform,
+        modo=ubicacion_modo,
+        solo_bajadas=ubicacion_solo_bajadas,
+        max_en_espera=ubicacion_max_en_espera,
+    )
+
     if not cambios:
         raise EdicionVacia("edicion vacia: nada que cambiar")
     try:
@@ -735,6 +803,7 @@ def proxima_config(
     _valida_precio_global(nuevo.get("precio_modo_global"), ausente_ok=True)
     _valida_precio_universo(nuevo.get("precio_modo_universo"), ausente_ok=True)
     _valida_resumen_acos_objetivo(nuevo.get(CLAVE_RESUMEN_ACOS), ausente_ok=True)
+    _valida_resultante_ubicacion(nuevo, platform)
     return nuevo, cambios
 
 

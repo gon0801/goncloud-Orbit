@@ -105,15 +105,18 @@ from app.cycle_serializacion import (  # noqa: F401 - re-export estable
     pendiente_bid,
 )
 from app.cycle_sombra import (  # noqa: F401 - re-export estable
+    _SQL_INSERT_TARGET_CICLO,
     MOTIVO_PRODUCTO_SIN_EVIDENCIA,
     _anota_sombra,
     _descarta_sin_evidencia,
     _evalua_productos,
+    _inserta_targets,
     _insumos_pausa,
     _meta_viva,
     _notas_productos,
     _pendientes_pausa_producto,
     _ProductosCiclo,
+    tx3_ubicaciones,
 )
 from app.cycle_target import (  # noqa: F401 - re-export estable
     _FamiliasCiclo,
@@ -333,13 +336,6 @@ INSERT INTO decision (cycle_id, ad_entity_id, kind, decided_at, config_version_i
 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
-_SQL_INSERT_TARGET_CICLO = """
-INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,
-                               target_acos_pct, procedencia)
-VALUES (%s, %s, %s, %s, %s)
-ON CONFLICT (cycle_id, ad_entity_id) DO NOTHING
-"""
-
 
 def _abre_heartbeat(conn: psycopg.Connection) -> psycopg.Connection | None:
     """Conexion autocommit corta para latidos durante TX2 (fail-open)."""
@@ -488,18 +484,6 @@ def _inserta_decisiones(
             "SELECT id FROM decision WHERE cycle_id = %s ORDER BY id", (cycle_id,)
         ).fetchall()
     ]
-
-
-def _inserta_targets(
-    conn: psycopg.Connection, cycle_id: int, decided_at: dt.datetime, contadores: _Contadores
-) -> None:
-    if not contadores.targets:
-        return
-    filas = [
-        (cycle_id, entidad, decided_at, target, procedencia)
-        for entidad, (target, procedencia) in sorted(contadores.targets.items())
-    ]
-    conn.cursor().executemany(_SQL_INSERT_TARGET_CICLO, filas)
 
 
 _SQL_TEMPORADA_CICLO = """
@@ -786,6 +770,16 @@ def _corre_fases(
                     conn, cycle_id, config_id, contadores.productos
                 )
                 _descarta_sin_evidencia(contadores, pendientes, ids_evaluacion, cuerpo)
+            tx3_ubicaciones(
+                conn,
+                cycle_id,
+                config_id,
+                platform,
+                decided_at,
+                contadores,
+                ids_evaluacion,
+                cuerpo,
+            )
             ids_decisiones = _inserta_decisiones(
                 conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
             )
@@ -825,6 +819,7 @@ def _corre_fases(
         reconciliacion=reconciliacion,
         proteccion_activa=subproteccion.activa_desde_settings(settings),
         avisos_destino=avisos_destino,
+        settings=settings,
     )
     notas_apply = fase.notas
     if notas_apply:

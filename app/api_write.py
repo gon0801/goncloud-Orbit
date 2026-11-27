@@ -702,10 +702,20 @@ _ERRORES_AJUSTE: dict[type[Exception], int] = {
     apply_ajustes.AjusteYaRegresado: 409,
     apply_ajustes.AjusteEnCurso: 409,
     apply_ajustes.AjusteNoConfirmado: 502,
+    apply_ajustes.HuellaDesactualizada: 409,
     apply.AdsApiErrorMutacion: 502,
     apply.AdsApiError: 502,
     apply.SinPerfilAjuste: 503,
 }
+
+
+def _codigo_error_ajuste(exc: Exception) -> int:
+    """Busca por `isinstance` para que las subclases (CambioExternoDetectado,
+    AdsApiErrorMutacion) hereden su codigo sin tocar el dict."""
+    for clase, codigo in _ERRORES_AJUSTE.items():
+        if isinstance(exc, clase):
+            return codigo
+    return 502
 
 
 @router.post("/campana-ajuste/aplicar")
@@ -760,7 +770,7 @@ def aplicar_ajuste(
             },
         ) from None
     except tuple(_ERRORES_AJUSTE) as exc:
-        raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
+        raise HTTPException(status_code=_codigo_error_ajuste(exc), detail=str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     return hecho.como_dict()
@@ -844,7 +854,7 @@ def regresar_ajuste(
     try:
         hecho = apply_ajustes.regresa_ajuste_campana(conn, ajuste_id=ajuste_id, actor=cuerpo.actor)
     except tuple(_ERRORES_AJUSTE) as exc:
-        raise HTTPException(status_code=_ERRORES_AJUSTE[type(exc)], detail=str(exc)) from None
+        raise HTTPException(status_code=_codigo_error_ajuste(exc), detail=str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     return hecho.como_dict()

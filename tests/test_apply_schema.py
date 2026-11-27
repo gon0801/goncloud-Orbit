@@ -1182,7 +1182,11 @@ def test_kinds_de_la_vista_huerfana_espejan_kinds_quota():
     )
     lista = tuple(re.findall(r"'([a-z_]+)'", bloque))
     assert lista, "el filtro de kinds de la vista no se encontro: revisar el parseo"
-    assert lista == KINDS_QUOTA, "mismos kinds y mismo orden: la vista audita TODO kind aplicable"
+    # `ubicacion` es una cuota sin `decision.kind` propio: la vista de
+    # huerfanas audita decisiones, no la cuota del motor de ubicaciones.
+    assert lista == tuple(k for k in KINDS_QUOTA if k != "ubicacion"), (
+        "mismos kinds y mismo orden: la vista audita TODO kind aplicable"
+    )
 
 
 @_skip_db

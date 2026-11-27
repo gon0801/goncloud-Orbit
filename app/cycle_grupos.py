@@ -107,6 +107,8 @@ class _Contadores:
     temporada_sombra_comparadas: int = 0
     temporada_sombra_coinciden: int = 0
     temporada_sombra_diferencias: list[dict] = field(default_factory=list)
+    ubicaciones: list[tuple] = field(default_factory=list)
+    resumen_ubicaciones: dict | None = None
 
 
 def lee_goals(

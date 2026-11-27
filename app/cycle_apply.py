@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import httpx
 import psycopg
 from psycopg import pq
+from psycopg.conninfo import make_conninfo
 
 from app import apply, apply_cola, apply_harvest, notifica
 from app.ads.client import AdsClientError
@@ -29,6 +30,12 @@ from app.ads.config import AdsConfigError, AdsCredentials
 from app.apply import Aplicador, DuenoDelClaimCambio
 from app.apply_cuota import CapSaturado
 from app.apply_estados import AccionCambio
+from app.apply_ubicacion import (
+    aplica_automaticos,
+    hay_evaluaciones_a_aplicar,
+    hay_pendientes_automaticos,
+    reconcilia_automaticos,
+)
 from app.db import tx_durable
 from app.lock import SQL_OWNER as _SQL_OWNER_LOCK
 from app.optimizer import goals as g
@@ -247,7 +254,7 @@ def _fase_reconciliacion(
             rec_rev = apply_cola.reconcilia_reversas_pause(
                 conn, aplicador_lectura, platform, tick=guard
             )
-        except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+        except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
             conn.rollback()
             return _Reconciliacion(
                 aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
@@ -284,7 +291,15 @@ def _fase_reconciliacion(
         reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
         confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
         rec_rev = apply_cola.reconcilia_reversas_pause(conn, aplicador, platform, tick=guard)
-    except (AdsClientError, SinPerfilAplicar, AdsConfigError) as exc:
+        res_ubic = None
+        if hay_pendientes_automaticos(conn, platform):
+            res_ubic = reconcilia_automaticos(
+                conn,
+                apply._cliente_ajuste(platform, transport=None),
+                platform,
+                tick=guard,
+            )
+    except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
         conn.rollback()
         return _Reconciliacion(
             aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
@@ -298,6 +313,12 @@ def _fase_reconciliacion(
             "fallidas": reconciliacion.pausas_fallidas,
         },
     }
+    if res_ubic is not None:
+        notas_rec["ubicaciones_reconciliadas"] = {
+            "revisadas": res_ubic.revisadas,
+            "selladas": res_ubic.selladas,
+            "cerradas": res_ubic.cerradas,
+        }
     if res_rev.confirmadas or res_rev.fallidas or res_rev.omitidas or res_rev.pendientes_de_lectura:
         notas_rec["reversas_reconciliadas"] = {
             "confirmadas": res_rev.confirmadas,
@@ -335,6 +356,7 @@ def _fase_apply(
     avisos_destino: tuple[notifica.SaltoDestinoGrupo, ...] = (),
     origen: int | None = None,
     reconciliacion: _Reconciliacion | None = None,
+    settings: dict | None = None,
 ) -> _FaseApply:
     """Cortes a la cola y, en live, pujas, liberacion de cortes y reactivaciones.
 
@@ -464,6 +486,36 @@ def _fase_apply(
                 "omitidas": res_react.omitidas,
                 "pendientes_de_lectura": res_react.pendientes_de_lectura + extras_pendientes,
             }
+            if settings is not None and hay_evaluaciones_a_aplicar(conn, origen, platform):
+                dsn_ubic = conn.info.dsn
+                if conn.info.password:
+                    dsn_ubic = make_conninfo(dsn_ubic, password=conn.info.password)
+                if dsn_ubic:
+                    try:
+                        res_ubic_a = aplica_automaticos(
+                            conn,
+                            dsn=dsn_ubic,
+                            cliente=apply._cliente_ajuste(platform, transport=None),
+                            platform=platform,
+                            cycle_id=origen,
+                            settings=settings,
+                            pujas_completas=not res_bids.inciertos
+                            and not apply.bids_recuperables(conn, origen),
+                            tick=guard,
+                        )
+                        notas["ubicaciones"] = {
+                            "candidatas": res_ubic_a.candidatas,
+                            "aplicadas": res_ubic_a.aplicadas,
+                            "sin_aplicar": len(res_ubic_a.sin_aplicar),
+                        }
+                    except (
+                        AdsClientError,
+                        SinPerfilAplicar,
+                        apply.SinPerfilAjuste,
+                        AdsConfigError,
+                    ) as exc:
+                        notas["ubicaciones_error"] = scrub(str(exc)) or type(exc).__name__
+                        fallo = True
             total = (
                 res_bids.aplicadas
                 + res_cola.aplicadas

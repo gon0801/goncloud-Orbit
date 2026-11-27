@@ -462,3 +462,64 @@ def _descarta_sin_evidencia(
         contadores.targets.pop(hoja, None)
     cuerpo["skips"]["entidad"] = dict(contadores.skips_entidad)
     cuerpo["decisiones"] = {k: n for k, n in contadores.decisiones.items() if n}
+
+
+_SQL_INSERT_TARGET_CICLO = """
+INSERT INTO target_acos_ciclo (cycle_id, ad_entity_id, decided_at,
+                               target_acos_pct, procedencia)
+VALUES (%s, %s, %s, %s, %s)
+ON CONFLICT (cycle_id, ad_entity_id) DO NOTHING
+"""
+
+
+def _inserta_targets(conn, cycle_id, decided_at, contadores: _Contadores) -> None:
+    if not contadores.targets:
+        return
+    filas = [
+        (cycle_id, entidad, decided_at, target, procedencia)
+        for entidad, (target, procedencia) in sorted(contadores.targets.items())
+    ]
+    conn.cursor().executemany(_SQL_INSERT_TARGET_CICLO, filas)
+
+
+def tx3_ubicaciones(
+    conn,
+    cycle_id: int,
+    config_version_id: int,
+    platform: str,
+    decided_at,
+    contadores: _Contadores,
+    ids_evaluacion: dict[int, int],
+    cuerpo: dict,
+) -> None:
+    """AUTO-04 TX3: guarda la evaluacion por ubicacion despues de
+    `_descarta_sin_evidencia`, sustituyendo por mantener las campanas cuya hoja
+    perdio su meta."""
+    if not contadores.ubicaciones:
+        return
+    from app.ubicacion_io import (
+        campanas_de_hojas,
+        guarda_evaluaciones,
+        marca_producto_sin_evidencia,
+        resumen_ubicaciones_ciclo,
+    )
+
+    perdidas: set[int] = set()
+    if contadores.productos is not None:
+        perdidas = {
+            hoja
+            for hoja, pid in contadores.productos.hojas_aptas.items()
+            if pid not in ids_evaluacion
+        }
+    campanas = campanas_de_hojas(conn, platform, perdidas)
+    evaluaciones = marca_producto_sin_evidencia(contadores.ubicaciones, campanas)
+    guarda_evaluaciones(
+        conn,
+        cycle_id=cycle_id,
+        config_version_id=config_version_id,
+        platform=platform,
+        decided_at=decided_at,
+        evaluaciones=evaluaciones,
+    )
+    contadores.resumen_ubicaciones = resumen_ubicaciones_ciclo(conn, cycle_id)
+    cuerpo["ubicaciones"] = contadores.resumen_ubicaciones

@@ -100,6 +100,12 @@ SELECT placement,
  GROUP BY placement
 """
 
+_SQL_CAMPANAS_DE_HOJAS = """
+SELECT DISTINCT campana_id
+  FROM v_hoja_activa
+ WHERE platform = %s AND hoja_id = ANY(%s)
+"""
+
 _SQL_DIAS_PLACEMENTS = """
 SELECT DISTINCT metric_date
   FROM ads_placement_observation
@@ -119,11 +125,29 @@ SELECT DISTINCT ag.parent_id
  WHERE v.platform = %s AND ag.parent_id IS NOT NULL
 """
 
-_SQL_AJUSTES_EN_VUELO = """
-SELECT DISTINCT campana_id
-  FROM campana_ajuste
- WHERE platform = %s AND confirmado_el IS NULL
+
+def sql_orden_viva(alias: str) -> str:
+    """Predicado unico de orden viva sobre `campana_ajuste`.
+
+    Una intencion automatica con desenlace en `ubicacion_sin_aplicar` no llego
+    a Amazon (o Amazon mostro otro valor al reconciliar): ninguna guarda la
+    cuenta como orden en curso ni la reconciliacion la sella. Las filas
+    manuales (`evaluacion_id` NULL) siempre cuentan."""
+    return (
+        "NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s"
+        f" WHERE s.evaluacion_id = {alias}.evaluacion_id)"
+    )
+
+
+_SQL_AJUSTES_EN_VUELO = f"""
+SELECT DISTINCT a.campana_id
+  FROM campana_ajuste a
+ WHERE a.platform = %s AND a.confirmado_el IS NULL AND {sql_orden_viva("a")}
 """
+
+
+def campanas_con_ajuste_en_vuelo(conn: psycopg.Connection, platform: str) -> frozenset[int]:
+    return frozenset(f[0] for f in conn.execute(_SQL_AJUSTES_EN_VUELO, (platform,)))
 
 
 @dataclass(frozen=True)
@@ -194,6 +218,14 @@ def _placements(conn, campana: int, platform: str, desde: dt.date, hasta: dt.dat
     }
 
 
+def campanas_de_hojas(conn, platform: str, hojas) -> frozenset:
+    if not hojas:
+        return frozenset()
+    return frozenset(
+        fila[0] for fila in conn.execute(_SQL_CAMPANAS_DE_HOJAS, (platform, list(hojas)))
+    )
+
+
 def _dias_con_placements(conn, platform: str, desde: dt.date, hasta: dt.date) -> frozenset:
     return frozenset(
         fila[0] for fila in conn.execute(_SQL_DIAS_PLACEMENTS, (platform, desde, hasta))
@@ -217,7 +249,12 @@ def _inmaduros(
     hasta = hoy - dt.timedelta(days=1)
     desde = hoy - dt.timedelta(days=2)
     filas = conn.execute(_SQL_INMADUROS, (campana, platform, desde, hasta)).fetchall()
-    return {fila[0]: fila[1] for fila in filas}
+    return {fila[0]: _entero(fila[1]) for fila in filas}
+
+
+def _entero(valor):
+    """`sum(bigint)` llega como `Decimal`; los conteos del dominio son `int`."""
+    return None if valor is None else int(valor)
 
 
 def _medida(info: dict | None, hay_ingesta: bool) -> dict:
@@ -228,9 +265,9 @@ def _medida(info: dict | None, hay_ingesta: bool) -> dict:
             return {"clics": None, "gasto": None, "pedidos": None, "venta": None}
         return {"clics": 0, "gasto": Decimal(0), "pedidos": 0, "venta": Decimal(0)}
     return {
-        "clics": info["clics"],
+        "clics": _entero(info["clics"]),
         "gasto": info["gasto"],
-        "pedidos": info["pedidos"],
+        "pedidos": _entero(info["pedidos"]),
         "venta": info["venta"],
     }
 
@@ -300,7 +337,7 @@ def lee_casos(
     if modo_ubicacion_desde_settings(settings, platform) == "off":
         return ()
     abiertos = {f[0] for f in conn.execute(_SQL_IMPULSOS_ABIERTOS, (platform,))}
-    en_vuelo = {f[0] for f in conn.execute(_SQL_AJUSTES_EN_VUELO, (platform,))}
+    en_vuelo = campanas_con_ajuste_en_vuelo(conn, platform)
     hoy = _fecha_utc(decided_at)
     topada, dias_topados_por_campana = _dias_topados(conn, platform, decided_at, settings)
     cubre_inmaduros = _cubre_ingesta(
