@@ -1,6 +1,6 @@
 # FABRICA 02 — Harvest por grupo (F2): reruteo, negativos cruzados y biblioteca viva
 
-> **Estado al 4-nov-2026: D.3 ABIERTA; D.4 CERRADA y desplegada.** Producción conserva 11 harvests terminados, cero por grupo y ninguno con hermanas. Falta el caso natural y la reversa de D.3. Evidencia: [conciliación del 4-nov](../docs/evidencia/estado-planes-2026-11-04/README.md). Seguimiento: ROADMAP P02.
+> **Estado al 27-nov-2026: CERRADO (D.3 y D.4 cerradas; ROADMAP P02 cerrado).** Primer harvest natural por grupo verificado en producción (`harvest_job` 12, grupo 3 `AGM2M`, exacta + 2/2 hermanas + biblioteca + ledger), dry-run de reversa verificado (`pendientes: 4`, huella `ae7b4f25732e5016`, dueño aprobó no archivar un término ganador) y paso 4 de Fábrica 01 anexado. Acta: [cierre-p02-2026-11-27.md](../docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md).
 
 Version: 1.11, 2026-09-16 UTC. Estado: **FASE A, R.1, D.1 y D.2 CERRADAS — A.0, A.1, A.2,
 A.3a, A.3, A.4, A.5 y A.6 cerradas y en master (PRs #258 `a01aed0`, #261
@@ -625,9 +625,14 @@ actualizado por A.2.
   quedó con terna NULL, destino resuelto por grupo y goals en `shadow`.
   Evidencia en `docs/evidencia/fabrica-02/D.1/` y `D.2/`. El tool de modo
   de #283 también quedó desplegado en D.1.
-- **D.3 EN CURSO 2026-09-24**: tras el apagado del 2026-09-23 y el deploy de
-  #324, el dueño reutilizó explícitamente el go 1 literal; los cinco goals
-  `kit_arras` están otra vez en `live` efectivo, con readback independiente. Esperar el
-  primer harvest natural del cron MX hasta `done`, verificar IDs, biblioteca,
-  ledger y `/cortes`, y pedir un go 2 separado antes de revertir ese job.
-  Evidencia en `docs/evidencia/fabrica-02/D.3/`.
+- **D.3 CERRADA 2026-11-27 UTC (ROADMAP P02 cerrado)**: tras el cierre de
+  `ARREGLOS 04 B-C` y `ARREGLOS 05 B`, se verificó el primer harvest natural por
+  grupo en producción (`harvest_job` 12, `decision_id` 2943, grupo 3 `AGM2M`,
+  `"arras matrimoniales"`): keyword `EXACT` `24714489976544` (`ENABLED`),
+  negativo origen `101174754610536`, 2/2 hermanas (`category_phrase`
+  `73580000101126`, `product_targeting` `262872540833841`), `keyword_biblioteca`
+  id 4 sin dinero (0 en `negative_biblioteca`) y ledger `581–584` (1 cuota).
+  Dry-run de reversa verificado (`pendientes: 4`, huella `ae7b4f25732e5016`); el
+  dueño aprobó cerrar sin ejecutar borrado destructivo sobre un término ganador
+  (5.69 % ACoS) y anexar el paso 4 de Fábrica 01 (77 decisiones en grupo 1).
+  Acta: `docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md`.
