@@ -23,9 +23,7 @@ from app.ads.campana_config import (
     guarda_config,
     mezcla_observacion,
 )
-from app.ads.client import AdsClientError
 from app.apply import SinPerfilAjuste as SinPerfilAjuste
-from app.apply_estados import ErrorTrasPut
 from app.campana_ajustes import (
     AjusteSinCambio,
     CambiarAjusteUbicacion,
@@ -37,6 +35,7 @@ from app.campana_ajustes import (
     planea_ajuste,
 )
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.ubicacion_io import sql_orden_viva
 
 GO_AJUSTE = "APLICAR AJUSTE"
 GO_REGRESO_AJUSTE = "REGRESAR AJUSTE"
@@ -202,27 +201,25 @@ SELECT id, antes_config_id, despues, regresa_a
 _SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF = """
 SELECT id, antes_config_id, despues, regresa_a
   FROM campana_ajuste
- WHERE campana_id = %s AND clase = %s AND id > %s
+ WHERE campana_id = %s AND clase = %s AND id > %s{excluye}
  ORDER BY id
 """
 
 _SQL_AJUSTE_POSTERIOR_PENDIENTE = """
 SELECT id, antes_config_id, despues, regresa_a
   FROM campana_ajuste
- WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NULL
+ WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NULL{excluye}
  ORDER BY id
 """
 
 
 def _excluye_abortadas(conn) -> str:
+    """Antes de la migracion 0104 no existen intenciones automaticas."""
     if not conn.execute(
         "SELECT to_regclass('public.ubicacion_sin_aplicar') IS NOT NULL"
     ).fetchone()[0]:
         return ""
-    return (
-        " AND NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s"
-        " WHERE s.evaluacion_id = campana_ajuste.evaluacion_id)"
-    )
+    return " AND " + sql_orden_viva("campana_ajuste")
 
 
 def _toca_campo(
@@ -334,7 +331,6 @@ def _aplica_y_confirma(
         # anidado dentro del PUT del primero se interbloquearia, L).
         conn.rollback()
         raise AjusteEnCurso(f"ajuste {ajuste_id} en curso: reintenta en un momento")
-    put_enviado = False
     try:
         ya = conn.execute(_SQL_CONFIRMADA_POR_ID, (ajuste_id,)).fetchone()
         if ya is not None and ya[0]:
@@ -388,15 +384,10 @@ def _aplica_y_confirma(
             )
         else:
             cuerpo = cuerpo_put_clase(clase, destino)
-        try:
-            cliente.ajustar_campana(
-                destino.campana_externa,
-                {k: v for k, v in cuerpo.items() if k != "campaignId"},
-            )
-        except AdsClientError as exc:
-            exc.put_iniciado = True
-            raise
-        put_enviado = True
+        cliente.ajustar_campana(
+            destino.campana_externa,
+            {k: v for k, v in cuerpo.items() if k != "campaignId"},
+        )
         leida = _config_leida(cliente, plataforma, destino.campana_externa)
         if leida is None or not coincide_campo(ajuste, leida, destino):
             raise AjusteNoConfirmado(
@@ -408,11 +399,6 @@ def _aplica_y_confirma(
             conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
             guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
         conn.commit()
-    except AdsClientError as exc:
-        conn.rollback()
-        if put_enviado:
-            raise ErrorTrasPut(exc) from None
-        raise
     except BaseException:
         conn.rollback()
         raise

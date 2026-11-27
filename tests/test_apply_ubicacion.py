@@ -10,13 +10,19 @@ import psycopg
 import pytest
 from test_schema import _postgres_obligatorio_ausente
 
-from app.ads.campana_config import ConfigCampana, cuerpo_put_campana, guarda_config
+from app import apply
+from app.ads.campana_config import (
+    ConfigCampana,
+    config_vigente,
+    cuerpo_put_campana,
+    guarda_config,
+)
 from app.ads.client import AdsApiError
 from app.ads.write import AdsApiErrorMutacion
-from app.db import OrbitDbError
-from app.apply_ajustes import aplica_ajuste_motor
+from app.apply_ajustes import aplica_ajuste_campana, aplica_ajuste_motor
 from app.apply_ubicacion import aplica_automaticos, reconcilia_automaticos
-from app.campana_ajustes import CambiarAjusteUbicacion
+from app.campana_ajustes import CambiarAjusteUbicacion, planea_ajuste
+from app.db import OrbitDbError
 from app.optimizer.caso import EconomiaPlataforma
 from app.optimizer.temporada_config import CampanaTopada
 from app.optimizer.ubicacion import (
@@ -25,6 +31,7 @@ from app.optimizer.ubicacion import (
     MetaCampana,
     caso_a_json,
 )
+from app.ubicacion_io import campanas_con_ajuste_en_vuelo
 from tests.helpers.pg import db_desde_template
 
 _D = Decimal
@@ -210,6 +217,34 @@ def _abre_decide(dsn):
     return conexion
 
 
+def _intencion(dsn, campana: int, config_id: int, eval_id: int, *, top: int, huella: str) -> None:
+    """Intencion automatica pre-HTTP sin confirmar, escrita como `app_decide`."""
+    conexion = _abre_decide(dsn)
+    try:
+        conexion.execute(
+            "INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id,"
+            " despues, huella, actor, go_literal, evaluacion_id) VALUES (%s,"
+            " 'amazon_mx', 'ajuste_ubicacion', %s, %s, %s, 'orbit_ubicacion',"
+            " 'AUTO_UBICACION', %s)",
+            (campana, config_id, json.dumps(_config(top).como_json()), huella, eval_id),
+        )
+        conexion.commit()
+    finally:
+        conexion.close()
+
+
+def _cierra(conn, eval_id: int, motivo: str = "error_put") -> None:
+    conn.execute(
+        "INSERT INTO ubicacion_sin_aplicar (evaluacion_id, motivo, registrado_el)"
+        " VALUES (%s, %s, %s)",
+        (eval_id, motivo, _ANCLA),
+    )
+
+
+def _cuenta(conn, tabla: str) -> int:
+    return conn.execute(f"SELECT count(*) FROM {tabla}").fetchone()[0]
+
+
 @_skip_db
 def test_ejecutor_usa_conexion_sin_autocommit_y_sostiene_advisory_lock():
     with _db() as (conn, dsn):
@@ -272,6 +307,8 @@ def test_put_aborta_si_porcentaje_vivo_difiere_del_juzgado():
             "SELECT motivo FROM ubicacion_sin_aplicar WHERE evaluacion_id = %s", (eval_id,)
         ).fetchone()[0]
         assert motivo == "cambio_externo"
+        assert _cuenta(conn, "campana_ajuste") == 0, "la revalidacion viva va antes de la intencion"
+        assert _cuenta(conn, "apply_quota_state") == 0, "el cambio en consola no gasta cuota"
 
 
 @_skip_db
@@ -498,30 +535,34 @@ def test_no_aplica_si_el_dueno_apago_la_campana_tras_evaluar():
 
 
 @_skip_db
-def test_cuota_y_registro_sobreviven_al_rollback_del_ciclo():
-    """Neon #786: con `conn` sin autocommit, la cuota y el motivo se
-    confirman ANTES del HTTP para que un rollback posterior no los revierta."""
+@pytest.mark.parametrize(
+    ("cap", "esperado"),
+    [("1", "apply_quota_state"), (None, "ubicacion_sin_aplicar")],
+)
+def test_cuota_y_registro_sobreviven_al_rollback_del_ciclo(cap, esperado):
+    """Neon #786 / ai-review F8: con la conexion del ciclo SIN autocommit (como
+    en `app/cli.py`), la cuota y el motivo se confirman ANTES del HTTP y un
+    rollback posterior del ciclo no los revierte."""
     with _db() as (conn, dsn):
-        cv = _config_version(conn, _settings())
+        cv = _config_version(conn, _settings(cap=cap))
         camp, config_id = _siembra(conn, top=0)
         ciclo = _ciclo(conn)
         _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
-        cliente = ClienteFalso(_config(25), _config(25))
-        resumen = aplica_automaticos(
-            conn,
-            dsn=dsn,
-            cliente=cliente,
-            platform="amazon_mx",
-            cycle_id=ciclo,
-            settings=_settings(),
-            abrir_conexion=lambda: _abre_decide(dsn),
-        )
-        assert resumen.aplicadas == 0
-        conn.rollback()
-        assert conn.execute("SELECT count(*) FROM apply_quota_state").fetchone()[0] == 1, (
-            "la cuota cobrada no se revierte con el rollback del ciclo"
-        )
-        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 1
+        ciclo_conn = psycopg.connect(dsn, autocommit=False)
+        try:
+            aplica_automaticos(
+                ciclo_conn,
+                dsn=dsn,
+                cliente=ClienteFalso(_config(0), _config(15)),
+                platform="amazon_mx",
+                cycle_id=ciclo,
+                settings=_settings(cap=cap),
+                abrir_conexion=lambda: _abre_decide(dsn),
+            )
+            ciclo_conn.rollback()
+        finally:
+            ciclo_conn.close()
+        assert _cuenta(conn, esperado) == 1, f"{esperado} sobrevive al rollback del ciclo"
 
 
 class ClienteFalla(ClienteFalso):
@@ -529,11 +570,9 @@ class ClienteFalla(ClienteFalso):
         super().__init__(actual, actual)
         self.donde = donde
         self.exc = exc
-        self.lecturas = 0
 
     def list_sellado(self, path, payload):
-        self.lecturas += 1
-        if self.donde == "lectura_previa" or (self.donde == "readback" and self.lecturas > 1):
+        if self.donde == "lectura_previa" or (self.donde == "readback" and self.puts):
             raise self.exc
         return super().list_sellado(path, payload)
 
@@ -576,28 +615,37 @@ def test_readback_500_deja_intencion_pendiente_sin_marcarla_no_aplicada():
         )
 
 
-@_skip_db
-def test_put_500_ambiguo_no_se_marca_no_aplicado_y_4xx_si():
-    with _db() as (conn, dsn):
-        cv = _config_version(conn, _settings())
-        camp, config_id = _siembra(conn, top=0)
-        ciclo = _ciclo(conn)
-        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
-        error = AdsApiError("status=500 put")
-        error.status = 500
-        resumen = _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=error))
-        assert resumen.sin_aplicar == ()
+def _error_api(status: int) -> AdsApiError:
+    error = AdsApiError(f"status={status}")
+    error.status = status
+    return error
 
+
+def _rechazo(status: int) -> AdsApiErrorMutacion:
+    return AdsApiErrorMutacion(
+        f"status={status}", cuerpo="{}", status=status, method="PUT", path="/sp/campaigns"
+    )
+
+
+@_skip_db
+@pytest.mark.parametrize("status", [500, 429, 400, 207])
+def test_put_fallido_deja_la_intencion_pendiente_sin_importar_el_error(status):
+    """El PUT empezo: su destino lo decide la reconciliacion leyendo Amazon,
+    no el tipo de error (un 207 ilegible o un 400 tambien quedan pendientes)."""
     with _db() as (conn, dsn):
         cv = _config_version(conn, _settings())
         camp, config_id = _siembra(conn, top=0)
         ciclo = _ciclo(conn)
         eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
-        rechazo = AdsApiErrorMutacion(
-            "status=400", cuerpo="{}", status=400, method="PUT", path="/sp/campaigns"
+        resumen = _corre(
+            conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=_rechazo(status))
         )
-        resumen = _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=rechazo))
-        assert resumen.sin_aplicar == ((eval_id, "error_put"),)
+        assert (resumen.aplicadas, resumen.sin_aplicar) == (0, ())
+        assert conn.execute(
+            "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE evaluacion_id = %s",
+            (eval_id,),
+        ).fetchone() == (True,)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({camp})
 
 
 @_skip_db
@@ -618,3 +666,160 @@ def test_fallo_de_base_aborta_la_fase_y_no_marca_no_aplicado():
                 abrir_conexion=lambda: (_ for _ in ()).throw(OrbitDbError("sin base")),
             )
         assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 0
+        assert _cuenta(conn, "apply_quota_state") == 0, (
+            "Devin #786: sin conexion dedicada no se cobra cuota que la recuperacion recobraria"
+        )
+
+
+@_skip_db
+def test_lectura_previa_fallida_descarta_sin_cobrar_cuota_ni_escribir_intencion():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = ClienteFalla(_config(0), donde="lectura_previa", exc=_error_api(500))
+        resumen = _corre(conn, dsn, ciclo, cliente)
+        assert resumen.sin_aplicar == ((eval_id, "error_put"),)
+        assert _cuenta(conn, "campana_ajuste") == 0
+        assert _cuenta(conn, "apply_quota_state") == 0
+
+
+@_skip_db
+def test_rechazo_de_identidad_aborta_la_fase():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        with pytest.raises(AdsApiError):
+            _corre(
+                conn,
+                dsn,
+                ciclo,
+                ClienteFalla(_config(0), donde="lectura_previa", exc=_error_api(401)),
+            )
+        assert conn.execute(
+            "SELECT motivo FROM ubicacion_sin_aplicar WHERE evaluacion_id = %s", (eval_id,)
+        ).fetchone() == ("error_put",)
+        assert _cuenta(conn, "apply_quota_state") == 0
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        with pytest.raises(AdsApiErrorMutacion):
+            _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="put", exc=_rechazo(403)))
+        assert _cuenta(conn, "ubicacion_sin_aplicar") == 0, (
+            "el PUT empezo: decide la reconciliacion"
+        )
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({camp})
+
+
+class _ClienteIlegible(ClienteFalso):
+    def list_sellado(self, _path, _payload):
+        return _Resp({"campaigns": []})
+
+
+@_skip_db
+def test_reconcilia_cierra_la_intencion_que_amazon_no_refleja():
+    """ai-review F1: una intencion que Amazon no refleja ya no bloquea la
+    campana para siempre; la lectura ilegible espera al siguiente ciclo."""
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        _intencion(dsn, camp, config_id, eval_id, top=15, huella="auto:sin_reflejo")
+
+        ilegible = reconcilia_automaticos(
+            conn, _ClienteIlegible(_config(0), _config(0)), "amazon_mx"
+        )
+        assert (ilegible.revisadas, ilegible.selladas, ilegible.cerradas) == (1, 0, 0)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({camp})
+
+        otro = reconcilia_automaticos(conn, ClienteFalso(_config(0), _config(0)), "amazon_mx")
+        assert (otro.revisadas, otro.selladas, otro.cerradas) == (1, 0, 1)
+        assert conn.execute(
+            "SELECT motivo FROM ubicacion_sin_aplicar WHERE evaluacion_id = %s", (eval_id,)
+        ).fetchone() == ("error_put",)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset()
+
+        despues = reconcilia_automaticos(conn, ClienteFalso(_config(15), _config(15)), "amazon_mx")
+        assert (despues.revisadas, despues.selladas) == (0, 0), "una intencion cerrada no se sella"
+
+
+@_skip_db
+def test_en_vuelo_cuenta_pendientes_y_no_intenciones_cerradas():
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        abierta, cfg_a = _siembra(conn, top=0)
+        cerrada, cfg_c = _siembra(conn, top=0, externa="93600000000002")
+        ciclo = _ciclo(conn)
+        ev_a = _eval(conn, ciclo=ciclo, campana=abierta, antes=cfg_a, cv=cv, de_pct=0, a_pct=15)
+        ev_c = _eval(conn, ciclo=ciclo, campana=cerrada, antes=cfg_c, cv=cv, de_pct=0, a_pct=15)
+        _intencion(dsn, abierta, cfg_a, ev_a, top=15, huella="auto:abierta")
+        _intencion(dsn, cerrada, cfg_c, ev_c, top=15, huella="auto:cerrada")
+        _cierra(conn, ev_c)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({abierta})
+
+
+@_skip_db
+def test_intencion_automatica_cerrada_no_bloquea_reintento_manual(monkeypatch):
+    """Devin #786: una intencion automatica posterior, cerrada en
+    `ubicacion_sin_aplicar`, nunca salio a Amazon; el reintento de la orden
+    manual anterior que quedo pendiente sigue su curso."""
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        plan = planea_ajuste(
+            config_vigente(conn, camp),
+            CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20),
+            campana_id=camp,
+            plataforma="amazon_mx",
+        )
+
+        def manual(cliente):
+            monkeypatch.setattr(apply, "_cliente_ajuste", lambda _plat, transport=None: cliente)
+            return aplica_ajuste_campana(
+                conn, plan, huella=plan.huella(), confirmacion="APLICAR AJUSTE", actor="dueno"
+            )
+
+        with pytest.raises(AdsApiErrorMutacion):
+            manual(ClienteFalla(_config(0), donde="put", exc=_rechazo(400)))
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        _intencion(dsn, camp, config_id, eval_id, top=15, huella="auto:cerrada")
+        _cierra(conn, eval_id)
+
+        cliente = ClienteFalso(_config(0), _config(20))
+        hecho = manual(cliente)
+        assert (hecho.confirmada, cliente.puts) == (True, 1)
+        assert conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s", (hecho.ajuste_id,)
+        ).fetchone() == (True,)
+
+
+@_skip_db
+def test_pujas_pendientes_aparta_las_ubicaciones_del_ciclo():
+    """Spec 7.4: si las pujas del origen no cerraron, las ubicaciones no se
+    envian y quedan apartadas con `pujas_pendientes`."""
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = ClienteFalso(_config(0), _config(15))
+        resumen = aplica_automaticos(
+            conn,
+            dsn=dsn,
+            cliente=cliente,
+            platform="amazon_mx",
+            cycle_id=ciclo,
+            settings=_settings(),
+            pujas_completas=False,
+            abrir_conexion=lambda: (_ for _ in ()).throw(AssertionError("no se abre conexion")),
+        )
+        assert (resumen.aplicadas, resumen.sin_aplicar) == (0, ((eval_id, "pujas_pendientes"),))
+        assert (cliente.puts, _cuenta(conn, "apply_quota_state")) == (0, 0)

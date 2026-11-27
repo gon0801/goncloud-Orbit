@@ -4,8 +4,12 @@ Corre solo en modo `live`, sobre las evaluaciones del ciclo con veredicto
 `mover` que aun no tienen desenlace. La intencion se escribe ANTES del HTTP en
 `campana_ajuste` (con `evaluacion_id`) sobre una conexion DEDICADA con
 `autocommit=False`: asi el candado advisory de transaccion que toma
-`_aplica_y_confirma` se retiene durante todo el `PUT` y no se suelta con el
-commit del ciclo (hallazgo 1 de la revision).
+`_aplica_y_confirma` se retiene durante todo el `PUT`.
+
+El desenlace se decide por observacion, no por el tipo de error: si el PUT no
+llego a intentarse, la evaluacion se cierra con su motivo (nada salio a
+Amazon); si empezo y no confirmo, la intencion queda pendiente y
+`reconcilia_automaticos` la sella o la cierra segun lo que Amazon muestre.
 
 Este modulo no importa `app.ads.write`: construye el cliente en `apply.py` y
 lo recibe ya armado.
@@ -26,7 +30,7 @@ from app.ads.campana_config import (
     guarda_config,
     mezcla_observacion,
 )
-from app.ads.client import AdsApiError, AdsAuthError, AdsClientError
+from app.ads.client import AdsAuthError, AdsClientError
 from app.apply_ajustes import (
     AjusteEnCurso,
     AjusteNoConfirmado,
@@ -36,16 +40,16 @@ from app.apply_ajustes import (
     aplica_ajuste_motor,
 )
 from app.apply_cuota import consume_quota
-from app.apply_estados import ErrorTrasPut
-from app.campana_ajustes import CambiarAjusteUbicacion
-from app.db import OrbitDbError, settings_vigentes, tx_durable
+from app.apply_estados import STATUS_IDENTIDAD_RECHAZADA
+from app.campana_ajustes import AjusteSinCambio, CambiarAjusteUbicacion
 from app.db import connect as db_connect
+from app.db import settings_vigentes, tx_durable
 from app.optimizer import goals as g
 from app.optimizer.ubicacion import (
     max_en_espera_desde_settings,
     modo_ubicacion_desde_settings,
 )
-from app.ubicacion_io import evaluaciones_a_aplicar
+from app.ubicacion_io import evaluaciones_a_aplicar, sql_orden_viva
 
 MOTIVO_CUOTA = "cuota_agotada"
 MOTIVO_TOPE = "tope_campanas_en_espera"
@@ -54,6 +58,7 @@ MOTIVO_CONFIG_CAMBIO = "config_cambio"
 MOTIVO_MODO_NO_LIVE = "modo_no_live"
 MOTIVO_ERROR_PUT = "error_put"
 MOTIVO_AJUSTE_EN_CURSO = "ajuste_en_curso"
+MOTIVO_PUJAS_PENDIENTES = "pujas_pendientes"
 
 MOTIVOS_SIN_APLICAR = (
     MOTIVO_CUOTA,
@@ -63,22 +68,34 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_MODO_NO_LIVE,
     MOTIVO_ERROR_PUT,
     MOTIVO_AJUSTE_EN_CURSO,
+    MOTIVO_PUJAS_PENDIENTES,
 )
 
-_CAMPOS_POR_UBICACION = (
-    ("arriba_de_busqueda", "ajuste_top_pct"),
-    ("resto_de_busqueda", "ajuste_resto_pct"),
-    ("paginas_de_producto", "ajuste_producto_pct"),
+# Errores con los que el envio de UNA evaluacion termina sin abortar la fase.
+# El orden importa: CambioExternoDetectado hereda de HuellaDesactualizada.
+_MOTIVO_SIN_PUT: tuple[tuple[type[Exception], str], ...] = (
+    (CambioExternoDetectado, MOTIVO_CAMBIO_EXTERNO),
+    (HuellaDesactualizada, MOTIVO_CONFIG_CAMBIO),
+    (AjusteSinCambio, MOTIVO_CONFIG_CAMBIO),
+    (AjusteEnCurso, MOTIVO_AJUSTE_EN_CURSO),
+    (AjusteNoConfirmado, MOTIVO_ERROR_PUT),
+    (AdsClientError, MOTIVO_ERROR_PUT),
 )
+_ERRORES_DE_ENVIO = tuple(clase for clase, _motivo in _MOTIVO_SIN_PUT)
 
-_SQL_PENDIENTES = """
-SELECT a.id, a.campana_id, c.external_id, a.antes_config_id, a.despues
+_CAMPOS_POR_UBICACION = {
+    "arriba_de_busqueda": "ajuste_top_pct",
+    "resto_de_busqueda": "ajuste_resto_pct",
+    "paginas_de_producto": "ajuste_producto_pct",
+}
+
+_SQL_PENDIENTES = f"""
+SELECT a.id, c.external_id, a.antes_config_id, a.despues, a.evaluacion_id
   FROM campana_ajuste a
   JOIN ad_entity c ON c.id = a.campana_id
  WHERE a.platform = %s AND a.clase = 'ajuste_ubicacion'
    AND a.evaluacion_id IS NOT NULL AND a.confirmado_el IS NULL
-   AND NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s
-                    WHERE s.evaluacion_id = a.evaluacion_id)
+   AND {sql_orden_viva("a")}
  ORDER BY a.id
 """
 
@@ -103,6 +120,7 @@ ON CONFLICT (evaluacion_id) DO NOTHING
 class ResumenReconcilia:
     revisadas: int
     selladas: int
+    cerradas: int
 
 
 @dataclass(frozen=True)
@@ -110,6 +128,21 @@ class ResumenAplica:
     candidatas: int
     aplicadas: int
     sin_aplicar: tuple[tuple[int, str], ...]
+
+
+class _ClienteVigilado:
+    """Registra si el PUT llego a intentarse: lo que falla antes no salio."""
+
+    def __init__(self, cliente) -> None:
+        self._cliente = cliente
+        self.put_iniciado = False
+
+    def list_sellado(self, path, payload):
+        return self._cliente.list_sellado(path, payload)
+
+    def ajustar_campana(self, externa, cuerpo):
+        self.put_iniciado = True
+        return self._cliente.ajustar_campana(externa, cuerpo)
 
 
 def esquema_ubicaciones_disponible(conn: psycopg.Connection) -> bool:
@@ -148,15 +181,15 @@ def registra_sin_aplicar(conn: psycopg.Connection, evaluacion_id: int, motivo: s
 
 
 def _campo_movido(antes: ConfigCampana, despues: ConfigCampana) -> str | None:
-    for _ubicacion, campo in _CAMPOS_POR_UBICACION:
+    for campo in _CAMPOS_POR_UBICACION.values():
         if getattr(antes, campo) != getattr(despues, campo):
             return campo
     return None
 
 
-def _coincide(leida: ConfigCampana, destino: ConfigCampana, campo: str) -> bool:
-    return leida.estrategia_puja == destino.estrategia_puja and (
-        (getattr(leida, campo) or 0) == (getattr(destino, campo) or 0)
+def _coincide(leida: ConfigCampana, esperada: ConfigCampana, campo: str) -> bool:
+    return leida.estrategia_puja == esperada.estrategia_puja and (
+        (getattr(leida, campo) or 0) == (getattr(esperada, campo) or 0)
     )
 
 
@@ -167,15 +200,16 @@ def reconcilia_automaticos(
     *,
     tick: Callable[[], None] | None = None,
 ) -> ResumenReconcilia:
-    """Sella las intenciones automaticas que Amazon ya refleja, sin mandar PUT.
+    """Decide las intenciones automaticas pendientes leyendo Amazon, sin PUT.
 
-    Si la lectura viva no coincide con el destino, la fila queda pendiente y la
-    campana se abstiene (`ajuste_en_vuelo`) hasta que la reconciliacion la
-    resuelva.
+    Amazon muestra el destino: se sella. Muestra otro valor legible: la
+    intencion no llego (o el dueno la piso) y se cierra con `error_put`, para
+    que la campana no quede en `ajuste_en_vuelo` para siempre. Lectura
+    ilegible: queda pendiente hasta la siguiente reconciliacion.
     """
     filas = conn.execute(_SQL_PENDIENTES, (platform,)).fetchall()
-    selladas = 0
-    for ajuste_id, _campana, externa, antes_id, despues in filas:
+    selladas = cerradas = 0
+    for ajuste_id, externa, antes_id, despues, evaluacion_id in filas:
         if tick is not None:
             tick()
         antes = config_por_id(conn, antes_id)
@@ -184,7 +218,11 @@ def reconcilia_automaticos(
         if campo is None:
             continue
         leida = _config_leida(cliente, platform, externa)
-        if leida is None or not _coincide(leida, destino, campo):
+        if leida is None or leida.estrategia_puja is None:
+            continue
+        if not _coincide(leida, destino, campo):
+            registra_sin_aplicar(conn, evaluacion_id, MOTIVO_ERROR_PUT)
+            cerradas += 1
             continue
         ahora = dt.datetime.now(dt.UTC)
         with conn.transaction():
@@ -192,7 +230,7 @@ def reconcilia_automaticos(
             guarda_config(conn, platform, [mezcla_observacion(antes, leida)], ahora)
         conn.commit()
         selladas += 1
-    return ResumenReconcilia(revisadas=len(filas), selladas=selladas)
+    return ResumenReconcilia(revisadas=len(filas), selladas=selladas, cerradas=cerradas)
 
 
 def _sigue_vivo(conn: psycopg.Connection, platform: str, campana: int) -> bool:
@@ -210,18 +248,24 @@ def _sigue_vivo(conn: psycopg.Connection, platform: str, campana: int) -> bool:
     return objetivo is not None and objetivo.enabled and objetivo.mode == "live"
 
 
-def _motivo_error_put(exc: Exception) -> str | None:
-    """Motivo a registrar, o None si el PUT pudo llegar (ambiguo)."""
-    if isinstance(exc, AdsAuthError):
-        return MOTIVO_ERROR_PUT
-    status = getattr(exc, "status", None)
-    if status in (401, 403):
-        return MOTIVO_ERROR_PUT
-    if not getattr(exc, "put_iniciado", False):
-        return MOTIVO_ERROR_PUT
-    if status is not None and status < 500 and status not in (429, 207):
-        return MOTIVO_ERROR_PUT
-    return None
+def _cambio_en_consola(cliente, platform: str, vigente: ConfigCampana, ubicacion: str) -> bool:
+    """Revalidacion viva ANTES de cobrar cuota: el dueno pudo mover la campana
+    en su consola despues del sync. Una lectura sin estrategia no prueba nada:
+    la guardia dentro del candado repite la comparacion antes del PUT."""
+    leida = _config_leida(cliente, platform, vigente.campana_externa)
+    if leida is None or leida.estrategia_puja is None:
+        return False
+    return not _coincide(leida, vigente, _CAMPOS_POR_UBICACION[ubicacion])
+
+
+def _motivo_sin_put(exc: Exception) -> str:
+    return next(motivo for clase, motivo in _MOTIVO_SIN_PUT if isinstance(exc, clase))
+
+
+def _identidad_rechazada(exc: Exception) -> bool:
+    return isinstance(exc, AdsAuthError) or (
+        getattr(exc, "status", None) in STATUS_IDENTIDAD_RECHAZADA
+    )
 
 
 def _cuenta_en_espera(conn: psycopg.Connection, platform: str) -> int:
@@ -236,15 +280,16 @@ def aplica_automaticos(
     platform: str,
     cycle_id: int,
     settings,
+    pujas_completas: bool = True,
     tick: Callable[[], None] | None = None,
     abrir_conexion: Callable[[], psycopg.Connection] | None = None,
 ) -> ResumenAplica:
     """Ejecuta los movimientos `live` del ciclo en el orden determinista.
 
-    Cuota, tope de campanas en espera y relectura de configuracion se cobran o
-    verifican ANTES del HTTP; lo que no se envia deja su motivo en
-    `ubicacion_sin_aplicar`. La conexion dedicada no usa autocommit para
-    retener el candado de transaccion durante el `PUT`.
+    Modo, configuracion, tope de campanas en espera y lectura viva se
+    verifican ANTES de cobrar cuota; lo que no se envia deja su motivo en
+    `ubicacion_sin_aplicar`. Un rechazo de identidad o un fallo de base aborta
+    la fase: la reconciliacion converge desde cualquier punto de caida.
     """
     pendientes = evaluaciones_a_aplicar(conn, cycle_id, platform)
     if not pendientes:
@@ -262,31 +307,33 @@ def aplica_automaticos(
     for eval_id, caso, veredicto in pendientes:
         if tick is not None:
             tick()
-        if modo != "live":
+        if not pujas_completas:
+            descarta(eval_id, MOTIVO_PUJAS_PENDIENTES)
+            continue
+        if modo != "live" or not _sigue_vivo(conn, platform, caso.campana_id):
             descarta(eval_id, MOTIVO_MODO_NO_LIVE)
             continue
-        # El dueno pudo apagar la campana o el motor durante la fase de pujas.
-        if not _sigue_vivo(conn, platform, caso.campana_id):
-            descarta(eval_id, MOTIVO_MODO_NO_LIVE)
-            continue
-        vigente_id, _vigente = config_vigente_con_id(conn, caso.campana_id)
+        vigente_id, vigente = config_vigente_con_id(conn, caso.campana_id)
         if vigente_id is None or vigente_id != caso.config_id:
             descarta(eval_id, MOTIVO_CONFIG_CAMBIO)
             continue
         if _cuenta_en_espera(conn, platform) >= maximo:
             descarta(eval_id, MOTIVO_TOPE)
             continue
-        with tx_durable(conn):
-            usada = consume_quota(conn, platform, "ubicacion")
-        if not usada:
-            descarta(eval_id, MOTIVO_CUOTA)
-            continue
-        conexion = None
+        conexion = abrir()
+        vigilado = _ClienteVigilado(cliente)
         try:
-            conexion = abrir()
+            if _cambio_en_consola(vigilado, platform, vigente, veredicto.ubicacion):
+                descarta(eval_id, MOTIVO_CAMBIO_EXTERNO)
+                continue
+            with tx_durable(conn):
+                usada = consume_quota(conn, platform, "ubicacion")
+            if not usada:
+                descarta(eval_id, MOTIVO_CUOTA)
+                continue
             aplica_ajuste_motor(
                 conexion,
-                cliente,
+                vigilado,
                 campana_id=caso.campana_id,
                 plataforma=platform,
                 ajuste=CambiarAjusteUbicacion(
@@ -295,43 +342,13 @@ def aplica_automaticos(
                 evaluacion_id=eval_id,
             )
             aplicadas += 1
-        except CambioExternoDetectado:
-            descarta(eval_id, MOTIVO_CAMBIO_EXTERNO)
-        except AjusteEnCurso:
-            descarta(eval_id, MOTIVO_AJUSTE_EN_CURSO)
-        except (AjusteNoConfirmado, ErrorTrasPut):
-            # El PUT pudo llegar (o ya salio): la intencion queda pendiente
-            # para que la reconciliacion la selle. Nunca se marca no aplicada.
-            pass
-        except HuellaDesactualizada:
-            descarta(eval_id, MOTIVO_CONFIG_CAMBIO)
-        except AdsAuthError:
-            descarta(eval_id, MOTIVO_ERROR_PUT)
-            raise
-        except AdsApiError as exc:
-            if exc.status in (401, 403):
-                descarta(eval_id, MOTIVO_ERROR_PUT)
+        except _ERRORES_DE_ENVIO as exc:
+            if not vigilado.put_iniciado:
+                descarta(eval_id, _motivo_sin_put(exc))
+            if _identidad_rechazada(exc):
                 raise
-            if not getattr(exc, "put_iniciado", False):
-                # Fallo ANTES del PUT: no salio nada.
-                descarta(eval_id, MOTIVO_ERROR_PUT)
-            elif (
-                exc.status is not None
-                and (exc.status < 500 or exc.status == 207)
-                and exc.status != 429
-            ):
-                # Rechazo determinista del PUT (207/4xx): Amazon no aplico.
-                descarta(eval_id, MOTIVO_ERROR_PUT)
-            # 5xx, 429 o red durante el PUT: ambiguo, queda pendiente.
-        except AdsClientError:
-            descarta(eval_id, MOTIVO_ERROR_PUT)
-        except (OrbitDbError, psycopg.Error):
-            # La base fallo sin poder distinguir si el PUT salio: no se marca
-            # no aplicado y se aborta la fase para que el ciclo sea recuperable.
-            raise
         finally:
-            if conexion is not None:
-                conexion.close()
+            conexion.close()
 
     return ResumenAplica(
         candidatas=len(pendientes), aplicadas=aplicadas, sin_aplicar=tuple(sin_aplicar)

@@ -152,15 +152,6 @@ class Transicion:
     propaga_aborto: bool = False
 
 
-class ErrorTrasPut(AdsApiError):
-    """Fallo de lectura o red DESPUES de que el PUT salio a Amazon: ambiguo."""
-
-    def __init__(self, exc: Exception) -> None:
-        super().__init__(str(exc))
-        self.status = getattr(exc, "status", None)
-        self.cuerpo = getattr(exc, "cuerpo", None)
-
-
 def _fila_terminal(estado: EstadoCambio) -> dict[tuple[EstadoCambio, EventoCambio], Transicion]:
     """Transiciones de un estado terminal: absorbente ante eventos ordinarios,
     y fallo global ante rechazo de identidad o desplazamiento de dueno."""

@@ -1968,7 +1968,7 @@ def test_mapeo_errores_ajuste_trae_sus_codigos():
     } == _ERRORES_AJUSTE
     from app.api_write import _codigo_error_ajuste
 
-    assert _codigo_error_ajuste(apply_ajustes.ErrorTrasPut(RuntimeError("x"))) == 502
+    assert _codigo_error_ajuste(apply_ajustes.CambioExternoDetectado("x", None)) == 409
     assert _codigo_error_ajuste(apply_ajustes.HuellaDesactualizada("x", None)) == 409
 
 

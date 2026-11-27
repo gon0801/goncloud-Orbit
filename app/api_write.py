@@ -710,8 +710,8 @@ _ERRORES_AJUSTE: dict[type[Exception], int] = {
 
 
 def _codigo_error_ajuste(exc: Exception) -> int:
-    """Busca por `isinstance` para que las subclases (ErrorTrasPut,
-    CambioExternoDetectado) hereden su codigo sin tocar el dict."""
+    """Busca por `isinstance` para que las subclases (CambioExternoDetectado,
+    AdsApiErrorMutacion) hereden su codigo sin tocar el dict."""
     for clase, codigo in _ERRORES_AJUSTE.items():
         if isinstance(exc, clase):
             return codigo

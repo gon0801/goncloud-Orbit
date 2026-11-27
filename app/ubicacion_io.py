@@ -125,14 +125,29 @@ SELECT DISTINCT ag.parent_id
  WHERE v.platform = %s AND ag.parent_id IS NOT NULL
 """
 
-_SQL_AJUSTES_EN_VUELO = """
+
+def sql_orden_viva(alias: str) -> str:
+    """Predicado unico de orden viva sobre `campana_ajuste`.
+
+    Una intencion automatica con desenlace en `ubicacion_sin_aplicar` no llego
+    a Amazon (o Amazon mostro otro valor al reconciliar): ninguna guarda la
+    cuenta como orden en curso ni la reconciliacion la sella. Las filas
+    manuales (`evaluacion_id` NULL) siempre cuentan."""
+    return (
+        "NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s"
+        f" WHERE s.evaluacion_id = {alias}.evaluacion_id)"
+    )
+
+
+_SQL_AJUSTES_EN_VUELO = f"""
 SELECT DISTINCT a.campana_id
   FROM campana_ajuste a
- WHERE a.platform = %s AND a.confirmado_el IS NULL
-   AND (a.evaluacion_id IS NULL
-        OR NOT EXISTS (SELECT 1 FROM ubicacion_sin_aplicar s
-                        WHERE s.evaluacion_id = a.evaluacion_id))
+ WHERE a.platform = %s AND a.confirmado_el IS NULL AND {sql_orden_viva("a")}
 """
+
+
+def campanas_con_ajuste_en_vuelo(conn: psycopg.Connection, platform: str) -> frozenset[int]:
+    return frozenset(f[0] for f in conn.execute(_SQL_AJUSTES_EN_VUELO, (platform,)))
 
 
 @dataclass(frozen=True)
@@ -322,7 +337,7 @@ def lee_casos(
     if modo_ubicacion_desde_settings(settings, platform) == "off":
         return ()
     abiertos = {f[0] for f in conn.execute(_SQL_IMPULSOS_ABIERTOS, (platform,))}
-    en_vuelo = {f[0] for f in conn.execute(_SQL_AJUSTES_EN_VUELO, (platform,))}
+    en_vuelo = campanas_con_ajuste_en_vuelo(conn, platform)
     hoy = _fecha_utc(decided_at)
     topada, dias_topados_por_campana = _dias_topados(conn, platform, decided_at, settings)
     cubre_inmaduros = _cubre_ingesta(

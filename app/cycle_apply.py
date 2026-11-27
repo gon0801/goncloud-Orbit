@@ -317,6 +317,7 @@ def _fase_reconciliacion(
         notas_rec["ubicaciones_reconciliadas"] = {
             "revisadas": res_ubic.revisadas,
             "selladas": res_ubic.selladas,
+            "cerradas": res_ubic.cerradas,
         }
     if res_rev.confirmadas or res_rev.fallidas or res_rev.omitidas or res_rev.pendientes_de_lectura:
         notas_rec["reversas_reconciliadas"] = {
@@ -485,12 +486,7 @@ def _fase_apply(
                 "omitidas": res_react.omitidas,
                 "pendientes_de_lectura": res_react.pendientes_de_lectura + extras_pendientes,
             }
-            if (
-                settings is not None
-                and not res_bids.inciertos
-                and not apply.bids_recuperables(conn, origen)
-                and hay_evaluaciones_a_aplicar(conn, origen, platform)
-            ):
+            if settings is not None and hay_evaluaciones_a_aplicar(conn, origen, platform):
                 dsn_ubic = conn.info.dsn
                 if conn.info.password:
                     dsn_ubic = make_conninfo(dsn_ubic, password=conn.info.password)
@@ -503,6 +499,8 @@ def _fase_apply(
                             platform=platform,
                             cycle_id=origen,
                             settings=settings,
+                            pujas_completas=not res_bids.inciertos
+                            and not apply.bids_recuperables(conn, origen),
                             tick=guard,
                         )
                         notas["ubicaciones"] = {
