@@ -360,4 +360,19 @@ def test_reversa_0105_sin_datos_borra_la_tabla_y_restaura_el_check(db_template):
         " AND conname = 'decision_sin_aplicar_motivo_check'"
     ).fetchone()
     assert "espera_reciente_economica" not in defin
-    assert "tope_ciclo" in defin
+    # Restaura EXACTAMENTE el vocabulario de 0099 (mismo orden incluido):
+    # un literal distinto rechazaria un motivo que el aplicador si escribe.
+    texto_0099 = (
+        Path(__file__).resolve().parents[1] / "migrations" / "0099_arreglos05_tope_ciclo.sql"
+    ).read_text(encoding="utf-8")
+    bloque = texto_0099.split("ADD CONSTRAINT decision_sin_aplicar_motivo_check", 1)[1]
+    bloque = bloque.split("motivo IN (", 1)[1].split("))", 1)[0]
+    esperados = tuple(re.findall(r"'([a-z_]+)'", bloque))
+    assert tuple(re.findall(r"'([a-z_]+)'", defin)) == esperados
+    # Y una fila con `entidad_no_decisora` vuelve a entrar tras la reversa.
+    _config, ciclo, _hoja, decision = _siembra_tx3(conn)
+    conn.execute(
+        "INSERT INTO decision_sin_aplicar (decision_id, cycle_id, motivo)"
+        " VALUES (%s, %s, 'entidad_no_decisora')",
+        (decision, ciclo),
+    )

@@ -360,6 +360,305 @@ def test_cortacircuito_no_cuenta_pausas_en_cooldown(monkeypatch):
         assert all(filas[hoja][4] is not None for hoja in sangrantes[:-1])
 
 
+def test_proteccion_activa_no_tira_una_pausa_economica_con_venta_reciente():
+    """Matriz (2)(b): orders_mad=0 + venta reciente cara + proteccion v1.
+
+    `_proteccion_activa` debe coincidir con `decide(caso)` y NO descartar el
+    `Pausar` economico como `veto_pendiente`. Sin pasar `reciente_economica`,
+    v2 devuelve `reciente_incompleto`, la proteccion gana el motivo y la pausa
+    se tira: esta prueba se pone roja al borrar ese kwarg."""
+    from app.cycle_grupos import _Contadores
+    from app.cycle_serializacion import _proteccion_activa
+    from app.optimizer import cortes as cortes_mod
+    from app.optimizer.bid import decide_pause
+    from app.optimizer.caso import (
+        InsumosPausa,
+        InsumosProteccion,
+        LecturaReciente,
+        LecturaRecienteEconomica,
+    )
+    from app.optimizer.windows import AgregadoMetricas
+
+    hoy = dt.date(2026, 11, 27)
+    fin = hoy - dt.timedelta(days=10)
+    cortes_hoja = AgregadoMetricas(
+        window_start=fin - dt.timedelta(days=29),
+        window_end=fin,
+        fechas=tuple(fin - dt.timedelta(days=n) for n in range(22)),
+        metric_currency="USD",
+        cost=Decimal("145"),
+        ad_revenue=Decimal("100"),
+        revenue_same_sku=Decimal("0"),
+        impressions=100,
+        clicks=300,
+        orders=0,
+        observed_at_max=dt.datetime(2026, 11, 17, tzinfo=dt.UTC),
+    )
+    reciente_economica = LecturaRecienteEconomica(
+        desde=fin + dt.timedelta(days=1),
+        hasta=hoy - dt.timedelta(days=1),
+        evaluado_el=hoy,
+        moneda="USD",
+        completa=True,
+        cost=Decimal("100"),
+        ad_revenue=Decimal("1"),
+        orders=1,
+    )
+    proteccion = InsumosProteccion(
+        version="proteccion_venta_v1",
+        evaluado_el=hoy,
+        reciente=LecturaReciente(
+            pedidos=1,
+            ancla=fin + dt.timedelta(days=2),
+            cubierta=True,
+            observado_al=None,
+        ),
+        ventana_desde=fin - dt.timedelta(days=29),
+        ventana_hasta=fin,
+        episodio=None,
+        frena_subidas=True,
+    )
+    pausa = InsumosPausa(
+        cortes=cortes_hoja,
+        umbral_clics=100,
+        gasto_minimo=Decimal("40"),
+        expected_clicks=None,
+        politica_economica="economic_pause_v2",
+        proteccion=proteccion,
+        reciente_economica=reciente_economica,
+    )
+    assert (
+        _proteccion_activa(
+            platform="amazon_us",
+            entidad_id=1,
+            target=Decimal("20"),
+            corte_pause=cortes_mod.UmbralResuelto(umbral=100, elegible=False, expected_clicks=None),
+            cortes_hoja=cortes_hoja,
+            costo_piso=Decimal("40"),
+            pausa=pausa,
+            proteccion_cache=None,
+            contadores=_Contadores(),
+            decided_at=dt.datetime(2026, 11, 27, 12, tzinfo=dt.UTC),
+        )
+        is False
+    )
+    # El ciclo y la serializacion coinciden: la regla pura pausa con los
+    # mismos insumos, asi que el Pausar no puede tratarse como veto.
+    assert (
+        decide_pause(
+            platform="amazon_us",
+            bids=None,
+            cortes=cortes_hoja,
+            target_acos_pct=Decimal("20"),
+            umbral_pause=100,
+            cost_min=Decimal("40"),
+            policy_version="economic_pause_v2",
+            proteccion=proteccion,
+            reciente_economica=reciente_economica,
+        ).motivo
+        == "pause_economica"
+    )
+
+
+def test_corre_ciclo_shadow_mercado_sin_candidatos_cumple_compuerta():
+    """Aceptacion 24: mercado cuyas hojas no cruzan la puerta madura.
+
+    Una fila por hoja juzgada, todas `mantener` con su motivo, `evaluadas`
+    igual al numero de filas, `pausar == 0` y `sin_cortes` reportado."""
+    with _db_temporal("orbit_p03_compuerta") as (conn, _):
+        ids = _siembra_maestra(
+            conn,
+            escalera="live",
+            settings={
+                "ads_bid_politica_amazon_us": "niveles_v3",
+                "ads_pause_economica_amazon_us": "shadow",
+                **CAPS,
+            },
+        )
+        assert ids["kw_bid"] and ids["kw_pause"]
+        res = _corre(conn)
+        filas = _filas_evaluacion(conn, res.cycle_id)
+        assert filas
+        assert {f[2] for f in filas} == {"mantener"}
+        assert {f[3] for f in filas} <= {
+            regla.MOTIVO_NO_CRUZA_MADURA,
+            regla.MOTIVO_CORTES_INCOMPLETOS,
+        }
+        resumen = json.loads(res.notes)["pausa_economica"]
+        assert resumen["evaluadas"] == len(filas)
+        assert resumen["pausar"] == 0
+        assert "sin_cortes" in resumen
+        assert "error" not in resumen and "error_tx3" not in resumen
+
+
+def test_corre_ciclo_hoja_sin_ventana_no_escribe_fila(monkeypatch):
+    """Aceptacion 25: hoja elegible sin ventana de cortes (`max_fecha` da
+    `None`) no deja fila y se cuenta en `sin_cortes`.
+
+    Se fuerza el `None` de `ventana_cortes` para esa hoja porque una entidad
+    sin NINGUNA metrica es `entidad_inerte` y sale antes de evaluarse; la
+    rama de `windows.py:482-484` se ejerce con la hoja no inerte (fila
+    reciente con impressions NULL) y la ventana anulada."""
+    from app import cycle_recorrido as recorrido
+
+    with _db_temporal("orbit_p03_sin_ventana") as (conn, _):
+        ids = _siembra_maestra(
+            conn,
+            escalera="live",
+            settings={
+                "ads_bid_politica_amazon_us": "niveles_v3",
+                "ads_pause_economica_amazon_us": "shadow",
+                **CAPS,
+            },
+        )
+        ag = conn.execute(
+            "SELECT id FROM ad_entity WHERE platform = 'amazon_us' AND kind = 'ad_group' LIMIT 1"
+        ).fetchone()[0]
+        kw = _entidad(
+            conn,
+            "amazon_us",
+            "keyword",
+            "9701",
+            parent=ag,
+            match_type="EXACT",
+            keyword_text="kw sin ventana",
+        )
+        _estado(
+            conn,
+            kw,
+            synced_at=DECIDED_AT - dt.timedelta(hours=4),
+            current_bid=Decimal("1.00"),
+            bid_currency="USD",
+        )
+        run = conn.execute(
+            "INSERT INTO ingest_run (source) VALUES ('p03') RETURNING id"
+        ).fetchone()[0]
+        fecha = DECIDED_AT.date() - dt.timedelta(days=1)
+        _metrica(
+            conn,
+            run,
+            kw,
+            fecha,
+            _obs(fecha),
+            cost="0",
+            ad_revenue="0",
+            clicks=0,
+            orders=0,
+            impressions=None,
+        )
+        original = recorrido.windows.ventana_cortes
+
+        def _sin_ventana(conn_, entidad, decidido, cerca=None):
+            if entidad == kw:
+                return None
+            return original(conn_, entidad, decidido, cerca=cerca)
+
+        monkeypatch.setattr(recorrido.windows, "ventana_cortes", _sin_ventana)
+        assert ids["kw_bid"]
+        res = _corre(conn)
+        filas = _filas_evaluacion(conn, res.cycle_id)
+        assert all(f[0] != kw for f in filas)
+        resumen = json.loads(res.notes)["pausa_economica"]
+        assert resumen["sin_cortes"] >= 1
+        assert resumen["evaluadas"] == len(filas)
+
+
+def test_libera_vencidos_pause_umbral_no_hereda_la_espera(monkeypatch):
+    """Aceptacion 20-bis: una fila `pause_umbral` que ya no califica con la
+    ventana reciente incompleta se DESCARTA (0 PUT), igual con la fila
+    economica delante, detras o ausente; el cache se lee UNA vez."""
+    from app import pausa_economica_io as pio
+
+    def _caso(etiqueta: str, *, con_economica: bool, economica_primero: bool):
+        with _db_temporal(etiqueta) as (conn, _):
+            ids = _semilla(
+                conn,
+                caps={
+                    "ads_apply_cap_amazon_us_pause": 5,
+                    "ads_pause_economica_amazon_us": "live",
+                },
+            )
+            d = ids["ahora"]
+            conn.execute(
+                "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
+            )
+            for entidad in (ids["kw"], ids["kw2"]):
+                for fecha in _fechas(
+                    d.date() - dt.timedelta(days=20), d.date() - dt.timedelta(days=11)
+                ):
+                    _metrica_cola(
+                        conn,
+                        ids["run"],
+                        entidad,
+                        fecha,
+                        clicks=5,
+                        cost=10,
+                        orders=0,
+                        ad_revenue=0,
+                    )
+
+            def _encola(entidad, motivo, external):
+                return _encola_fila(
+                    conn,
+                    _decision_corte(
+                        conn,
+                        ids["ciclo_dec"],
+                        ids["config"],
+                        entidad,
+                        "pause",
+                        motivo=motivo,
+                    ),
+                    entidad,
+                    "pause",
+                    payload=_payload_pause(external),
+                )
+
+            # El orden de la cola es el de insercion (mismo encolado_at, id ASC).
+            if con_economica and economica_primero:
+                _encola(ids["kw2"], "pause_economica", "7202")
+            q_umbral = _encola(ids["kw"], "pause_umbral", "7201")
+            if con_economica and not economica_primero:
+                _encola(ids["kw2"], "pause_economica", "7202")
+            conn.execute(
+                "UPDATE apply_queue SET estado = 'released', released_at = %s"
+                " WHERE estado = 'pending_veto'",
+                (d,),
+            )
+            llamadas: list = []
+            original = pio.lee_cache_reciente
+
+            def _cuenta(*args, **kwargs):
+                llamadas.append(args)
+                return original(*args, **kwargs)
+
+            monkeypatch.setattr(pio, "lee_cache_reciente", _cuenta)
+            handler, vistos = _handler_cortes()
+            apply_cola.libera_vencidos(
+                conn,
+                "amazon_us",
+                ahora=d,
+                aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+                modo_economica="live",
+            )
+            fila = conn.execute(
+                "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s",
+                (q_umbral,),
+            ).fetchone()
+            return fila, llamadas, vistos
+
+    for etiqueta, con_economica, primero in (
+        ("orbit_p03_umbral_sola", False, False),
+        ("orbit_p03_umbral_detras", True, False),
+        ("orbit_p03_umbral_delante", True, True),
+    ):
+        fila, llamadas, vistos = _caso(
+            etiqueta, con_economica=con_economica, economica_primero=primero
+        )
+        assert fila == ("discarded", MOTIVO_YA_NO_CALIFICA), etiqueta
+        assert len(llamadas) == 1, etiqueta
+        assert all(r.method != "PUT" for r in vistos), etiqueta
+
+
 def test_digest_ciclo_menciona_anomalia_tope_y_la_omite_sin_clave():
     linea = "pausa economica frenada por tope: 6"
     con = notifica.digest_ciclo(

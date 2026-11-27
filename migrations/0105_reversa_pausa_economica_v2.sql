@@ -50,7 +50,7 @@ $check$;
     EXECUTE $check$
 ALTER TABLE decision_sin_aplicar ADD CONSTRAINT decision_sin_aplicar_motivo_check
     CHECK (motivo IN (
-        'modo_no_live', 'ya_aplicada', 'bid_incompleto', 'entidad_no_decidora',
+        'modo_no_live', 'ya_aplicada', 'bid_incompleto', 'entidad_no_decisora',
         'tope_intentos', 'fuera_de_cap', 'fallo_http', 'sin_quota',
         'espera_target', 'sin_respuesta', 'perdida', 'choque_clave',
         'espera_proteccion', 'bid_cambiado_fuera', 'vigencia_vencida',
