@@ -62,6 +62,14 @@ class Replay:
     sustituidas: int
     discrepancias: tuple[int, ...]
 
+    @property
+    def comparadas(self) -> int:
+        return self.revisadas - self.sustituidas
+
+    @property
+    def ok(self) -> bool:
+        return self.comparadas > 0 and not self.discrepancias
+
 
 def _repetido(entrada: dict) -> tuple:
     veredicto = decide_ubicacion(caso_desde_json(entrada))
@@ -130,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         json.dumps(
             {
+                "comparadas": replay.comparadas,
                 "revisadas": replay.revisadas,
                 "sustituidas": replay.sustituidas,
                 "discrepancias": list(replay.discrepancias),
@@ -137,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
             sort_keys=True,
         )
     )
-    return 1 if replay.discrepancias else 0
+    return 0 if replay.ok else 1
 
 
 if __name__ == "__main__":

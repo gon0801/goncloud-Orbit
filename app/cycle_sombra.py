@@ -524,5 +524,10 @@ def tx3_ubicaciones(
         decided_at=decided_at,
         evaluaciones=evaluaciones,
     )
-    contadores.resumen_ubicaciones = resumen_ubicaciones_ciclo(conn, cycle_id)
+    resumen = resumen_ubicaciones_ciclo(conn, cycle_id)
+    contadores.resumen_ubicaciones = {
+        "evaluadas": resumen["evaluadas"],
+        "mover": resumen["mover"],
+        "en_practica": resumen["en_practica"],
+    }
     cuerpo["ubicaciones"] = contadores.resumen_ubicaciones

@@ -1031,7 +1031,7 @@ def _atiende(
                 ciclo_id = _abre_envelope(conn, modo.modo, platform, resume_of=origen)
                 muertos = _cierra_rastro(conn, owner, platform, ciclo_id)
         # Primer paso de TODO horario bajo el claim (antes de saltar o cerrar en off):
-        # en live concilia todo; sin ciclo o en shadow/off solo lee reversas abiertas.
+        # en live concilia todo; sin ciclo o en shadow/off lee reversas y ubicaciones.
         tick = _tick_heartbeat(hb, job_key, owner, heartbeat_cada)
         guard = _guard_apply(conn, job_key, owner, tick, hb=hb)
         modo_rec = modo if ciclo_id is not None else g.ModoEfectivo(modo="shadow", nota=modo.nota)
@@ -1074,9 +1074,9 @@ def _atiende(
             _sello_fallido(conn, ciclo_id, exc, contadores, muertos)
         raise
     finally:
-        cierra_aplicador(reconciliacion)
         if tomado:
             _libera_lock(hb, conn, job_key, owner)
+        cierra_aplicador(reconciliacion)
         if hb is not None:
             hb.close()
 

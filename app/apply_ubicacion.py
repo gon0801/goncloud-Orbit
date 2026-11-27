@@ -43,7 +43,7 @@ from app.apply_ajustes import (
     _aplica_y_confirma,
     _config_leida,
 )
-from app.apply_cuota import consume_quota
+from app.apply_cuota import CapSaturado, consume_quota_y_sello, evento_cap_saturado
 from app.apply_estados import STATUS_IDENTIDAD_RECHAZADA
 from app.campana_ajustes import AjusteSinCambio, CambiarAjusteUbicacion, planea_ajuste
 from app.db import connect as db_connect
@@ -54,6 +54,7 @@ from app.optimizer.ubicacion import (
     modo_ubicacion_desde_settings,
 )
 from app.ubicacion_io import (
+    campanas_con_ajuste_en_vuelo,
     esquema_ubicaciones_disponible,
     evaluaciones_a_aplicar,
     sql_orden_viva,
@@ -136,6 +137,7 @@ class ResumenAplica:
     candidatas: int
     aplicadas: int
     sin_aplicar: tuple[tuple[int, str], ...]
+    caps_saturados: tuple[CapSaturado, ...] = ()
 
 
 class _ClienteVigilado:
@@ -252,16 +254,19 @@ def _sigue_vivo(conn: psycopg.Connection, platform: str, campana: int) -> bool:
     return objetivo is not None and objetivo.enabled and objetivo.mode == "live"
 
 
-def _motivo_consola(cliente, platform: str, vigente: ConfigCampana, ubicacion: str) -> str | None:
-    """Revalidacion viva ANTES de cobrar cuota. Sin lectura completa no se
-    manda nada a ciegas; un valor distinto del juzgado es mano del dueno en la
-    consola despues del sync."""
+def _lee_consola(
+    cliente, platform: str, vigente: ConfigCampana, ubicacion: str
+) -> tuple[str | None, ConfigCampana | None]:
+    """Revalidacion viva ANTES de cobrar cuota e insertar la intencion. Sin
+    lectura completa no se manda nada a ciegas; un valor distinto del juzgado
+    es mano del dueno en la consola despues del sync. Devuelve `(None, leida)`
+    cuando coincide para reutilizar la lectura sin un segundo HTTP pre-PUT."""
     leida = _config_leida(cliente, platform, vigente.campana_externa)
     if leida is None or leida.estrategia_puja is None:
-        return MOTIVO_ERROR_PUT
+        return MOTIVO_ERROR_PUT, None
     if not _coincide(leida, vigente, _CAMPOS_POR_UBICACION[ubicacion]):
-        return MOTIVO_CAMBIO_EXTERNO
-    return None
+        return MOTIVO_CAMBIO_EXTERNO, None
+    return None, leida
 
 
 def _motivo_sin_put(exc: Exception) -> str:
@@ -272,9 +277,6 @@ def es_identidad_rechazada(exc: Exception) -> bool:
     return isinstance(exc, AdsAuthError) or (
         getattr(exc, "status", None) in STATUS_IDENTIDAD_RECHAZADA
     )
-
-
-_identidad_rechazada = es_identidad_rechazada
 
 
 def _cuenta_en_espera(conn: psycopg.Connection, platform: str) -> int:
@@ -298,6 +300,7 @@ def aplica_ajuste_motor(
     plataforma: str,
     ajuste,
     evaluacion_id: int,
+    actual_previa: ConfigCampana | None = None,
 ) -> AjusteHecho:
     """Aplica un ajuste nacido de una evaluacion `live` de ubicaciones.
 
@@ -319,6 +322,7 @@ def aplica_ajuste_motor(
     plan = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=plataforma)
     huella = f"auto:{evaluacion_id}:{plan.huella()}"
     existente = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
+    es_recuperacion = existente is not None
     if existente is not None:
         _eid, confirmada, ecamp, _eclase = existente
         if ecamp != campana_id:
@@ -356,6 +360,8 @@ def aplica_ajuste_motor(
         campana_id=campana_id,
         ajuste_id=ajuste_id,
         previa=plan.antes,
+        recuperando=es_recuperacion,
+        actual_previa=None if es_recuperacion else actual_previa,
     )
     return AjusteHecho(ajuste_id, campana_id, plan.clase, True)
 
@@ -387,6 +393,7 @@ def aplica_automaticos(
     abrir = abrir_conexion or (lambda: db_connect(dsn, autocommit=False))
     aplicadas = 0
     sin_aplicar: list[tuple[int, str]] = []
+    caps_saturados: list[CapSaturado] = []
 
     def descarta(evaluacion_id: int, motivo: str) -> None:
         registra_sin_aplicar(conn, evaluacion_id, motivo)
@@ -408,18 +415,24 @@ def aplica_automaticos(
         if _cuenta_en_espera(conn, platform) >= maximo:
             descarta(eval_id, MOTIVO_TOPE)
             continue
+        if caso.campana_id in campanas_con_ajuste_en_vuelo(conn, platform):
+            descarta(eval_id, MOTIVO_AJUSTE_EN_CURSO)
+            continue
         conexion = abrir()
         vigilado = _ClienteVigilado(cliente)
         try:
-            motivo = _motivo_consola(vigilado, platform, vigente, veredicto.ubicacion)
+            motivo, actual = _lee_consola(vigilado, platform, vigente, veredicto.ubicacion)
             if motivo is not None:
                 descarta(eval_id, motivo)
                 continue
             with tx_durable(conn):
-                usada = consume_quota(conn, platform, "ubicacion")
+                usada, saturada = consume_quota_y_sello(conn, platform, "ubicacion")
+                evento_cap = evento_cap_saturado(conn, platform, "ubicacion") if saturada else None
             if not usada:
                 descarta(eval_id, MOTIVO_CUOTA)
                 continue
+            if evento_cap is not None:
+                caps_saturados.append(evento_cap)
             aplica_ajuste_motor(
                 conexion,
                 vigilado,
@@ -429,6 +442,7 @@ def aplica_automaticos(
                     ubicacion=veredicto.ubicacion, porcentaje=veredicto.a_pct
                 ),
                 evaluacion_id=eval_id,
+                actual_previa=actual,
             )
             aplicadas += 1
         except _ERRORES_DE_ENVIO as exc:
@@ -440,5 +454,8 @@ def aplica_automaticos(
             conexion.close()
 
     return ResumenAplica(
-        candidatas=len(pendientes), aplicadas=aplicadas, sin_aplicar=tuple(sin_aplicar)
+        candidatas=len(pendientes),
+        aplicadas=aplicadas,
+        sin_aplicar=tuple(sin_aplicar),
+        caps_saturados=tuple(caps_saturados),
     )

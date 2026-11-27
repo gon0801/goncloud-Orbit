@@ -214,18 +214,18 @@ def sella_notas_post_apply(
 
 
 def cierra_aplicador(reconciliacion: _Reconciliacion | None) -> None:
-    """Cierra el cliente HTTP del aplicador de la reconciliacion si existe."""
-    if reconciliacion is not None and reconciliacion.aplicador is not None:
-        cerrar = getattr(reconciliacion.aplicador, "close", None)
-        if callable(cerrar):
-            cerrar()
+    """Cierra el cliente HTTP del aplicador de la reconciliacion (best-effort)."""
+    _cierra_instancia(reconciliacion.aplicador if reconciliacion is not None else None)
 
 
 def _cierra_instancia(aplicador: Aplicador | None) -> None:
     if aplicador is not None:
         cerrar = getattr(aplicador, "close", None)
         if callable(cerrar):
-            cerrar()
+            try:
+                cerrar()
+            except Exception as exc:
+                logger.warning("cierre del cliente HTTP fallo: %s", scrub(str(exc)))
 
 
 def _reconcilia_ubicaciones_aislado(
@@ -282,12 +282,19 @@ def _fase_reconciliacion(
     reenvia. Corre con el claim en poder de este owner.
 
     Lo que NO detiene la decision: la fabrica sin perfil aceptado, o un fallo
-    de la API, la identidad o los permisos de Amazon. Se anotan como
-    `apply_error`, no hay aplicador, ninguna mutacion sale y las decisiones se
-    comprometen igual: un ejecutor del siguiente horario las completa. Lo que
-    SI detiene todo: perder el claim (`ApplyAbortado`), la base indisponible o
-    cualquier error que no venga de la API, que abortan antes de comprometer
-    decisiones en vez de decidir a ciegas."""
+    de la API, la identidad o los permisos de Amazon. En la fase principal
+    (harvest, bids y reversas), esos fallos se anotan como `apply_error`, no
+    hay aplicador y ninguna mutacion sale. Tras commitear esa fase, las
+    ubicaciones pendientes corren en bloque aislado: un error transitorio
+    (5xx/429/timeout/SinPerfil*) se anota en `ubicaciones_reconcilia_error` y
+    conserva `aplicador`; solo un rechazo de identidad/permisos (401/403/
+    AdsAuthError) anota `apply_error` y anula `aplicador` (preservando en
+    `applied_count` lo ya commiteado). Fuera de `live`, un error transitorio
+    en reversas no bloquea reconciliar ubicaciones pendientes; un rechazo de
+    identidad si detiene. Lo que SI detiene todo: perder el claim
+    (`ApplyAbortado`), la base indisponible o cualquier error que no venga de
+    la API, que abortan antes de comprometer decisiones en vez de decidir a
+    ciegas."""
     if modo.modo != "live":
         tiene_reversas = apply_cola.hay_reversas_pause_abiertas(conn, platform)
         tiene_ubicaciones = hay_pendientes_automaticos(conn, platform)
@@ -331,21 +338,21 @@ def _fase_reconciliacion(
                     AdsConfigError,
                 ) as exc:
                     conn.rollback()
-                    return _Reconciliacion(
-                        aplicador=None,
-                        notas={"apply_error": scrub(str(exc)) or type(exc).__name__},
-                    )
-                conn.commit()
-                res_rev = rec_rev.resumen
-                reversas_confirmadas = res_rev.confirmadas
-                reversas_pendientes = res_rev.pendientes_de_lectura
-                reversas_por_qid = dict(rec_rev.por_queue_id)
-                notas_no_live["reversas_reconciliadas"] = {
-                    "confirmadas": res_rev.confirmadas,
-                    "fallidas": res_rev.fallidas,
-                    "omitidas": res_rev.omitidas,
-                    "pendientes_de_lectura": res_rev.pendientes_de_lectura,
-                }
+                    notas_no_live["apply_error"] = scrub(str(exc)) or type(exc).__name__
+                    if es_identidad_rechazada(exc):
+                        return _Reconciliacion(aplicador=None, notas=notas_no_live)
+                else:
+                    conn.commit()
+                    res_rev = rec_rev.resumen
+                    reversas_confirmadas = res_rev.confirmadas
+                    reversas_pendientes = res_rev.pendientes_de_lectura
+                    reversas_por_qid = dict(rec_rev.por_queue_id)
+                    notas_no_live["reversas_reconciliadas"] = {
+                        "confirmadas": res_rev.confirmadas,
+                        "fallidas": res_rev.fallidas,
+                        "omitidas": res_rev.omitidas,
+                        "pendientes_de_lectura": res_rev.pendientes_de_lectura,
+                    }
             if tiene_ubicaciones:
                 _reconcilia_ubicaciones_aislado(
                     conn, aplicador_lectura, platform, guard, notas_no_live
@@ -592,6 +599,7 @@ def _fase_apply(
                             "aplicadas": res_ubic_a.aplicadas,
                             "sin_aplicar": len(res_ubic_a.sin_aplicar),
                         }
+                        caps_saturados += res_ubic_a.caps_saturados
                     except (
                         AdsClientError,
                         SinPerfilAplicar,
@@ -612,6 +620,17 @@ def _fase_apply(
             )
             with conn.transaction():
                 conn.execute(_SQL_APPLIED_COUNT_CICLO, (total, cycle_id))
+        elif modo.modo == "live":
+            total_rec = (
+                reconciliacion.jobs_done
+                + reconciliacion.negativas_confirmadas
+                + reconciliacion.pausas_confirmadas
+                + reconciliacion.bids_confirmados
+                + reconciliacion.reversas_confirmadas
+            )
+            if total_rec > 0:
+                with conn.transaction():
+                    conn.execute(_SQL_APPLIED_COUNT_CICLO, (total_rec, cycle_id))
         conn.commit()
     except (ApplyAbortado, DuenoDelClaimCambio) as exc:
         conn.rollback()
