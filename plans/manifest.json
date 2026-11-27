@@ -73,7 +73,7 @@
     {
       "name": "bids-01",
       "path": "plans/bids-01.md",
-      "description": "BIDS 01 — CERRADO 2026-09-15; primer lote manual de archivo diferido (ROADMAP P07). Ledger vacio en consulta 2026-11-04. Politica de bids posterior en BIDS 02."
+      "description": "BIDS 01 — CERRADO 2026-09-15 y seguimiento P07 CERRADO 2026-11-27 UTC: primer lote manual inertes-2026-11-27 (10/10 keywords MX peso_muerto ARCHIVED, ledger keyword_archivo_manual 1..10 applied). Acta en docs/evidencia/bids-01/cierre-p07-2026-11-27.md. Politica de bids posterior en BIDS 02."
     },
     {
       "name": "estructura-01",

@@ -80,7 +80,6 @@ Los P del [ROADMAP](ROADMAP.md) conservan su evidencia fechada. «Falta comproba
 | P03 — ADS PROTECCION C.6 | Completar P2 (cobertura, elegibilidad y maduración); después expediente P3, cinco ciclos propios P4 y live P5 con sus gates. No superponer sombra global cero-applies con encendidos de TEMPORADA. |
 | P05 — reseñas Amazon | La última foto no tiene ingesta exitosa; **03 D-B retira Apify**. Seguir esa retirada, no recargar crédito ni activar el camino viejo. Una fuente nueva para Reputación 02 requiere brief propio. No declarar retirada ejecutada hasta su evidencia. |
 | P06 — ORBIT 02/cloudflared | Externo: inventario de rutas y ventana de rotación. No reabrir migración/apagado ya cerrados. |
-| P07 — BIDS 01 | Primer lote manual de archivo, con datos actuales y go específico. Antes, cerrar reposición 11 en 05 C; reponer no restaura identidad/historia archivada. |
 | P08 — JEV ADS 03 | Medición de 30 días programada para 17-nov-2026 09:00 UTC; recuperar resultado cuando exista. Fecha prevista no demuestra ejecución. |
 | P09 — ORBIT 19 | Conciliación 0.3, cobertura solo-actividad y Featured Offer en ese consumidor. Tener cliente SP-API no prueba su cierre. |
 | P13 — PEZ 02 | Externo: solo MLM2727437671, inhabilitada por categoría; ocho descripciones publicadas, 22 mm ya confirmado. No recostear ni repetir pregunta de medidas. |
@@ -88,7 +87,7 @@ Los P del [ROADMAP](ROADMAP.md) conservan su evidencia fechada. «Falta comproba
 | RESUMEN ADS 04 | Revisión visual productiva no acreditada en su plan; runtime y conciliación son evidencias distintas. P01 ya cerrado. |
 | Pausa por producto / AUTO-03 | Encendido del dueño separado de implementación y de ORBIT 07; conservar el modo documentado hasta evidencia de cambio. |
 
-**P01, P02 y P04 ya están cerrados con evidencia**; no son pendientes (P02 cerrado 27-nov-2026 UTC en [docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md](../docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md)). P10, P11 y P12 no son órdenes de implementación: se clasifican abajo. Los bloqueos P06/P13 y el calendario P08 no detienen toda la cola.
+**P01, P02, P04 y P07 ya están cerrados con evidencia**; no son pendientes (P02 en [cierre-p02-2026-11-27.md](../docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md), P07 en [cierre-p07-2026-11-27.md](../docs/evidencia/bids-01/cierre-p07-2026-11-27.md)). P10, P11 y P12 no son órdenes de implementación: se clasifican abajo. Los bloqueos P06/P13 y el calendario P08 no detienen toda la cola.
 
 ## Futuros sin implementación autorizada
 
