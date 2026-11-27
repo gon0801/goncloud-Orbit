@@ -133,6 +133,13 @@ SQL96 = (
     / "migrations"
     / "0096_arreglos05_regreso_destino_efectivo.sql"
 ).read_text(encoding="utf-8")
+# P03 (0099 + 0105): motivo espera_reciente_economica y tabla de evaluacion.
+SQL99 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0099_arreglos05_tope_ciclo.sql"
+).read_text(encoding="utf-8")
+SQL105 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0105_pausa_economica_v2.sql"
+).read_text(encoding="utf-8")
 SQL98 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0098_arreglos05_indice_shadow.sql"
 ).read_text(encoding="utf-8")
@@ -169,6 +176,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         conn.execute(SQL98)  # 0098 (ARREGLOS 05 E): unicidad live y shadow vigente
+        conn.execute(SQL99)  # 0099: motivo tope_ciclo del CHECK
+        conn.execute(SQL105)  # 0105 (P03): pausa economica v2 + espera reciente
         yield conn
     finally:
         if conn is not None:
@@ -2119,7 +2128,10 @@ def test_pause_economica_venta_pasa_cola_veto_apply_y_readback():
     """La venta medida no anula una PAUSE que aun excede el limite vigente."""
     with _db_temporal("orbit_cola_econ_apply") as conn:
         # B1: la revalidacion economica exige el flag prendido.
-        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica": True})
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica_amazon_us": "live"},
+        )
         d = ids["ahora"]
         conn.execute(
             "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
@@ -2140,6 +2152,10 @@ def test_pause_economica_venta_pasa_cola_veto_apply_y_readback():
                 orders=1 if i == 0 else 0,
                 ad_revenue=100 if i == 0 else 0,
             )
+        # P03: la ventana reciente [fin_cortes+1 .. D-1] tiene ingesta diaria
+        # medida en cero (v2 solo pausa sobre datos medibles).
+        for fecha in _fechas(d.date() - dt.timedelta(days=13), d.date() - dt.timedelta(days=1)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, ad_revenue=0)
         dec = _decision_corte(
             conn,
             ids["ciclo_dec"],
@@ -2151,7 +2167,11 @@ def test_pause_economica_venta_pasa_cola_veto_apply_y_readback():
         q = _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         handler, vistos = _handler_cortes()
         resultado = libera_vencidos(
-            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            modo_economica="live",
         )
         assert resultado.aplicadas == 1
         assert Decimal(resultado.revalidaciones_economicas[0]["exceso"]) == 80
@@ -2183,7 +2203,10 @@ def test_camino_de_exito_una_sola_entrada_por_decision():
     from app import cycle
 
     with _db_temporal("orbit_cola_econ_una") as conn:
-        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica": True})
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica_amazon_us": "live"},
+        )
         d = ids["ahora"]
         conn.execute(
             "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
@@ -2204,13 +2227,21 @@ def test_camino_de_exito_una_sola_entrada_por_decision():
                 orders=1 if i == 0 else 0,
                 ad_revenue=100 if i == 0 else 0,
             )
+        # P03: la ventana reciente [fin_cortes+1 .. D-1] tiene ingesta diaria
+        # medida en cero (v2 solo pausa sobre datos medibles).
+        for fecha in _fechas(d.date() - dt.timedelta(days=13), d.date() - dt.timedelta(days=1)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, ad_revenue=0)
         dec = _decision_corte(
             conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
         )
         _encola_fila(conn, dec, ids["kw"], "pause", payload=_payload_pause("7201"))
         handler, _v = _handler_cortes()
         resultado = libera_vencidos(
-            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            modo_economica="live",
         )
         assert resultado.aplicadas == 1
 
@@ -2256,7 +2287,7 @@ def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobra
             caps={
                 "ads_apply_cap_amazon_us_pause": 2,
                 "ads_apply_cap_amazon_us_negative": 5,
-                "ads_pause_economica": True,
+                "ads_pause_economica_amazon_us": "live",
             },
         )
         d = ids["ahora"]
@@ -2279,6 +2310,10 @@ def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobra
                 orders=1 if i == 0 else 0,
                 ad_revenue=100 if i == 0 else 0,
             )
+        # P03: la ventana reciente [fin_cortes+1 .. D-1] tiene ingesta diaria
+        # medida en cero (v2 solo pausa sobre datos medibles).
+        for fecha in _fechas(d.date() - dt.timedelta(days=13), d.date() - dt.timedelta(days=1)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, ad_revenue=0)
         dec = _decision_corte(
             conn,
             ids["ciclo_dec"],
@@ -2291,7 +2326,11 @@ def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobra
         handler, vistos = _handler_cortes()
         monkeypatch.setattr(cola, "consume_quota_y_sello", lambda *_: (False, False))
         primero = libera_vencidos(
-            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            modo_economica="live",
         )
         assert primero.sin_quota == 1
         assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
@@ -2314,7 +2353,11 @@ def test_pause_economica_released_sin_quota_descarta_venta_tardia_antes_de_cobra
 
         monkeypatch.setattr(cola, "consume_quota_y_sello", cuota_prohibida)
         segundo = libera_vencidos(
-            conn, "amazon_us", ahora=d, aplicador=_aplicador(conn, handler, ids["ciclo_ejec"])
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=_aplicador(conn, handler, ids["ciclo_ejec"]),
+            modo_economica="live",
         )
         assert segundo.descartadas == [MOTIVO_YA_NO_CALIFICA]
         assert conn.execute("SELECT estado FROM apply_queue WHERE id = %s", (q,)).fetchone() == (
@@ -2392,32 +2435,32 @@ def test_libera_espera_target_queda_released_y_cuenta(monkeypatch):
 
 
 @_skip_db
-def test_flag_pausa_economica_fail_closed_en_db():
-    """B1'r2: _flag_pause_economica lee la config vigente: sin clave o
-    false -> False; true -> True (mata `return True`)."""
+def test_modo_pausa_economica_fail_closed_en_db():
+    """P03: el modo es POR MERCADO y fail-closed: sin clave, valor invalido o
+    booleano -> 'off'; 'live' enciende (mata un `return 'live'`)."""
     import app.apply_cola as cola
 
     with _db_temporal("orbit_cola_flag") as conn:
         _semilla(conn)
-        assert cola._flag_pause_economica(conn) is False
+        assert cola._modo_pausa_economica(conn, "amazon_us") == "off"
     with _db_temporal("orbit_cola_flag") as conn:
         _semilla(
             conn,
             caps={
                 "ads_apply_cap_amazon_us_pause": 2,
-                "ads_pause_economica": False,
+                "ads_pause_economica_amazon_us": True,
             },
         )
-        assert cola._flag_pause_economica(conn) is False
+        assert cola._modo_pausa_economica(conn, "amazon_us") == "off"
     with _db_temporal("orbit_cola_flag") as conn:
         _semilla(
             conn,
             caps={
                 "ads_apply_cap_amazon_us_pause": 2,
-                "ads_pause_economica": True,
+                "ads_pause_economica_amazon_us": "live",
             },
         )
-        assert cola._flag_pause_economica(conn) is True
+        assert cola._modo_pausa_economica(conn, "amazon_us") == "live"
 
 
 @_skip_db

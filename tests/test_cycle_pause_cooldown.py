@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from app import cycle
-from app.optimizer import goals, windows
+from app.optimizer import bid, goals, windows
 from app.optimizer.caso import (
     BidVigente,
     Economia,
@@ -77,6 +77,16 @@ def _caso_base():
         ventana_hasta=dt.date(2026, 9, 4),
         observado_al=AHORA - dt.timedelta(hours=1),
     )
+
+
+def _cache_ceros():
+    """P03: ventana reciente medible en cero (ninguna venta reciente)."""
+    from app import pausa_economica_io as pio
+
+    desde = dt.date(2026, 9, 5)
+    hasta = AHORA.date() - dt.timedelta(days=1)
+    dias = frozenset(desde + dt.timedelta(days=n) for n in range((hasta - desde).days + 1))
+    return pio.CacheRecienteEconomica("amazon_us", AHORA.date(), "USD", desde, dias, {})
 
 
 def _corre_hoja(
@@ -158,7 +168,10 @@ def _corre_hoja(
         margen_plataforma=None,
         snapshot_margen={},
         familias_ciclo=cycle._FamiliasCiclo({}, {}, {}, {}, {}, None, AHORA.date(), None, {}),
-        pause_economica=econ,
+        modo_economica="live" if econ else "off",
+        politica_economica=bid.POLITICA_PAUSE_ECONOMICA_V2 if econ else None,
+        economia_live=False,
+        reciente_cache=_cache_ceros() if econ else None,
         politica="niveles_v3",
         lecturas=lecturas,
     )
@@ -171,7 +184,7 @@ def test_4925_pause_madura_14_sep_pasa_bid_cooldown_sin_lookahead(monkeypatch):
     assert pendientes[0].window_end == dt.date(2026, 9, 4)
     assert pendientes[0].inputs["politica"] == "niveles_v3"
     assert pendientes[0].inputs["target_procedencia"] == "goal_plataforma"
-    assert pendientes[0].inputs["motivo"] == "pause_umbral"
+    assert pendientes[0].inputs["motivo"] == "pause_economica"
     assert pendientes[0].inputs["caso"]["pausa"]["umbral_clics"] == 157
     assert contadores.decisiones == {"pause": 1}
     assert consultas == ["pause"]
@@ -262,13 +275,14 @@ def test_2423_venta_cara_emite_pause_y_replayea_con_caso(monkeypatch):
     pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte)
     assert contadores.decisiones == {"pause": 1}
     assert pendientes[0].inputs["motivo"] == "pause_economica"
-    assert pendientes[0].inputs["caso"]["pausa"]["politica_economica"] == "economic_pause_v1"
+    assert pendientes[0].inputs["caso"]["pausa"]["politica_economica"] == "economic_pause_v2"
     assert cycle.reproduce(pendientes[0].inputs) == ("pause", None, None)
 
 
 def test_flag_economico_apagado_decide_regla_vieja(monkeypatch):
-    """C.3 B1: con el flag apagado no hay PAUSE economica (misma hoja que
-    con flag emitiria pause_economica); la umbral sigue pausando."""
+    """P03: con la pausa economica apagada no hay PAUSE economica (misma hoja
+    que con el modo encendido emitiria pause_economica); la umbral sigue
+    pausando."""
     corte = _agregado(orders=1, clicks=231, cost="105")
     corte = windows.AgregadoMetricas(**{**corte.__dict__, "ad_revenue": Decimal("100")})
     pendientes, contadores, _ = _corre_hoja(monkeypatch, corte=corte, econ=False)

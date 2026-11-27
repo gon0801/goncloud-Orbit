@@ -80,7 +80,23 @@ def _mundo(conn, *, margen: int = 8) -> dict:
 
 
 def _config_con_pausa_economica(conn) -> None:
-    _config_version(conn, {**_settings(conn), "ads_pause_economica": True})
+    _config_version(conn, {**_settings(conn), "ads_pause_economica_amazon_us": "live"})
+
+
+def _cache_reciente_en_cero():
+    """P03: en `live` la revalidacion economica corre v2 y exige la ventana
+    reciente medible; aqui se congela en CERO (ninguna venta reciente).
+
+    El `fresco` de estas pruebas usa la metrica historica del 2026-08-09, asi
+    que la cobertura se abre lo suficiente para que el rango juzgado quede
+    completo con ceros medidos."""
+    from app import pausa_economica_io as pio
+
+    hoy = dt.datetime.now(dt.UTC).date()
+    desde = dt.date(2026, 1, 1)
+    hasta = hoy - dt.timedelta(days=1)
+    dias = frozenset(desde + dt.timedelta(days=n) for n in range((hasta - desde).days + 1))
+    return pio.CacheRecienteEconomica("amazon_us", hoy, "USD", desde, dias, {})
 
 
 def _config_con_economia(conn, modo: str) -> None:
@@ -205,6 +221,7 @@ def test_cola_conserva_la_meta_individual_si_la_economia_no_cambia(monkeypatch):
             apply_cola.FilaCola(1, "pause", ids["kw"], None, pausa["decision_id"], {}, "released"),
             dt.datetime.now(dt.UTC),
             evidencias,
+            cache_reciente=_cache_reciente_en_cero(),
         )
         assert resultado is None, "el 4 % fresco conserva la pausa economica"
         [evidencia] = evidencias
@@ -259,6 +276,7 @@ def test_cola_resuelve_el_respaldo_cuando_el_producto_pierde_elegibilidad(monkey
             apply_cola.FilaCola(1, "pause", ids["kw"], None, pausa["decision_id"], {}, "released"),
             dt.datetime.now(dt.UTC),
             evidencias,
+            cache_reciente=_cache_reciente_en_cero(),
         )
         assert resultado == apply_cola.MOTIVO_YA_NO_CALIFICA
         [evidencia] = evidencias
@@ -300,6 +318,7 @@ def test_la_seleccion_anterior_restaura_la_cascada_sin_borrar_evidencia(monkeypa
             apply_cola.FilaCola(1, "pause", ids["kw"], None, pausa["decision_id"], {}, "released"),
             dt.datetime.now(dt.UTC),
             evidencias,
+            cache_reciente=_cache_reciente_en_cero(),
         )
         assert resultado is None, "auto03 revalida con el target congelado del 4 %"
         [evidencia] = evidencias

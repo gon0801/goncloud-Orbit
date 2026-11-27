@@ -171,6 +171,14 @@ SQL96 = (
 SQL51 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0051_ads_acta_listado.sql"
 ).read_text(encoding="utf-8")
+# P03 (0099 + 0105): el CHECK de motivos con espera_reciente_economica y la
+# tabla append-only de la pausa economica v2 que escribe TX3.
+SQL99 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0099_arreglos05_tope_ciclo.sql"
+).read_text(encoding="utf-8")
+SQL105 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0105_pausa_economica_v2.sql"
+).read_text(encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Reloj FIJO y ventanas derivadas (mismas constantes que test_optimizer_windows)
@@ -281,6 +289,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         # ARREGLOS 01 J: acta de listado por plataforma (la guarda la lee).
         conn.execute(SQL51)
+        conn.execute(SQL99)  # 0099: motivo tope_ciclo del CHECK
+        conn.execute(SQL105)  # 0105 (P03): pausa economica v2 + espera reciente
         yield conn, conectar_extra
     finally:
         if conn is not None:
@@ -2831,7 +2841,7 @@ def test_ciclo_lee_flag_economico_de_settings():
                 "ads_bid_politica_amazon_us": "niveles_v3",
             }
             if flag:
-                settings["ads_pause_economica"] = True
+                settings["ads_pause_economica_amazon_us"] = "live"
             _config_version(conn, settings)
             conn.execute(
                 "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
@@ -2869,6 +2879,22 @@ def test_ciclo_lee_flag_economico_de_settings():
                     ad_revenue="100" if i == 0 else "0",
                     clicks=5,
                     orders=1 if i == 0 else 0,
+                )
+            # P03: la ventana reciente de v2 tiene que ser medible (ceros).
+            for fecha in _rango(
+                DECIDED_AT.date() - dt.timedelta(days=10),
+                DECIDED_AT.date() - dt.timedelta(days=1),
+            ):
+                _metrica(
+                    conn,
+                    run,
+                    kw3,
+                    fecha,
+                    _obs(fecha),
+                    cost="0",
+                    ad_revenue="0",
+                    clicks=0,
+                    orders=0,
                 )
             res = _corre(conn)
             decisiones = _decisions_de(conn, res.cycle_id)
@@ -3164,7 +3190,9 @@ def _corre_decisora_niveles(monkeypatch, caso: CasoHoja, tick=lambda: None):
         margen_plataforma=None,
         snapshot_margen={},
         familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, DECIDED_AT.date(), None, {}),
-        pause_economica=False,
+        modo_economica="off",
+        politica_economica=None,
+        economia_live=False,
         politica="niveles_v3",
         lecturas=lecturas,
     )

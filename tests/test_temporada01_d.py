@@ -1393,7 +1393,7 @@ def test_temporada01_ola1_frontera_hoja_reactivacion_y_revalida_utc(db_template,
         ahora_m7,
         evidencias,
         evidencia_grupos={},
-        flag_economica_fn=lambda _c: True,
+        modo_economica_fn=lambda *_c: "live",
         pause_propio_fn=lambda _c, _e: False,
     )
     assert evidencias, "la pausa economica debe registrar su evidencia"
@@ -1587,7 +1587,9 @@ def test_inerte_con_efecto_en_vuelo_se_salta_como_inerte_sin_pausa():
         familias_ciclo=_FamiliasCiclo(
             {}, {}, {}, {}, {}, None, D_E1, None, {}, productos.ECONOMIA_AUTO03
         ),
-        pause_economica=True,
+        modo_economica="off",
+        politica_economica=None,
+        economia_live=False,
         politica="niveles_v3",
         lecturas=_LecturasStub(),
     )
