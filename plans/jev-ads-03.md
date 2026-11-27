@@ -1,6 +1,6 @@
 # JEV ADS 03 — el dueño bloquea lo que Jev marca como ajeno
 
-> **Seguimiento 4-nov-2026:** plan cerrado y bloqueo encendido. `atq` confirma job 8 para el **17-nov-2026 09:00 UTC**. Revisión del informe en ROADMAP P08; no adelantarlo ni tratarlo como desarrollo pendiente.
+> **Cierre operativo 27-nov-2026 UTC (ROADMAP P08 cerrado):** informe de 30 días del 17-nov (`at` job 8) recuperado y contrastado a 14 días post-bloqueo (`MX: 488.97 MXN/mes`, `US: 59.13 USD/mes`, `100 %` aprobación, 48/48 aplicados, ventas posteriores sanas). El dueño decidió mantener `jev.bloqueo` encendido. Acta: [cierre-p08-2026-11-27.md](../docs/evidencia/jev-ads-03/ejecucion/D.3/cierre-p08-2026-11-27.md).
 
 Estado: plan del 2026-10-17. El dueño selló el diseño ese día en el chat con
 el lead. Nace de la fila E.2 de [JEV ADS 02](jev-ads-02.md), cerrada como "no
