@@ -537,6 +537,8 @@ def ultimas_evaluaciones_por_campana(
     es la configuracion vigente (el dueño cambio algo) o cuando la evaluacion ya
     tiene un ajuste asociado (aplicado o pendiente).
     """
+    if not esquema_ubicaciones_disponible(conn):
+        return {}
     filas = conn.execute(
         """
         WITH ultima AS (
@@ -594,3 +596,20 @@ def resumen_ubicaciones_ciclo(conn: psycopg.Connection, cycle_id: int) -> dict:
         "en_practica": fila[2],
         "aplicadas": fila[3],
     }
+
+
+def esquema_ubicaciones_disponible(conn: psycopg.Connection) -> bool:
+    """False en una base anterior a la migracion 0104: ninguna capa lee sus tablas."""
+    return bool(
+        conn.execute("SELECT to_regclass('public.ubicacion_evaluacion') IS NOT NULL").fetchone()[0]
+    )
+
+
+def resumen_ultimo_ciclo(conn: psycopg.Connection, platform: str) -> dict | None:
+    """Conteos del ultimo ciclo que evaluo ubicaciones en el mercado, o None."""
+    if not esquema_ubicaciones_disponible(conn):
+        return None
+    ciclo = conn.execute(
+        "SELECT max(cycle_id) FROM ubicacion_evaluacion WHERE platform = %s", (platform,)
+    ).fetchone()[0]
+    return None if ciclo is None else resumen_ubicaciones_ciclo(conn, ciclo)

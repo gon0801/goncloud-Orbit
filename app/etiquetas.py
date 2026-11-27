@@ -283,6 +283,7 @@ KIND: dict[str, str] = {
     "resume": "Reactivación",
     "negative": "Negativo",
     "harvest": "Captura",
+    "ubicacion": "Ajuste de ubicación",
 }
 
 # Donde se midio la evidencia de una decision de puja (politica.decide).

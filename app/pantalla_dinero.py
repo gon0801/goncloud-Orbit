@@ -27,6 +27,7 @@ from app.optimizer import temporada
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.goals import gasto_para_concluir_desde_settings
 from app.optimizer.settings_lectura import TECHOS_HUMANOS_POR_MONEDA
+from app.ubicacion_io import SugerenciaUbicacion, ultimas_evaluaciones_por_campana
 
 Plataforma = Literal["amazon_mx", "amazon_us"]
 Moneda = Literal["MXN", "USD"]
@@ -270,6 +271,7 @@ class FilaCampana:
     ajustes_regresables: tuple[AjusteRegresable, ...] = ()
     aviso_ajuste: str | None = None
     propuesta_temporada: temporada.PropuestaPresupuesto | None = None
+    sugerencia_ubicacion: SugerenciaUbicacion | None = None
 
     def como_dict(self) -> dict:
         return {
@@ -298,7 +300,31 @@ class FilaCampana:
             "propuesta_temporada": None
             if self.propuesta_temporada is None
             else self.propuesta_temporada.como_dict(),
+            "sugerencia_ubicacion": None
+            if self.sugerencia_ubicacion is None
+            else _sugerencia_dict(self.sugerencia_ubicacion),
         }
+
+
+def _sugerencia_dict(sugerencia: SugerenciaUbicacion) -> dict:
+    """Linea de la sugerencia congelada del motor, junto al boton de ajuste."""
+    from app.optimizer.ubicacion import MOTIVOS_UBICACION_ES
+
+    modo = "Práctica" if sugerencia.modo == "shadow" else "Automático"
+    verbo = "subir" if sugerencia.a_pct > sugerencia.de_pct else "bajar"
+    ubicacion = _etiqueta(sugerencia.ubicacion, "ubicacion").lower()
+    motivo = MOTIVOS_UBICACION_ES.get(sugerencia.motivo, sugerencia.motivo)
+    return {
+        "evaluacion_id": sugerencia.evaluacion_id,
+        "modo": sugerencia.modo,
+        "ubicacion": sugerencia.ubicacion,
+        "de_pct": sugerencia.de_pct,
+        "a_pct": sugerencia.a_pct,
+        "frase": (
+            f"{modo}: {verbo} {ubicacion} de +{sugerencia.de_pct} % a"
+            f" +{sugerencia.a_pct} % ({motivo})."
+        ),
+    }
 
 
 @dataclass(frozen=True)
@@ -476,6 +502,7 @@ def lee_campanas(
         cid: confirmado
         for cid, confirmado in conn.execute(_SQL_ULTIMO_AJUSTE_PRECIO, (plataforma,)).fetchall()
     }
+    sugerencias = ultimas_evaluaciones_por_campana(conn, plataforma)
     # TEMPORADA 01 G: propuesta de presupuesto por campana (solo lectura).
     config_t = temporada.desde_settings(crudo)
     episodio = None
@@ -539,6 +566,7 @@ def lee_campanas(
                     techo_humano=techo,
                     moneda=PLATAFORMAS_MONEDA[plataforma],
                 ),
+                sugerencia_ubicacion=sugerencias.get(cid),
             )
         )
     return tuple(filas)
