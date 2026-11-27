@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import secrets
 from contextlib import contextmanager
 from decimal import Decimal
 from types import SimpleNamespace
@@ -63,31 +64,39 @@ def _db():
 
 
 _ROL_DECIDE_E2E = "orbit_decide_e2e"
-_PWD_DECIDE_E2E = "orbit_decide_e2e_pwd"
 
 
 @contextmanager
 def _como_decide(conn_admin: psycopg.Connection, dsn: str):
     """Abre una conexion de ciclo bajo un rol LOGIN real miembro SOLO de
-    `app_decide` (como `orbit_decide` en produccion, `autocommit=False`)."""
-    conn_admin.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{_ROL_DECIDE_E2E}') THEN
-                CREATE ROLE {_ROL_DECIDE_E2E} LOGIN PASSWORD '{_PWD_DECIDE_E2E}' IN ROLE app_decide;
-            END IF;
-        END
-        $$;
-        """
-    )
+    `app_decide` (como `orbit_decide` en produccion, `autocommit=False`), con
+    contrasena efimera por invocacion (punto 14b, #788)."""
+    pwd = secrets.token_urlsafe(24)
+    existe = conn_admin.execute(
+        "SELECT 1 FROM pg_roles WHERE rolname = %s", (_ROL_DECIDE_E2E,)
+    ).fetchone()
+    if existe is None:
+        conn_admin.execute(
+            pgsql.SQL("CREATE ROLE {} LOGIN PASSWORD {} IN ROLE app_decide").format(
+                pgsql.Identifier(_ROL_DECIDE_E2E), pgsql.Literal(pwd)
+            )
+        )
+    else:
+        conn_admin.execute(
+            pgsql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {}").format(
+                pgsql.Identifier(_ROL_DECIDE_E2E), pgsql.Literal(pwd)
+            )
+        )
+        conn_admin.execute(
+            pgsql.SQL("GRANT app_decide TO {}").format(pgsql.Identifier(_ROL_DECIDE_E2E))
+        )
     db_actual = conn_admin.execute("SELECT current_database()").fetchone()[0]
     conn_admin.execute(
         pgsql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
             pgsql.Identifier(db_actual), pgsql.Identifier(_ROL_DECIDE_E2E)
         )
     )
-    dsn_dec = make_conninfo(dsn, user=_ROL_DECIDE_E2E, password=_PWD_DECIDE_E2E)
+    dsn_dec = make_conninfo(dsn, user=_ROL_DECIDE_E2E, password=pwd)
     with psycopg.connect(dsn_dec, autocommit=False) as c_dec:
         c_dec.execute("SET TIME ZONE 'UTC'")
         c_dec.commit()
@@ -194,7 +203,6 @@ def test_tx3_guarda_evaluacion_shadow_y_no_toca_campana_ajuste():
             "evaluadas": 1,
             "mover": 1,
             "en_practica": 1,
-            "aplicadas": 0,
         }
 
 
@@ -269,6 +277,10 @@ def test_config_write_valida_settings_y_cap_ubicacion():
         config_write.proxima_config({}, "amazon_mx", ubicacion_modo="medio")
     with pytest.raises(config_write.SettingsInvalido):
         config_write.proxima_config({}, "amazon_mx", ubicacion_max_en_espera=-1)
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config({}, "amazon_mx", caps={"ubicacion": -1})
+    with pytest.raises(config_write.SettingsInvalido):
+        config_write.proxima_config({}, "amazon_mx", caps={"ubicacion": "abc"})
 
     apagado, _ = config_write.proxima_config(
         {"ads_ubicacion_amazon_mx": "shadow"}, "amazon_mx", ubicacion_modo="off"
@@ -898,8 +910,8 @@ def test_e2e_readback_500_se_reconcilia_mismo_dia(monkeypatch):
         _siembra_subida_lista(conn, c1, ingest)
 
         amazon = _AmazonE2E(campanas={"92004": {"top": 0, "estrategia": "LEGACY_FOR_SALES"}})
-        # 1a lista: _motivo_consola OK; 2a: _aplica_y_confirma OK; 3a (readback): 500 x4.
-        amazon.status_list_campana = [200, 200] + [500] * 4
+        # 1a lista: _lee_consola (pre-PUT) OK; 2a (readback post-PUT): 500 x4.
+        amazon.status_list_campana = [200] + [500] * 4
 
         with _como_decide(conn, dsn) as c_dec:
             at1 = ciclo_mod.atender_plataforma(
@@ -1145,8 +1157,8 @@ def test_e2e_p1_6_claim_perdido_antes_de_put_bloquea_envio_ubicacion():
         _siembra_subida_lista(conn, c1, ingest)
 
         def roba_claim(api, _cuerpo):
-            # Robar claim despues de la 2a lectura (justo antes del PUT /sp/campaigns).
-            if api.listas_campana == 2:
+            # Robar claim despues de la lectura previa (justo antes del PUT /sp/campaigns).
+            if api.listas_campana == 1:
                 with psycopg.connect(dsn, autocommit=True) as otra:
                     otra.execute(
                         "UPDATE ads_optimizer_lock SET owner = 'otro-worker'"
@@ -1405,8 +1417,8 @@ def test_e2e_reinicio_a_mitad_de_apply_retoma_sin_duplicar():
         _siembra_subida_lista(conn, c2, ingest, escala=1)
 
         def muere_en_segunda(api, _cuerpo):
-            # 1a eval usa 3 listas (_motivo_consola, pre-put, readback); la 4a lista es eval #2.
-            if api.listas_campana == 4:
+            # 1a eval usa 2 listas (pre-PUT y readback); la 3a lista es eval #2.
+            if api.listas_campana == 3:
                 raise _MuerteWorker("SIGKILL entre eval 1 y eval 2")
 
         amazon = _AmazonE2E(campanas={"98001": {"top": 0}, "98002": {"top": 0}})
@@ -1455,7 +1467,7 @@ def test_e2e_reinicio_post_insert_pre_sello_converge_en_reconciliacion():
         _siembra_subida_lista(conn, c1, ingest)
 
         def muere_en_readback(api, _cuerpo):
-            if api.listas_campana == 3:  # readback post-PUT
+            if api.listas_campana == 2:  # readback post-PUT
                 raise _MuerteWorker("SIGKILL antes de sellar")
 
         amazon = _AmazonE2E(campanas={"98003": {"top": 0}})
@@ -1655,3 +1667,598 @@ def test_e2e_fallo_guardado_productos_tx3_abstiene_campana(monkeypatch):
         ).fetchone()
         assert fila == ("mantener", "producto_sin_evidencia")
         assert len(amazon.puts_campana) == 0
+
+
+# ---------------------------------------------------------------------------
+# Pruebas E2E de cierre P2 (#788: puntos 3, 4, 5, 6, 7, 10, 11, 12, 16)
+# ---------------------------------------------------------------------------
+
+
+def _siembra_reversa_pause_abierta(conn, *, hoja: int, cv: int, ext_kw: str) -> int:
+    """Siembra una pausa aplicada en `apply_queue` con un intento abierto
+    `tipo='reversa'` en `apply_attempt` para ejercitar `reconcilia_reversas_pause`."""
+    ciclo_prev = _ciclo_previo_cerrado(conn)
+    ayer = _AHORA.date() - dt.timedelta(days=1)
+    dec_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " decided_at, data_observed_at, window_start, window_end, inputs)"
+        " VALUES (%s, %s, 'pause', %s, %s, %s, %s, %s, '{}'::jsonb) RETURNING id",
+        (
+            ciclo_prev,
+            hoja,
+            cv,
+            _AHORA - dt.timedelta(days=1),
+            _AHORA - dt.timedelta(days=1),
+            ayer - dt.timedelta(days=40),
+            ayer - dt.timedelta(days=11),
+        ),
+    ).fetchone()[0]
+    qid = conn.execute(
+        "INSERT INTO apply_queue (decision_id, platform, ad_entity_id, kind, modo, estado,"
+        " vence_el, request_payload) VALUES (%s, 'amazon_mx', %s, 'pause', 'live',"
+        " 'pending_veto', %s, %s::jsonb) RETURNING id",
+        (
+            dec_id,
+            hoja,
+            _AHORA - dt.timedelta(hours=12),
+            json.dumps({"keywordId": ext_kw, "state": "PAUSED"}),
+        ),
+    ).fetchone()[0]
+    for estado in ("released", "applying", "applied"):
+        conn.execute("UPDATE apply_queue SET estado = %s WHERE id = %s", (estado, qid))
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload, quota_cobrada)"
+        " VALUES (%s, 1, 'reversa', %s::jsonb, false)",
+        (dec_id, json.dumps({"keywordId": ext_kw, "state": "ENABLED"})),
+    )
+    return qid
+
+
+def _siembra_bid_sin_sello(conn, *, hoja: int, cv: int, ext_kw: str, nuevo: str = "1.76") -> int:
+    """Siembra una decision `bid` con intento `normal` sin sello listo para
+    confirmar en `reconcilia_bids`."""
+    ciclo_prev = _ciclo_previo_cerrado(conn)
+    ayer = _AHORA.date() - dt.timedelta(days=1)
+    dec_id = conn.execute(
+        "INSERT INTO decision (cycle_id, ad_entity_id, kind, config_version_id,"
+        " decided_at, data_observed_at, window_start, window_end,"
+        " old_value, new_value, value_currency, inputs)"
+        " VALUES (%s, %s, 'bid', %s, %s, %s, %s, %s, 2.00, %s, 'MXN', '{}'::jsonb) RETURNING id",
+        (
+            ciclo_prev,
+            hoja,
+            cv,
+            _AHORA - dt.timedelta(days=1),
+            _AHORA - dt.timedelta(days=1),
+            ayer - dt.timedelta(days=30),
+            ayer - dt.timedelta(days=3),
+            _D(nuevo),
+        ),
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT INTO apply_attempt (decision_id, seq, tipo, request_payload,"
+        " quota_cobrada, bid_previo) VALUES (%s, 1, 'normal', %s::jsonb, true, 2.00)",
+        (dec_id, json.dumps({"keywordId": ext_kw, "bid": nuevo})),
+    )
+    return dec_id
+
+
+@_skip_db
+def test_e2e_cuota_ubicacion_saturada_avisa_telegram_y_fail_silent(tmp_path, monkeypatch):
+    """Punto 3 (#788): saturar `ads_apply_cap_amazon_mx_ubicacion` envia un unico
+    aviso de cap agotado a Telegram; si Telegram responde 500, deja nota en
+    `notes['telegram']['cap_agotado']` sin degradar el ciclo."""
+    from app import notifica
+
+    (tmp_path / "telegram.json").write_text(
+        json.dumps({"bot_token": "tok-p3", "chat_id": "chat-p3"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ORBIT_SECRETS_DIR", str(tmp_path))
+
+    for status_tg in (200, 500):
+        notifica._reset()
+        enviados: list[str] = []
+
+        def _tg_handler(request: httpx.Request, _st=status_tg, _env=enviados) -> httpx.Response:
+            cuerpo = json.loads(request.content)
+            _env.append(cuerpo["text"])
+            if _st != 200:
+                return httpx.Response(_st, json={"ok": False})
+            return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
+
+        monkeypatch.setattr(notifica, "_transporte_test", httpx.MockTransport(_tg_handler))
+        try:
+            with _db() as (conn, dsn):
+                _siembra_base_mx(conn, settings=_settings_live(cap_ubic="1"))
+                ingest = _ingest_e2e(conn)
+                c1 = _crea_campana_e2e(conn, ext="99101", top=0)
+                c2 = _crea_campana_e2e(conn, ext="99102", top=0)
+                _siembra_subida_lista(conn, c1, ingest, escala=2)
+                _siembra_subida_lista(conn, c2, ingest, escala=1)
+                amazon = _AmazonE2E(campanas={"99101": {"top": 0}, "99102": {"top": 0}})
+
+                with _como_decide(conn, dsn) as c_dec:
+                    res = ciclo_mod.corre_ciclo(
+                        c_dec,
+                        platform="amazon_mx",
+                        owner=_OWNER,
+                        decided_at=_AHORA,
+                        heartbeat_cada=1,
+                        aplicador_factory=_fabrica_e2e(amazon),
+                    )
+                notas = json.loads(res.notes)
+                assert res.status == "done"
+                avisos_cap = [t for t in enviados if "ALERTA cap agotado" in t]
+                assert len(avisos_cap) == 1
+                assert "plataforma: amazon_mx" in avisos_cap[0]
+                assert "kind: ubicacion" in avisos_cap[0]
+                assert "used: 1" in avisos_cap[0]
+                assert "cap: 1" in avisos_cap[0]
+                if status_tg == 500:
+                    assert (
+                        "cap amazon_mx/ubicacion agotado: 1/1" in notas["telegram"]["cap_agotado"]
+                    )
+                else:
+                    assert "cap_agotado" not in (notas.get("telegram") or {})
+        finally:
+            notifica._reset()
+
+
+@_skip_db
+def test_e2e_notas_ubicaciones_tx3_no_miente_aplicadas_en_live():
+    """Punto 4 (#788): `notes['ubicaciones']` de TX3 solo registra los conteos de
+    evaluacion (sin `aplicadas`), evitando contradecir `notes['apply']['ubicaciones']`."""
+    from app.ubicacion_io import resumen_ubicaciones_ciclo
+
+    with _db() as (conn, dsn):
+        _siembra_base_mx(conn, settings=_settings_live(cap_ubic="2"))
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99201", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        amazon = _AmazonE2E(campanas={"99201": {"top": 0}})
+
+        with _como_decide(conn, dsn) as c_dec:
+            res = ciclo_mod.corre_ciclo(
+                c_dec,
+                platform="amazon_mx",
+                owner=_OWNER,
+                decided_at=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        notas = json.loads(res.notes)
+        assert "aplicadas" not in notas["ubicaciones"]
+        assert notas["ubicaciones"] == {"evaluadas": 1, "mover": 1, "en_practica": 0}
+        assert notas["apply"]["ubicaciones"]["aplicadas"] == 1
+        assert resumen_ubicaciones_ciclo(conn, res.cycle_id)["aplicadas"] == 1
+
+
+@_skip_db
+def test_e2e_ciclo_cierra_aplicador_en_reconciliacion_y_apply():
+    """Punto 5 (#788): el ciclo cierra la instancia de `Aplicador` tanto en la
+    rama `live` como en la rama `shadow` con reconciliacion pendiente."""
+    cerrados: list[str] = []
+
+    def _fabrica_espia(amazon: _AmazonE2E):
+        base = _fabrica_e2e(amazon)
+
+        def _f(*args, **kwargs):
+            ap = base(*args, **kwargs)
+            orig_close = ap.close
+
+            def _close():
+                cerrados.append("close")
+                orig_close()
+
+            ap.close = _close
+            return ap
+
+        return _f
+
+    with _db() as (conn, dsn):
+        _siembra_base_mx(conn, settings=_settings_live(cap_ubic="2"))
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99301", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        amazon = _AmazonE2E(campanas={"99301": {"top": 0}})
+        with _como_decide(conn, dsn) as c_dec:
+            ciclo_mod.corre_ciclo(
+                c_dec,
+                platform="amazon_mx",
+                owner=_OWNER,
+                decided_at=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_espia(amazon),
+            )
+        assert len(cerrados) >= 1
+
+    cerrados.clear()
+    with _db() as (conn, dsn):
+        cv = _siembra_base_mx(
+            conn,
+            settings={
+                "ads_optimizer_mode": "shadow",
+                "ads_ubicacion_amazon_mx": "shadow",
+                "ads_target_acos_pct_amazon_mx": "25",
+            },
+        )
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99302", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        _inserta_pendiente_automatica(
+            conn, dsn, campana=c1["campana"], config_id=c1["config_id"], cv=cv, ext="99302"
+        )
+        amazon = _AmazonE2E(campanas={"99302": {"top": 15}})
+        with _como_decide(conn, dsn) as c_dec:
+            ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_espia(amazon),
+            )
+        assert len(cerrados) == 1
+
+
+@_skip_db
+@pytest.mark.parametrize("modo_ubic", ["shadow", "off"])
+def test_e2e_reconcilia_ubicaciones_cuando_flag_ubicacion_baja_a_shadow_o_off(modo_ubic):
+    """Punto 6 (#788): incluso con `ads_optimizer_mode=live` y
+    `ads_ubicacion_amazon_mx` bajado a `shadow`/`off`, la intencion pendiente
+    se reconcilia en el siguiente horario sin enviar PUT."""
+    with _db() as (conn, dsn):
+        cv = _siembra_base_mx(
+            conn,
+            settings={
+                "ads_optimizer_mode": "live",
+                "ads_ubicacion_amazon_mx": modo_ubic,
+                "ads_target_acos_pct_amazon_mx": "25",
+            },
+        )
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99401", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        _eval_id, ajuste_id = _inserta_pendiente_automatica(
+            conn, dsn, campana=c1["campana"], config_id=c1["config_id"], cv=cv, ext="99401"
+        )
+        amazon = _AmazonE2E(campanas={"99401": {"top": 15}})
+
+        with _como_decide(conn, dsn) as c_dec:
+            ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert len(amazon.puts_campana) == 0
+        assert conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s", (ajuste_id,)
+        ).fetchone() == (True,)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset()
+
+
+@_skip_db
+def test_e2e_401_reconcilia_ubicaciones_conserva_applied_count_de_reconciliacion_previa():
+    """Punto 7 (#788) + sugerencia 6 de Opus: 401/403 al reconciliar ubicaciones
+    en rama `live` deja `aplicador=None`, pero `applied_count` conserva las
+    confirmaciones ya commiteadas (bids y reversas) y coincide con la rama normal."""
+    with _db() as (conn, dsn):
+        cv = _siembra_base_mx(conn, settings=_settings_live())
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99501", kw_exts=("kw-99501",), top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        _siembra_bid_sin_sello(conn, hoja=c1["hojas"][0], cv=cv, ext_kw="kw-99501", nuevo="1.76")
+        _inserta_pendiente_automatica(
+            conn, dsn, campana=c1["campana"], config_id=c1["config_id"], cv=cv, ext="99501"
+        )
+        amazon = _AmazonE2E(
+            campanas={"99501": {"top": 0}},
+            bids={"kw-99501": "1.76"},
+        )
+        amazon.status_list_campana = [403]
+
+        with _como_decide(conn, dsn) as c_dec:
+            res = ciclo_mod.corre_ciclo(
+                c_dec,
+                platform="amazon_mx",
+                owner=_OWNER,
+                decided_at=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert res.status == "degraded"
+        assert len(amazon.puts_bid) == 0
+        assert len(amazon.puts_campana) == 0
+        applied_bid = conn.execute(
+            "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+        ).fetchone()[0]
+        assert applied_bid == 1
+
+    conteos_reversa: dict[str, int] = {}
+    for escenario, status_ubic in (("normal", []), ("auth_403", [403])):
+        with _db() as (conn, dsn):
+            cv = _siembra_base_mx(conn, settings=_settings_live(cap_ubic="0"))
+            ingest = _ingest_e2e(conn)
+            c1 = _crea_campana_e2e(conn, ext="99502", kw_exts=("kw-99502",), top=0)
+            _siembra_subida_lista(conn, c1, ingest)
+            _siembra_reversa_pause_abierta(conn, hoja=c1["hojas"][0], cv=cv, ext_kw="kw-99502")
+            _inserta_pendiente_automatica(
+                conn, dsn, campana=c1["campana"], config_id=c1["config_id"], cv=cv, ext="99502"
+            )
+            amazon = _AmazonE2E(
+                campanas={"99502": {"top": 15}},
+                bids={"kw-99502": "2.00"},
+            )
+            amazon.status_list_campana = list(status_ubic)
+
+            with _como_decide(conn, dsn) as c_dec:
+                res = ciclo_mod.corre_ciclo(
+                    c_dec,
+                    platform="amazon_mx",
+                    owner=_OWNER,
+                    decided_at=_AHORA,
+                    heartbeat_cada=1,
+                    aplicador_factory=_fabrica_e2e(amazon),
+                )
+            conteos_reversa[escenario] = conn.execute(
+                "SELECT applied_count FROM optimizer_cycle WHERE id = %s", (res.cycle_id,)
+            ).fetchone()[0]
+    assert conteos_reversa == {"normal": 1, "auth_403": 1}
+
+
+@_skip_db
+def test_e2e_error_en_close_de_aplicador_no_tapa_excepcion_ni_deja_lock(monkeypatch):
+    """Punto 10 (#788): un error en `close()` del aplicador dentro del `finally`
+    de `_atiende` no tapa la excepcion original ni impide liberar el lock."""
+    with _db() as (conn, dsn):
+        _siembra_base_mx(conn, settings=_settings_live())
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99601", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        amazon = _AmazonE2E(campanas={"99601": {"top": 0}})
+        base_fab = _fabrica_e2e(amazon)
+
+        def _fab_close_roto(*args, **kwargs):
+            ap = base_fab(*args, **kwargs)
+            ap.close = lambda: (_ for _ in ()).throw(RuntimeError("boom close"))
+            return ap
+
+        monkeypatch.setattr(
+            ciclo_mod,
+            "_fase_lecturas",
+            lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("boom tx2")),
+        )
+        with _como_decide(conn, dsn) as c_dec, pytest.raises(RuntimeError, match="boom tx2"):
+            ciclo_mod.corre_ciclo(
+                c_dec,
+                platform="amazon_mx",
+                owner=_OWNER,
+                decided_at=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fab_close_roto,
+            )
+        assert conn.execute("SELECT count(*) FROM ads_optimizer_lock").fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT status FROM optimizer_cycle ORDER BY id DESC LIMIT 1"
+        ).fetchone() == ("failed",)
+
+
+@_skip_db
+def test_e2e_no_live_fallo_reversas_transitorio_no_bloquea_ubicaciones_y_401_si(monkeypatch):
+    """Punto 11 (#788): en rama no-live, un error transitorio al reconciliar
+    reversas de pause no impide reconciliar ubicaciones pendientes; un 401/403
+    si detiene sin tocar `/sp/campaigns/list`."""
+    from app import apply_cola
+    from app.ads.client import AdsApiError, AdsClientError
+
+    with _db() as (conn, dsn):
+        cv = _siembra_base_mx(
+            conn,
+            settings={
+                "ads_optimizer_mode": "shadow",
+                "ads_ubicacion_amazon_mx": "shadow",
+                "ads_target_acos_pct_amazon_mx": "25",
+            },
+        )
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99701", kw_exts=("kw-99701",), top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        _siembra_reversa_pause_abierta(conn, hoja=c1["hojas"][0], cv=cv, ext_kw="kw-99701")
+        _ev, ajuste_id = _inserta_pendiente_automatica(
+            conn, dsn, campana=c1["campana"], config_id=c1["config_id"], cv=cv, ext="99701"
+        )
+        amazon = _AmazonE2E(campanas={"99701": {"top": 15}})
+        monkeypatch.setattr(
+            apply_cola,
+            "reconcilia_reversas_pause",
+            lambda *_a, **_kw: (_ for _ in ()).throw(AdsClientError("timeout keywords")),
+        )
+        with _como_decide(conn, dsn) as c_dec:
+            at = ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert at.ciclo is not None
+        notas = json.loads(at.ciclo.notes)
+        assert "apply_error" in notas["apply"]
+        assert notas["apply"]["ubicaciones_reconciliadas"]["selladas"] == 1
+        assert amazon.listas_campana == 1
+        assert len(amazon.puts_campana) == 0
+        assert conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s", (ajuste_id,)
+        ).fetchone() == (True,)
+
+    with _db() as (conn, dsn):
+        cv = _siembra_base_mx(
+            conn,
+            settings={
+                "ads_optimizer_mode": "shadow",
+                "ads_ubicacion_amazon_mx": "shadow",
+                "ads_target_acos_pct_amazon_mx": "25",
+            },
+        )
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99702", kw_exts=("kw-99702",), top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        _siembra_reversa_pause_abierta(conn, hoja=c1["hojas"][0], cv=cv, ext_kw="kw-99702")
+        _ev, ajuste_id = _inserta_pendiente_automatica(
+            conn, dsn, campana=c1["campana"], config_id=c1["config_id"], cv=cv, ext="99702"
+        )
+        amazon = _AmazonE2E(campanas={"99702": {"top": 15}})
+        err_401 = AdsApiError("status=401")
+        err_401.status = 401
+        monkeypatch.setattr(
+            apply_cola,
+            "reconcilia_reversas_pause",
+            lambda *_a, **_kw: (_ for _ in ()).throw(err_401),
+        )
+        with _como_decide(conn, dsn) as c_dec:
+            ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert amazon.listas_campana == 0
+        assert conn.execute(
+            "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE id = %s", (ajuste_id,)
+        ).fetchone() == (True,)
+        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
+def test_e2e_ventana_8d_eliminada_401_pre_put_recupera_y_aplica_mismo_dia():
+    """Punto 12 (#788): al eliminar la 2a lectura HTTP entre INSERT y PUT, solo
+    existe 1 lectura pre-PUT (antes de cuota e INSERT); un 401 en la 2a llamada
+    a `/sp/campaigns/list` ocurre ya en el readback post-PUT (no antes del PUT)."""
+    with _db() as (conn, dsn):
+        _siembra_base_mx(conn, settings=_settings_live(cap_ubic="2"))
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99801", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+
+        amazon = _AmazonE2E(campanas={"99801": {"top": 0}})
+        amazon.status_list_campana = [200, 403]
+
+        with _como_decide(conn, dsn) as c_dec:
+            at1 = ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert at1.ciclo is not None and at1.ciclo.status == "degraded"
+        assert len(amazon.puts_campana) == 1
+        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 0
+
+        with _como_decide(conn, dsn) as c_dec:
+            at2 = ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA + dt.timedelta(hours=1),
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert at2.ciclo is not None and at2.ciclo.status == "done"
+        assert conn.execute(
+            "SELECT count(*), bool_and(confirmado_el IS NOT NULL) FROM campana_ajuste"
+        ).fetchone() == (1, True)
+        assert conn.execute("SELECT count(*) FROM ubicacion_sin_aplicar").fetchone()[0] == 0
+
+
+@_skip_db
+def test_e2e_error_bd_tx2_aborta_sin_tx3_y_libera_lock(monkeypatch):
+    """Punto 16 (#788): error/caida de PostgreSQL (`psycopg.OperationalError`) en
+    TX2 aborta antes de TX3 (cero filas en `ubicacion_evaluacion`, `decision`,
+    `campana_ajuste`) y libera el lock."""
+    from app import cycle_recorrido
+
+    orig_lee_casos = cycle_recorrido.lee_casos
+
+    with _db() as (conn, dsn):
+        _siembra_base_mx(conn, settings=_settings_live())
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99901", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        amazon = _AmazonE2E(campanas={"99901": {"top": 0}})
+
+        monkeypatch.setattr(
+            cycle_recorrido,
+            "lee_casos",
+            lambda *_a, **_kw: (_ for _ in ()).throw(psycopg.OperationalError("pg timeout tx2")),
+        )
+        with (
+            _como_decide(conn, dsn) as c_dec,
+            pytest.raises(psycopg.OperationalError, match="pg timeout tx2"),
+        ):
+            ciclo_mod.corre_ciclo(
+                c_dec,
+                platform="amazon_mx",
+                owner=_OWNER,
+                decided_at=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert conn.execute("SELECT count(*) FROM ubicacion_evaluacion").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM ads_optimizer_lock").fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT status, decision_committed_at IS NULL FROM optimizer_cycle"
+            " ORDER BY id DESC LIMIT 1"
+        ).fetchone() == ("failed", True)
+        assert len(amazon.puts_campana) == 0
+
+    with _db() as (conn, dsn):
+        _siembra_base_mx(conn, settings=_settings_live())
+        ingest = _ingest_e2e(conn)
+        c1 = _crea_campana_e2e(conn, ext="99902", top=0)
+        _siembra_subida_lista(conn, c1, ingest)
+        amazon = _AmazonE2E(campanas={"99902": {"top": 0}})
+
+        def _corta_conexion(c_tx2, *args, **kwargs):
+            c_tx2.close()
+            raise psycopg.OperationalError("connection lost in tx2")
+
+        monkeypatch.setattr(cycle_recorrido, "lee_casos", _corta_conexion)
+        with (
+            _como_decide(conn, dsn) as c_dec,
+            pytest.raises(psycopg.OperationalError, match="connection lost"),
+        ):
+            ciclo_mod.corre_ciclo(
+                c_dec,
+                platform="amazon_mx",
+                owner=_OWNER,
+                decided_at=_AHORA,
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert conn.execute("SELECT count(*) FROM ubicacion_evaluacion").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM decision").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM ads_optimizer_lock").fetchone()[0] == 0
+        assert len(amazon.puts_campana) == 0
+
+        monkeypatch.setattr(cycle_recorrido, "lee_casos", orig_lee_casos)
+        with _como_decide(conn, dsn) as c_dec:
+            at = ciclo_mod.atender_plataforma(
+                c_dec,
+                "amazon_mx",
+                owner=_OWNER,
+                ahora=_AHORA + dt.timedelta(minutes=30),
+                heartbeat_cada=1,
+                aplicador_factory=_fabrica_e2e(amazon),
+            )
+        assert at.ciclo is not None and at.ciclo.status == "done"
+        assert conn.execute("SELECT count(*) FROM ubicacion_evaluacion").fetchone()[0] == 1

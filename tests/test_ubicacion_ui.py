@@ -158,3 +158,51 @@ def test_auto04_verifica_replay_determinista_sin_discrepancias(monkeypatch, caps
         resumen = resumen_practica(conn, "amazon_mx", hoy=_ANCLA.date(), dias=14)
         assert resumen["dias_en_practica"] == 1
         assert resumen["evaluaciones"] == {"shadow": 3}
+
+
+@_skip_db
+def test_auto04_verifica_replay_vacio_o_solo_sustituidas_sale_con_1(monkeypatch, capsys):
+    """Punto 1 (#788): exit 0 reservado a un replay con al menos una comparacion
+    real y cero discrepancias."""
+    import json as _json
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        uno, cfg1 = _siembra(conn, top=0)
+        dos, cfg2 = _siembra(conn, top=0, externa="93600000000002")
+        monkeypatch.setenv("ORBIT_DSN_READ", dsn)
+
+        assert main(["replay", "--platform", "amazon_mx"]) == 1
+        salida_vacia = _json.loads(capsys.readouterr().out)
+        assert salida_vacia == {
+            "comparadas": 0,
+            "discrepancias": [],
+            "revisadas": 0,
+            "sustituidas": 0,
+        }
+
+        _guarda(
+            conn,
+            _ciclo(conn, "shadow"),
+            cv,
+            [(_caso(uno, cfg1, 0, 15), "shadow", MantenerUbicacion("producto_sin_evidencia"))],
+        )
+        assert main(["replay", "--platform", "amazon_mx"]) == 1
+        salida_sust = _json.loads(capsys.readouterr().out)
+        assert salida_sust == {
+            "comparadas": 0,
+            "discrepancias": [],
+            "revisadas": 1,
+            "sustituidas": 1,
+        }
+
+        caso2 = _caso(dos, cfg2, 0, 15)
+        _guarda(conn, _ciclo(conn, "shadow"), cv, [(caso2, "shadow", decide_ubicacion(caso2))])
+        assert main(["replay", "--platform", "amazon_mx"]) == 0
+        salida_ok = _json.loads(capsys.readouterr().out)
+        assert salida_ok == {
+            "comparadas": 1,
+            "discrepancias": [],
+            "revisadas": 2,
+            "sustituidas": 1,
+        }

@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import logging
 
 from app import apply
 from app.ads.campana_config import (
@@ -35,33 +36,32 @@ from app.campana_ajustes import (
     planea_ajuste,
 )
 from app.optimizer.bid import PLATAFORMAS_MONEDA
+from app.redaction import install_scrub_filter, scrub
 from app.ubicacion_io import sql_orden_viva
+
+logger = logging.getLogger(__name__)
+install_scrub_filter(logger)
 
 GO_AJUSTE = "APLICAR AJUSTE"
 GO_REGRESO_AJUSTE = "REGRESAR AJUSTE"
 
-_SQL_PLATAFORMA_CAMPANA = """
-SELECT platform::text, external_id FROM ad_entity WHERE id = %s AND kind = 'campaign'
-"""
-_SQL_AJUSTE_POR_HUELLA = """
-SELECT id, confirmado_el IS NOT NULL, campana_id, clase FROM campana_ajuste WHERE huella = %s
-"""
+_SQL_PLATAFORMA_CAMPANA = (
+    "SELECT platform::text, external_id FROM ad_entity WHERE id = %s AND kind = 'campaign'"
+)
+_SQL_AJUSTE_POR_HUELLA = (
+    "SELECT id, confirmado_el IS NOT NULL, campana_id, clase FROM campana_ajuste WHERE huella = %s"
+)
 _SQL_AJUSTE_POR_ID = """
 SELECT id, campana_id, platform::text, clase, antes_config_id, confirmado_el,
        (SELECT count(*) FROM campana_ajuste r
          WHERE r.regresa_a = campana_ajuste.id AND r.confirmado_el IS NOT NULL)
   FROM campana_ajuste WHERE id = %s
 """
-_SQL_HIJO_REGRESO = """
-SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste
- WHERE regresa_a = %s ORDER BY id
-"""
-_SQL_DESPUES_POR_ID = """
-SELECT despues FROM campana_ajuste WHERE id = %s
-"""
-_SQL_CUENTA_HUELLA = """
-SELECT count(*) FROM campana_ajuste WHERE huella = %s OR huella LIKE %s
-"""
+_SQL_HIJO_REGRESO = (
+    "SELECT id, confirmado_el IS NOT NULL FROM campana_ajuste WHERE regresa_a = %s ORDER BY id"
+)
+_SQL_DESPUES_POR_ID = "SELECT despues FROM campana_ajuste WHERE id = %s"
+_SQL_CUENTA_HUELLA = "SELECT count(*) FROM campana_ajuste WHERE huella = %s OR huella LIKE %s"
 _SQL_INSERTA_AJUSTE = """
 INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
     huella, actor, go_literal, regresa_a)
@@ -76,29 +76,23 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (regresa_a) DO NOTHING
 RETURNING id
 """
-_SQL_CONFIRMA_AJUSTE = """
-UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
-"""
+_SQL_CONFIRMA_AJUSTE = "UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s"
 _SQL_AJUSTES_PENDIENTES_HN = """
 SELECT id, huella, despues FROM campana_ajuste
  WHERE huella LIKE %s AND confirmado_el IS NULL AND campana_id = %s AND clase = %s
  ORDER BY id
 """
-_SQL_AJUSTE_POR_HUELLA_RECONCILIA = """
-SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues
-  FROM campana_ajuste WHERE huella = %s
-"""
+_SQL_AJUSTE_POR_HUELLA_RECONCILIA = (
+    "SELECT id, confirmado_el IS NOT NULL, campana_id, clase, despues"
+    " FROM campana_ajuste WHERE huella = %s"
+)
 _SQL_CONFIRMADAS_HN = """
 SELECT id, despues
   FROM campana_ajuste
  WHERE campana_id = %s AND clase = %s AND huella LIKE %s AND confirmado_el IS NOT NULL
  ORDER BY id DESC
 """
-
-
-_SQL_CONFIRMADA_POR_ID = """
-SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s
-"""
+_SQL_CONFIRMADA_POR_ID = "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s"
 
 
 class ConfirmacionInvalida(Exception):
@@ -175,7 +169,10 @@ def _config_leida(cliente, plataforma: str, externa: str):
         return None
     if not isinstance(cuerpo, dict):
         return None
-    for item in cuerpo.get("campaigns", []):
+    items = cuerpo.get("campaigns")
+    if not isinstance(items, list):
+        return None
+    for item in items:
         if isinstance(item, dict) and str(item.get("campaignId")) == str(externa):
             try:
                 return config_de_payload(item, PLATAFORMAS_MONEDA[plataforma])
@@ -184,26 +181,22 @@ def _config_leida(cliente, plataforma: str, externa: str):
     return None
 
 
-_SQL_AJUSTE_POSTERIOR = """
-SELECT id, antes_config_id, despues, regresa_a
-  FROM campana_ajuste
- WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NOT NULL{excluye}
- ORDER BY id
-"""
+def _cierra_cliente(cliente) -> None:
+    """Cierra el cliente HTTP en modo best-effort (solo cuando el caller creo el
+    transporte: con `transport` inyectado la propiedad sigue siendo del caller,
+    misma convencion que `_TransportGuardado(cerrar_base=False)`)."""
+    cerrar = getattr(cliente, "close", None)
+    if callable(cerrar):
+        try:
+            cerrar()
+        except Exception as exc:
+            logger.warning("cierre del cliente HTTP de ajuste fallo: %s", scrub(str(exc)))
 
-_SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF = """
-SELECT id, antes_config_id, despues, regresa_a
-  FROM campana_ajuste
- WHERE campana_id = %s AND clase = %s AND id > %s{excluye}
- ORDER BY id
-"""
 
-_SQL_AJUSTE_POSTERIOR_PENDIENTE = """
-SELECT id, antes_config_id, despues, regresa_a
-  FROM campana_ajuste
- WHERE campana_id = %s AND clase = %s AND id > %s AND confirmado_el IS NULL{excluye}
- ORDER BY id
-"""
+_SQL_AJUSTES_CAMPO = (
+    "SELECT id, antes_config_id, despues, regresa_a FROM campana_ajuste"
+    " WHERE campana_id = %s AND clase = %s AND {filtro}{excluye} ORDER BY id"
+)
 
 
 def _excluye_abortadas(conn) -> str:
@@ -264,8 +257,8 @@ def _superada(
     """True si una orden posterior toco el mismo campo: con `incluir_pendientes=False`
     solo revisa ordenes confirmadas; con `True` bloquea tambien ante pendientes."""
     campo = campo_del_ajuste(ajuste)
-    sql = _SQL_AJUSTE_POSTERIOR_PENDIENTE_O_CONF if incluir_pendientes else _SQL_AJUSTE_POSTERIOR
-    sql = sql.format(excluye=_excluye_abortadas(conn))
+    filtro = "id > %s" if incluir_pendientes else "id > %s AND confirmado_el IS NOT NULL"
+    sql = _SQL_AJUSTES_CAMPO.format(filtro=filtro, excluye=_excluye_abortadas(conn))
     for _pid, antes_id, despues, regresa_a in conn.execute(
         sql, (campana_id, clase, ajuste_id)
     ).fetchall():
@@ -287,9 +280,11 @@ def _pendiente_posterior_con_otro_destino(
     if fila is None:
         return False
     valor = getattr(ConfigCampana.desde_json(fila[0]), campo)
+    sql = _SQL_AJUSTES_CAMPO.format(
+        filtro="id > %s AND confirmado_el IS NULL", excluye=_excluye_abortadas(conn)
+    )
     for pid, antes_id, despues, regresa_a in conn.execute(
-        _SQL_AJUSTE_POSTERIOR_PENDIENTE.format(excluye=_excluye_abortadas(conn)),
-        (campana_id, clase, ajuste_id),
+        sql, (campana_id, clase, ajuste_id)
     ).fetchall():
         if not _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
             continue
@@ -300,8 +295,36 @@ def _pendiente_posterior_con_otro_destino(
     return False
 
 
+def _hay_pendiente_anterior(conn, ajuste_id: int, *, campana_id: int, clase: str, ajuste) -> bool:
+    """True si otra orden viva PENDIENTE anterior (id < ajuste_id) toca el mismo
+    campo y no fue superada por una confirmada."""
+    campo = campo_del_ajuste(ajuste)
+    sql = _SQL_AJUSTES_CAMPO.format(
+        filtro="id < %s AND confirmado_el IS NULL", excluye=_excluye_abortadas(conn)
+    )
+    for pid, antes_id, despues, regresa_a in conn.execute(
+        sql, (campana_id, clase, ajuste_id)
+    ).fetchall():
+        if not _toca_campo(conn, antes_id, despues, campo, regresa_a=regresa_a):
+            continue
+        if not _superada(conn, pid, campana_id=campana_id, clase=clase, ajuste=ajuste):
+            return True
+    return False
+
+
 def _aplica_y_confirma(
-    conn, cliente, plataforma, clase, destino, ajuste, *, campana_id, ajuste_id, previa
+    conn,
+    cliente,
+    plataforma,
+    clase,
+    destino,
+    ajuste,
+    *,
+    campana_id,
+    ajuste_id,
+    previa,
+    recuperando: bool = False,
+    actual_previa: ConfigCampana | None = None,
 ) -> None:
     """PUT del campo + readback + sello, serializado por acto (B9). El
     PUT lleva SOLO el campo que el ajuste cambia (B11: un placement
@@ -314,7 +337,10 @@ def _aplica_y_confirma(
     candado). El readback manda: si lo leido no coincide en el campo,
     la fila queda sin confirmar (reintentable: el reintento reusa la
     pendiente). Lo que se guarda es la leida mezclada sobre `previa`
-    (B1: el PUT no mueve campos ajenos)."""
+    (B1: el PUT no mueve campos ajenos). `recuperando=True` habilita el
+    sello sin PUT (`_ya_en_destino`) solo para ordenes pendientes de un
+    intento anterior; `actual_previa` evita una segunda lectura HTTP
+    pre-PUT en ordenes nuevas automaticas."""
     # TEMPORADA 01 G: el candado es por campaña y campo, tambien al regresar.
     campo = campo_del_ajuste(ajuste)
     llave = f"campana:{campana_id}:{campo}"
@@ -346,11 +372,20 @@ def _aplica_y_confirma(
         if vigente_actual is None or not coincide_campo(ajuste, vigente_actual, previa):
             raise HuellaDesactualizada("el vigente cambio antes de enviar el ajuste", None)
         if isinstance(ajuste, CambiarAjusteUbicacion):
-            actual = _config_leida(cliente, plataforma, destino.campana_externa)
-            if _ya_en_destino(ajuste, actual, previa, destino):
-                # El PUT de un intento anterior ya llego (readback fallido).
-                _sella(conn, plataforma, ajuste_id, previa, actual)
-                return
+            if actual_previa is not None and not recuperando:
+                if _hay_pendiente_anterior(
+                    conn, ajuste_id, campana_id=campana_id, clase=clase, ajuste=ajuste
+                ):
+                    raise AjusteEnCurso(
+                        "Hay otra orden pendiente anterior para esta campaña. Recarga."
+                    )
+                actual = actual_previa
+            else:
+                actual = _config_leida(cliente, plataforma, destino.campana_externa)
+                if recuperando and _ya_en_destino(ajuste, actual, previa, destino):
+                    # El PUT de un intento anterior ya llego (readback fallido).
+                    _sella(conn, plataforma, ajuste_id, previa, actual)
+                    return
             _exige_previa(ajuste, actual, previa)
             strategy = actual.estrategia_puja if actual is not None else None
             if strategy is None:
@@ -592,44 +627,50 @@ def aplica_ajuste_campana(
     )
     if fresco.huella() != huella or plan.huella() != huella:
         raise HuellaDesactualizada("el vigente cambio desde la vista previa", fresco)
+    es_recuperacion = ajuste_id is not None
     cliente = apply._cliente_ajuste(plan.plataforma, transport=transport)
-    if ajuste_id is None:
-        if isinstance(plan.ajuste, CambiarAjusteUbicacion):
-            leida = _config_leida(cliente, plan.plataforma, plan.antes.campana_externa)
-            _exige_previa(plan.ajuste, leida, plan.antes)
-        metida = conn.execute(
-            _SQL_INSERTA_AJUSTE,
-            (
-                plan.campana_id,
-                plan.plataforma,
-                plan.clase,
-                antes_id,
-                json.dumps(plan.despues.como_json()),
-                huella_efectiva,
-                actor.strip(),
-                confirmacion,
-                None,
-            ),
-        ).fetchone()
-        if metida is None:
-            ganadora = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella_efectiva,)).fetchone()
-            if ganadora is not None and ganadora[1]:
-                return AjusteHecho(ganadora[0], plan.campana_id, plan.clase, True)
-            raise AjusteEnCurso(f"huella {huella_efectiva} en curso en otro intento: reintenta")
-        ajuste_id = metida[0]
-    conn.commit()
-    _aplica_y_confirma(
-        conn,
-        cliente,
-        plan.plataforma,
-        plan.clase,
-        plan.despues,
-        plan.ajuste,
-        campana_id=plan.campana_id,
-        ajuste_id=ajuste_id,
-        previa=plan.antes,
-    )
-    return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
+    try:
+        if ajuste_id is None:
+            if isinstance(plan.ajuste, CambiarAjusteUbicacion):
+                leida = _config_leida(cliente, plan.plataforma, plan.antes.campana_externa)
+                _exige_previa(plan.ajuste, leida, plan.antes)
+            metida = conn.execute(
+                _SQL_INSERTA_AJUSTE,
+                (
+                    plan.campana_id,
+                    plan.plataforma,
+                    plan.clase,
+                    antes_id,
+                    json.dumps(plan.despues.como_json()),
+                    huella_efectiva,
+                    actor.strip(),
+                    confirmacion,
+                    None,
+                ),
+            ).fetchone()
+            if metida is None:
+                ganadora = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella_efectiva,)).fetchone()
+                if ganadora is not None and ganadora[1]:
+                    return AjusteHecho(ganadora[0], plan.campana_id, plan.clase, True)
+                raise AjusteEnCurso(f"huella {huella_efectiva} en curso en otro intento: reintenta")
+            ajuste_id = metida[0]
+        conn.commit()
+        _aplica_y_confirma(
+            conn,
+            cliente,
+            plan.plataforma,
+            plan.clase,
+            plan.despues,
+            plan.ajuste,
+            campana_id=plan.campana_id,
+            ajuste_id=ajuste_id,
+            previa=plan.antes,
+            recuperando=es_recuperacion,
+        )
+        return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
+    finally:
+        if transport is None:
+            _cierra_cliente(cliente)
 
 
 def reconcilia_ajuste_campana(
@@ -742,67 +783,75 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         conn.execute(_SQL_DESPUES_POR_ID, (ajuste_id,)).fetchone()[0]
     )
     ajuste_hijo = _ajuste_hacia(clase, antes, despues_padre)
+    es_recuperacion = hijo is not None and not hijo[1]
     cliente = apply._cliente_ajuste(plataforma, transport=transport)
-    if hijo is not None and not hijo[1]:
-        if _superada(
-            conn,
-            hijo[0],
-            campana_id=campana_id,
-            clase=clase,
-            ajuste=ajuste_hijo,
-            incluir_pendientes=True,
-        ):
-            raise AjusteSinRegreso(
-                f"ajuste {ajuste_id}: el regreso pendiente quedo superado por otra orden"
-                " posterior en el mismo campo; aplica un ajuste nuevo con el valor deseado"
+    try:
+        if es_recuperacion:
+            if _superada(
+                conn,
+                hijo[0],
+                campana_id=campana_id,
+                clase=clase,
+                ajuste=ajuste_hijo,
+                incluir_pendientes=True,
+            ):
+                raise AjusteSinRegreso(
+                    f"ajuste {ajuste_id}: el regreso pendiente quedo superado por otra orden"
+                    " posterior en el mismo campo; aplica un ajuste nuevo con el valor deseado"
+                )
+            nuevo_id = hijo[0]
+        else:
+            regreso = PlanAjuste(
+                campana_id=campana_id,
+                plataforma=plataforma,
+                clase=clase,
+                ajuste=ajuste_hijo,
+                antes=vigente,
+                despues=antes,
+                frase=(
+                    f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"
+                ),
             )
-        nuevo_id = hijo[0]
-    else:
-        regreso = PlanAjuste(
+            if isinstance(ajuste_hijo, CambiarAjusteUbicacion):
+                leida = _config_leida(cliente, plataforma, antes.campana_externa)
+                _exige_previa(ajuste_hijo, leida, vigente)
+            metido = conn.execute(
+                _SQL_INSERTA_REGRESO,
+                (
+                    campana_id,
+                    plataforma,
+                    clase,
+                    vigente_id,
+                    json.dumps(antes.como_json()),
+                    _huella_regreso(regreso.huella(), ajuste_id),
+                    actor.strip(),
+                    GO_REGRESO_AJUSTE,
+                    ajuste_id,
+                ),
+            ).fetchone()
+            if metido is None:
+                ganador = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
+                if ganador is not None and ganador[1]:
+                    raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
+                raise AjusteEnCurso(f"regreso de {ajuste_id} en curso en otro intento: reintenta")
+            nuevo_id = metido[0]
+        conn.commit()
+        _aplica_y_confirma(
+            conn,
+            cliente,
+            plataforma,
+            clase,
+            antes,
+            ajuste_hijo,
             campana_id=campana_id,
-            plataforma=plataforma,
-            clase=clase,
-            ajuste=ajuste_hijo,
-            antes=vigente,
-            despues=antes,
-            frase=(f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"),
+            ajuste_id=nuevo_id,
+            previa=vigente,
+            recuperando=es_recuperacion,
         )
-        if isinstance(ajuste_hijo, CambiarAjusteUbicacion):
-            leida = _config_leida(cliente, plataforma, antes.campana_externa)
-            _exige_previa(ajuste_hijo, leida, vigente)
-        metido = conn.execute(
-            _SQL_INSERTA_REGRESO,
-            (
-                campana_id,
-                plataforma,
-                clase,
-                vigente_id,
-                json.dumps(antes.como_json()),
-                _huella_regreso(regreso.huella(), ajuste_id),
-                actor.strip(),
-                GO_REGRESO_AJUSTE,
-                ajuste_id,
-            ),
-        ).fetchone()
-        if metido is None:
-            ganador = conn.execute(_SQL_HIJO_REGRESO, (ajuste_id,)).fetchone()
-            if ganador is not None and ganador[1]:
-                raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
-            raise AjusteEnCurso(f"regreso de {ajuste_id} en curso en otro intento: reintenta")
-        nuevo_id = metido[0]
-    conn.commit()
-    _aplica_y_confirma(
-        conn,
-        cliente,
-        plataforma,
-        clase,
-        antes,
-        ajuste_hijo,
-        campana_id=campana_id,
-        ajuste_id=nuevo_id,
-        previa=vigente,
-    )
-    return AjusteHecho(nuevo_id, campana_id, clase, True)
+        return AjusteHecho(nuevo_id, campana_id, clase, True)
+    finally:
+        if transport is None:
+            _cierra_cliente(cliente)
 
 
 def _huella_regreso(base: str, ajuste_id: int) -> str:

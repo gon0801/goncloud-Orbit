@@ -378,7 +378,9 @@ def test_huella_automatica_permite_reaplicar_tras_regreso_del_dueno():
         assert primero.aplicadas == 1
 
         # El dueno regresa a mano: configuracion nueva (0%) como app_admin.
-        guarda_config(conn, "amazon_mx", [_config(0)], _ANCLA + dt.timedelta(days=1))
+        guarda_config(
+            conn, "amazon_mx", [_config(0)], dt.datetime.now(dt.UTC) + dt.timedelta(seconds=1)
+        )
         config_nueva = conn.execute(
             "SELECT id FROM ads_campana_config_observation WHERE ad_entity_id = %s"
             " ORDER BY id DESC LIMIT 1",
@@ -725,12 +727,13 @@ def test_rechazo_de_identidad_aborta_la_fase_sin_descartar_evaluaciones(exc):
 
 @_skip_db
 def test_401_en_segunda_lectura_converge_por_reconciliacion():
-    """Frontera 8d: si 401 ocurre en la segunda lectura (post-INSERT pre-PUT),
-    aborta sin descartar ni enviar PUT, y la reconciliacion libera ajuste_en_vuelo."""
+    """Punto 12 (#788): eliminada la 2a lectura pre-PUT, la 2a llamada a
+    `list_sellado` es el readback post-PUT; ante 401 alli, la fila queda
+    pendiente y `reconcilia_automaticos` converge segun lo que Amazon refleje."""
 
-    class ClienteFallaSegundaLectura(ClienteFalso):
-        def __init__(self, actual):
-            super().__init__(actual, actual)
+    class ClienteFallaReadback401(ClienteFalso):
+        def __init__(self, actual, destino):
+            super().__init__(actual, destino)
             self.listas = 0
 
         def list_sellado(self, path, payload):
@@ -744,18 +747,19 @@ def test_401_en_segunda_lectura_converge_por_reconciliacion():
         camp, config_id = _siembra(conn, top=0)
         ciclo = _ciclo(conn)
         eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
-        cliente = ClienteFallaSegundaLectura(_config(0))
+        cliente = ClienteFallaReadback401(_config(0), _config(15))
         with pytest.raises(AdsApiError):
             _corre(conn, dsn, ciclo, cliente)
-        assert cliente.puts == 0
+        assert cliente.puts == 1
         assert _cuenta(conn, "ubicacion_sin_aplicar") == 0
         assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({camp})
 
-        rec = reconcilia_automaticos(conn, ClienteFalso(_config(0), _config(0)), "amazon_mx")
-        assert (rec.revisadas, rec.selladas, rec.cerradas) == (1, 0, 1)
+        rec = reconcilia_automaticos(conn, ClienteFalso(_config(15), _config(15)), "amazon_mx")
+        assert (rec.revisadas, rec.selladas, rec.cerradas) == (1, 1, 0)
         assert conn.execute(
-            "SELECT motivo FROM ubicacion_sin_aplicar WHERE evaluacion_id = %s", (eval_id,)
-        ).fetchone() == ("error_put",)
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE evaluacion_id = %s",
+            (eval_id,),
+        ).fetchone() == (True,)
         assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset()
 
 
@@ -1000,3 +1004,148 @@ def test_lectura_viva_incompleta_descarta_sin_cuota_ni_put():
             _cuenta(conn, "apply_quota_state"),
             _cuenta(conn, "campana_ajuste"),
         ) == (0, 0, 0)
+
+
+def test_sin_alias_identidad_rechazada_muerto():
+    """Punto 9 (#788): el alias sin uso `_identidad_rechazada` no debe existir."""
+    from app import apply_ubicacion
+
+    assert not hasattr(apply_ubicacion, "_identidad_rechazada")
+    assert callable(apply_ubicacion.es_identidad_rechazada)
+
+
+@_skip_db
+def test_aplica_ajuste_motor_no_sella_sin_put_en_orden_nueva():
+    """Punto 2 (#788): llamada directa a `aplica_ajuste_motor` sobre orden nueva
+    no sella sin PUT cuando Amazon ya muestra el porcentaje destino."""
+    from app.apply_ajustes import CambioExternoDetectado
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = ClienteFalso(_config(15), _config(15))
+        conexion = _abre_decide(dsn)
+        try:
+            with pytest.raises(CambioExternoDetectado):
+                aplica_ajuste_motor(
+                    conexion,
+                    cliente,
+                    campana_id=camp,
+                    plataforma="amazon_mx",
+                    ajuste=CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=15),
+                    evaluacion_id=eval_id,
+                )
+        finally:
+            conexion.close()
+        assert cliente.puts == 0
+        assert conn.execute(
+            "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE evaluacion_id = %s",
+            (eval_id,),
+        ).fetchone() == (True,)
+
+
+@_skip_db
+def test_aplica_automaticos_emite_cap_saturado_una_sola_vez():
+    """Punto 3 (#788): al consumir la unidad que lleva `used == cap`, emite un
+    unico `CapSaturado(platform, 'ubicacion', used, cap)`; rechazos posteriores
+    descartan con `cuota_agotada` sin emitir otro evento."""
+    from app.apply_cuota import CapSaturado
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings(cap="1"))
+        c1, cfg1 = _siembra(conn, top=0, externa="93600000000021")
+        c2, cfg2 = _siembra(conn, top=0, externa="93600000000022")
+        ciclo = _ciclo(conn)
+        _eval(conn, ciclo=ciclo, campana=c1, antes=cfg1, cv=cv, de_pct=0, a_pct=15)
+        ev2 = _eval(conn, ciclo=ciclo, campana=c2, antes=cfg2, cv=cv, de_pct=0, a_pct=15)
+
+        class _ClienteMulti:
+            def __init__(self):
+                self.estados = {
+                    "93600000000021": _config(0, externa="93600000000021"),
+                    "93600000000022": _config(0, externa="93600000000022"),
+                }
+                self.puts = 0
+
+            def list_sellado(self, _path, payload):
+                ext = payload["campaignIdFilter"]["include"][0]
+                return _Resp({"campaigns": [cuerpo_put_campana(self.estados[ext])]})
+
+            def ajustar_campana(self, externa, _cuerpo):
+                self.puts += 1
+                self.estados[externa] = _config(15, externa=externa)
+
+        resumen = aplica_automaticos(
+            conn,
+            dsn=dsn,
+            cliente=_ClienteMulti(),
+            platform="amazon_mx",
+            cycle_id=ciclo,
+            settings=_settings(cap="1"),
+            abrir_conexion=lambda: _abre_decide(dsn),
+        )
+        assert resumen.aplicadas == 1
+        assert resumen.sin_aplicar == ((ev2, "cuota_agotada"),)
+        assert resumen.caps_saturados == (
+            CapSaturado(platform="amazon_mx", kind="ubicacion", used=1, cap=1),
+        )
+
+
+@_skip_db
+def test_aplica_automaticos_no_hace_lectura_http_entre_insert_y_put():
+    """Punto 12 (#788): `aplica_automaticos` hace exactamente 1 `list_sellado`
+    antes del PUT (pre-cuota y pre-INSERT) y 1 readback post-PUT, eliminando
+    la ventana estrecha 8d entre INSERT y PUT."""
+
+    class _ClienteTraza(ClienteFalso):
+        def __init__(self, actual, destino):
+            super().__init__(actual, destino)
+            self.eventos: list[str] = []
+
+        def list_sellado(self, path, payload):
+            self.eventos.append("list")
+            return super().list_sellado(path, payload)
+
+        def ajustar_campana(self, externa, cuerpo):
+            self.eventos.append("put")
+            return super().ajustar_campana(externa, cuerpo)
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = _ClienteTraza(_config(0), _config(15))
+        resumen = _corre(conn, dsn, ciclo, cliente)
+        assert resumen.aplicadas == 1
+        assert cliente.eventos == ["list", "put", "list"]
+
+
+@_skip_db
+def test_reconcilia_y_consola_tratan_campaigns_null_como_ilegible():
+    """Punto 14a (#788): `{"campaigns": null}` en `/sp/campaigns/list` es
+    ilegible (fail-closed) tanto en reconciliacion como en `_motivo_consola`."""
+
+    class _ClienteNull(ClienteFalso):
+        def list_sellado(self, _path, _payload):
+            return _Resp({"campaigns": None})
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        c1, cfg1 = _siembra(conn, top=0, externa="93600000000031")
+        c2, cfg2 = _siembra(conn, top=0, externa="93600000000032")
+        ciclo = _ciclo(conn)
+        ev1 = _eval(conn, ciclo=ciclo, campana=c1, antes=cfg1, cv=cv, de_pct=0, a_pct=15)
+        ev2 = _eval(conn, ciclo=ciclo, campana=c2, antes=cfg2, cv=cv, de_pct=0, a_pct=15)
+        _intencion(dsn, c1, cfg1, ev1, top=15, huella="auto:null-rec")
+
+        rec = reconcilia_automaticos(conn, _ClienteNull(_config(0), _config(0)), "amazon_mx")
+        assert (rec.revisadas, rec.selladas, rec.cerradas) == (1, 0, 0)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({c1})
+
+        res = _corre(conn, dsn, ciclo, _ClienteNull(_config(0), _config(0)))
+        assert res.aplicadas == 0
+        assert res.sin_aplicar == ((ev2, "error_put"),)
+        assert _cuenta(conn, "apply_quota_state") == 0

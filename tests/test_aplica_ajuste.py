@@ -2429,3 +2429,195 @@ def test_put_aborta_si_el_dueno_cambio_la_ubicacion_en_consola(monkeypatch):
                 transport=httpx.MockTransport(handler),
             )
         assert _puts(vistos) == []
+
+
+def test_config_leida_rechaza_campaigns_null_o_no_lista():
+    """Punto 14a (#788): `campaigns: null` o no-lista devuelve None sin TypeError."""
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _Cli:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def list_sellado(self, _path, _body):
+            return _Resp(self._payload)
+
+    for payload in ({"campaigns": None}, {"campaigns": "invalido"}, {"campaigns": {}}, {}):
+        assert apply_ajustes._config_leida(_Cli(payload), "amazon_mx", EXTERNA) is None
+
+
+@_skip_db
+def test_ya_en_destino_no_sella_orden_nueva_y_si_sella_al_recuperar(monkeypatch):
+    """Punto 2 (#788): una orden manual nueva nunca se sella sin PUT aunque el
+    dueno fije exactamente el valor destino entre la lectura previa y el
+    candado; una orden pendiente de un intento anterior si sella al recuperar."""
+    from app.ads.campana_config import cuerpo_put_campana
+
+    with _db("orbit_aj_p2") as conn:
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=15)
+        )
+        base = cuerpo_put_campana(_vigente_config())
+        destino = copy.deepcopy(base)
+        destino["dynamicBidding"]["placementBidding"] = [
+            {"placement": "PLACEMENT_TOP", "percentage": 15},
+            {"placement": "PLACEMENT_PRODUCT_PAGE", "percentage": 40},
+        ]
+
+        lecturas = [base, destino]
+        puts = []
+
+        def handler_nueva(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=[PERFIL_MX_RAW])
+            if request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                item = lecturas.pop(0) if lecturas else destino
+                return httpx.Response(200, json={"campaigns": [item]})
+            if request.method == "PUT" and request.url.path == "/sp/campaigns":
+                puts.append(request)
+                return httpx.Response(207, json={"campaigns": [{"code": "200"}]})
+            raise AssertionError(f"inesperado: {request.method} {request.url.path}")
+
+        with pytest.raises(apply_ajustes.CambioExternoDetectado):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=httpx.MockTransport(handler_nueva),
+            )
+        assert puts == []
+        assert conn.execute(
+            "SELECT count(*), bool_and(confirmado_el IS NULL) FROM campana_ajuste"
+        ).fetchone() == (1, True)
+
+        hecho = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler_nueva),
+        )
+        assert hecho.confirmada is True
+        assert puts == []
+        assert conn.execute(
+            "SELECT confirmado_el IS NOT NULL FROM campana_ajuste WHERE id = %s",
+            (hecho.ajuste_id,),
+        ).fetchone() == (True,)
+
+
+@_skip_db
+def test_aplica_y_regresa_cierran_cliente_http_solo_si_crearon_transporte(monkeypatch):
+    """Punto 5 (#788) + sugerencia 1 de Opus: `aplica_ajuste_campana` y
+    `regresa_ajuste_campana` cierran el cliente en `finally` (exito y error)
+    cuando `transport is None`, y no cierran un transporte inyectado."""
+    from app.ads.campana_config import cuerpo_put_campana
+    from app.ads.client import AdsApiError
+
+    with _db("orbit_aj_p5") as conn:
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        remoto = {
+            EXTERNA: {
+                k: v for k, v in cuerpo_put_campana(_vigente_config()).items() if k != "campaignId"
+            }
+        }
+        handler, _vistos = _handler_mezcla(remoto)
+
+        cerrados_inyectado = []
+
+        class _TransportEspia(httpx.MockTransport):
+            def close(self) -> None:
+                cerrados_inyectado.append("cerrado")
+                super().close()
+
+        espia_t = _TransportEspia(handler)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        )
+        hecho = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=espia_t,
+        )
+        assert hecho.confirmada is True
+        assert cerrados_inyectado == []
+
+        reg = apply_ajustes.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=espia_t
+        )
+        assert reg.confirmada is True
+        assert cerrados_inyectado == []
+
+        cerrados_propio = []
+
+        class _ClienteEspia:
+            def __init__(self, real, *, boom_list=False, boom_close=False):
+                self._real = real
+                self._boom_list = boom_list
+                self._boom_close = boom_close
+
+            def list_sellado(self, path, body):
+                if self._boom_list:
+                    raise AdsApiError("status=500")
+                return self._real.list_sellado(path, body)
+
+            def ajustar_campana(self, externa, cuerpo):
+                return self._real.ajustar_campana(externa, cuerpo)
+
+            def close(self):
+                cerrados_propio.append("cerrado")
+                if self._boom_close:
+                    raise RuntimeError("boom close")
+                self._real.close()
+
+        real_fabrica = apply._cliente_ajuste
+
+        def _instala(boom_list=False, boom_close=False):
+            def _fabrica(plat, *, transport=None):
+                real = real_fabrica(plat, transport=httpx.MockTransport(handler))
+                return _ClienteEspia(real, boom_list=boom_list, boom_close=boom_close)
+
+            monkeypatch.setattr(apply, "_cliente_ajuste", _fabrica)
+
+        plan2 = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=30)
+        )
+        _instala(boom_list=True, boom_close=True)
+        with pytest.raises(AdsApiError, match="500"):
+            apply_ajustes.aplica_ajuste_campana(
+                conn, plan2, huella=plan2.huella(), confirmacion="APLICAR AJUSTE", actor="dueno"
+            )
+        assert len(cerrados_propio) == 1
+
+        _instala(boom_list=False, boom_close=False)
+        hecho2 = apply_ajustes.aplica_ajuste_campana(
+            conn, plan2, huella=plan2.huella(), confirmacion="APLICAR AJUSTE", actor="dueno"
+        )
+        assert hecho2.confirmada is True
+        assert len(cerrados_propio) == 2
+
+        _instala(boom_list=True, boom_close=True)
+        with pytest.raises(AdsApiError, match="500"):
+            apply_ajustes.regresa_ajuste_campana(conn, ajuste_id=hecho2.ajuste_id, actor="dueno")
+        assert len(cerrados_propio) == 3
+
+        _instala(boom_list=False, boom_close=False)
+        reg2 = apply_ajustes.regresa_ajuste_campana(conn, ajuste_id=hecho2.ajuste_id, actor="dueno")
+        assert reg2.confirmada is True
+        assert len(cerrados_propio) == 4
