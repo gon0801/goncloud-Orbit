@@ -2,6 +2,7 @@
    tres renglones de evidencia y "Jev: k de n". Lo pintan /cortes (una fila
    por propuesta, dos bloques en harvest) y /gasto-sin-venta (una fila por
    busqueda). `ambito` ("origen"/"destino") solo se muestra en harvest. #}
+{% import "_texto_extensible.html" as ux %}
 {% macro bloque(v, ambito=None) %}
 <div class="senal-bloque">
   <div class="action-row">
@@ -10,16 +11,16 @@
         <span class="chip">Señal{% if ambito %} · {{ ambito }}{% endif %} · {{ v.titulo }}</span>
         {% if not v.vigente %}<span class="chip">desactualizada</span>{% endif %}
       </div>
-      <p class="action-desc">{{ v.frase }}</p>
+      {% call ux.texto_extensible('action-desc') %}{{ v.frase }}{% endcall %}
       {% if v.economia.aqui %}
       {% set aqui = v.economia.aqui %}
-      <p class="detalle-celda action-desc">Aquí en la ventana: {{ aqui.gasto | dinero }} {{ v.economia.moneda }} de gasto, {{ aqui.ordenes | numero }} ordenes ({{ aqui.clics | numero }} clics).</p>
+      {% call ux.texto_extensible('detalle-celda action-desc') %}Aquí en la ventana: {{ aqui.gasto | dinero }} {{ v.economia.moneda }} de gasto, {{ aqui.ordenes | numero }} ordenes ({{ aqui.clics | numero }} clics).{% endcall %}
       {% endif %}
       {% if v.economia.otros_que_venden %}
-      <p class="detalle-celda action-desc">Vende en otros grupos:{% for otro in v.economia.otros_que_venden %} grupo <span data-dato-libre>{{ otro.ad_group_id }}</span> ({{ otro.ordenes | numero }} ordenes){% if not loop.last %},{% endif %}{% endfor %}</p>
+      {% call ux.texto_extensible('detalle-celda action-desc') %}Vende en otros grupos:{% for otro in v.economia.otros_que_venden %} grupo <span data-dato-libre>{{ otro.ad_group_id }}</span> ({{ otro.ordenes | numero }} ordenes){% if not loop.last %},{% endif %}{% endfor %}{% endcall %}
       {% endif %}
       {% if v.economia.historial %}
-      <p class="detalle-celda action-desc">Historial aquí: {{ v.economia.historial.ordenes_conocidas | numero }} ordenes conocidas en {{ v.economia.historial.clics | numero }} clics.</p>
+      {% call ux.texto_extensible('detalle-celda action-desc') %}Historial aquí: {{ v.economia.historial.ordenes_conocidas | numero }} ordenes conocidas en {{ v.economia.historial.clics | numero }} clics.{% endcall %}
       {% endif %}
       <p class="detalle-celda action-caveat">Jev: {{ v.satisfacen }} de {{ v.evaluados }}</p>
     </div>

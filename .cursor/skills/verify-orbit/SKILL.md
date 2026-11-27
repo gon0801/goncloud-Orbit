@@ -75,6 +75,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `body[data-pantalla]` | identificador de cada una de las 18 rutas en `app/templates/base.html` |
 | `aside.sidebar nav#nav-secciones`, `nav.subnavegacion`, `nav.tab-bar` | navegacion de escritorio, grupo activo y movil |
 | `button#nav-mas-toggle[aria-controls="nav-mas"]`, `nav#nav-mas` | menu Mas en movil; Escape cierra y devuelve foco |
+| `details.texto-extensible`, `.texto-extensible-contenido`, `summary` | texto secundario limitado a tres lineas en movil, expansion nativa sin JavaScript |
 | `nav a[aria-current="page"]`, padre agrupado `[aria-current="true"]` | destino y seccion activos; href y aria-current deben pertenecer al mismo `<a>` |
 | `html[data-tema]`, `button#btn-tema`, `span.leyenda-zona` | tema y zona horaria |
 | `.accion-primaria[href="/campanas/nuevas"]` | accion Crear campanas, no una seccion del nav |

@@ -36,6 +36,8 @@ Preconditions:
 - **Confirmar lado JSON.** Corre `curl -sS "$BASE/api/dashboard/cortes"`. Status 200. Un item tiene `kind` `negative`, `search_term` `zapato blanco`, `estado` `pending_veto`, `modo` `live`. Ni la respuesta trae `asesoria_disponible` ni ningún item trae `asesoria` (check `api_sin_asesoria`).
 - **Proof.** Guarda HTML y JSON bajo `evidence/<run_id>/cortes/`. No POSTees `/api/ads-optimizer/veto` salvo que el run tenga `ORBIT_SECRETS_DIR` y `ORBIT_DSN_ADMIN` desechables y lo declares.
 
+- `cortes-texto-extensible` la evidencia de señales usa `details.texto-extensible`, limitada a tres líneas en móvil con expansión nativa y sin JavaScript.
+
 ## Gotchas
 
 - El click de Rechazar lo cablea `/static/js/cortes.js`. Un `onclick=` inline lo bloquea la CSP.

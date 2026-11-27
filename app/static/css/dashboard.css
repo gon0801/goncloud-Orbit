@@ -499,3 +499,28 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
 .temporada-meses label { display: inline-flex; flex-direction: column; gap: 2px; font-size: 0.85em; }
 .temporada-meses select { width: 76px; }
 [data-temporada] fieldset { margin-top: 8px; }
+
+/* Texto secundario extensible: completo en escritorio, tres lineas en movil. */
+.texto-extensible > summary { display: none; }
+@media (max-width: 40rem) {
+  .texto-extensible > summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--o-ac);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    list-style: none;
+  }
+  .texto-extensible > summary::-webkit-details-marker { display: none; }
+  .texto-extensible:not([open]) > .texto-extensible-contenido {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+  .texto-extensible:not([open]) > summary .texto-ver-menos { display: none; }
+  .texto-extensible[open] > summary .texto-ver-mas { display: none; }
+}

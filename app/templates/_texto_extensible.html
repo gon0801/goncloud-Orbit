@@ -1,0 +1,6 @@
+{% macro texto_extensible(clase='', dato_libre=False) %}
+<details class="{{ clase }} texto-extensible"{% if dato_libre %} data-dato-libre{% endif %}>
+  <summary><span class="texto-ver-mas">Ver más</span><span class="texto-ver-menos">Ver menos</span></summary>
+  <div class="texto-extensible-contenido">{{ caller() }}</div>
+</details>
+{% endmacro %}
