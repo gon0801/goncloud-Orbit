@@ -258,7 +258,12 @@
     {
       "name": "auto-04",
       "path": "docs/superpowers/plans/2026-11-26-auto-04-ubicaciones.md",
-      "description": "AUTO-04 — ajustes automaticos por ubicacion: PR #785 (migracion 0104, politica pura y lectura), PR #786 (ejecutor live, cuota y ciclo) y PR de pantalla, Salud y replay. Arranca en practica (shadow) sin caps de ubicacion; el paso a live exige la compuerta de la spec seccion 9."
+      "description": "AUTO-04 — ajustes automaticos por ubicacion: PR #785 (migracion 0104, politica pura y lectura), PR #786 (ejecutor live, cuota y ciclo) y PR #787 (pantalla, Salud y replay). Correcciones de los P1 de auditoria thermo-nuclear y suite E2E en docs/superpowers/plans/2026-11-26-auto-04-correcciones.md (PR #789). Arranca en practica (shadow) sin caps de ubicacion; el paso a live exige la compuerta de la spec seccion 9."
+    },
+    {
+      "name": "auto-04-correcciones",
+      "path": "docs/superpowers/plans/2026-11-26-auto-04-correcciones.md",
+      "description": "AUTO-04 CORRECCIONES (PR #789) — matriz de fallos de 12 fronteras, correcciones P1-1 a P1-6 y suite extremo a extremo real sobre cycle.corre_ciclo / cycle.atender_plataforma."
     }
   ],
   "active": "arreglos-05"

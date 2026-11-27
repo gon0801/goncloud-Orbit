@@ -45,6 +45,7 @@ from app.cycle_apply import (  # noqa: F401 - re-export estable
     _mezcla_evidencias_persistidas,
     _Reconciliacion,
     _sella_apply,
+    cierra_aplicador,
     sella_notas_post_apply,
 )
 from app.cycle_grupos import (  # noqa: F401 - re-export estable
@@ -998,6 +999,7 @@ def _atiende(
     conn.commit()
     hb = _abre_heartbeat(conn)
     ciclo_id: int | None = None
+    reconciliacion = None
     tomado = False
     contadores = _Contadores()
     muertos: list[int] = []
@@ -1072,6 +1074,7 @@ def _atiende(
             _sello_fallido(conn, ciclo_id, exc, contadores, muertos)
         raise
     finally:
+        cierra_aplicador(reconciliacion)
         if tomado:
             _libera_lock(hb, conn, job_key, owner)
         if hb is not None:
