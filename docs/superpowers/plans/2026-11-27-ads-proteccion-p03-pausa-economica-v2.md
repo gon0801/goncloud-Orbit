@@ -142,8 +142,19 @@ cualquier campaña protegida a mano usa `goal.mode = shadow` o `enabled = false`
    - `cortes.cost > 3 * target * cortes.ad_revenue / 100`.
    - `exceso_mad = cortes.cost - target * cortes.ad_revenue / 100 >= exceso_minimo`
      (`EXCESO_MINIMO[moneda]`, ya multiplicado por `mult_cortes_baja` en temporada baja).
-   - Si **no** cruza madura: `cruza_madura = False` y `_decide_pause` devuelve `(None, motivo_previo)`;
-     el juicio de pujas R1–R17 sigue normal.
+   - Si **no** cruza madura: `cruza_madura = False` y `evalua_pausa_economica` devuelve `mantener`
+     con el motivo de la razón real (abajo). En era `v2`, `_decide_pause` devuelve `(None, <ese
+     motivo>)` — o el de `pausa_umbral`/protección si ganan (paso 5) — y el juicio de pujas R1–R17
+     sigue normal. En era `v1` nada de esto cambia: conserva sus motivos de hoy
+     (`pause_cortes_incompleto`, `pause_orders_desconocido`, `pause_economica_dato_faltante`, …).
+     - `cortes is None` (hoja elegible sin ninguna fecha de métrica, `windows.py:482-484`): no se
+       juzga ni se escribe fila; se cuenta en `notes.pausa_economica.sin_cortes`.
+     - `cortes` existe pero no es juzgable (`not completa`, moneda distinta, `cost`/`ad_revenue`/
+       `orders`/`clicks` en `None`, no finitos o negativos): `mantener` +
+       **`pause_economica_cortes_incompletos`**.
+     - `cortes` juzgable y no cruza el umbral o el exceso: `mantener` +
+       **`pause_economica_no_cruza_madura`**.
+   - Qué hojas dejan fila en `pausa_economica_evaluacion` y qué cuenta `evaluadas`: sección 3.9.
 
 2. **Integridad de la ventana reciente (Regla 3, fail-closed).**
    - Invariante validado **dentro** de la función pura: `reciente is not None`,
@@ -202,6 +213,9 @@ MOTIVO_PAUSE_ECONOMICA = "pause_economica"
 MOTIVO_SALVADA = "pause_economica_salvada_reciente"
 MOTIVO_RECUPERANDO = "pause_economica_recuperando_reciente"
 MOTIVO_INCOMPLETO = "pause_economica_reciente_incompleto"
+MOTIVO_NO_CRUZA_MADURA = "pause_economica_no_cruza_madura"
+MOTIVO_CORTES_INCOMPLETOS = "pause_economica_cortes_incompletos"
+VEREDICTOS_PAUSA_ECONOMICA = ("mantener", "pausar")
 ```
 
 ---
@@ -373,7 +387,7 @@ Medido con `splitlines()` en `3c9d7c4c`; techo general `900` (`:46`), `app/cycle
 | Archivo | Líneas hoy | Delta | Total / Techo | Cambio exacto |
 |---|---:|---:|---:|---|
 | `app/optimizer/pausa_economica.py` | nuevo | +240 | 240 / 900 | Regla pura `v2`, constantes, codec JSON, lector/escritor/validador de settings por mercado |
-| `app/pausa_economica_io.py` | nuevo | +240 | 240 / 900 | `lee_cache_reciente` (1 SQL, `D-40..D-1`), `tx3_pausa_economica` (posicional, `SAVEPOINT`), `resumen_ultimo_ciclo` |
+| `app/pausa_economica_io.py` | nuevo | +240 | 240 / 900 | `lee_cache_reciente` (1 SQL, `D-40..D-1`), `tx3_pausa_economica` (posicional, `SAVEPOINT`), `resumen_evals` (notas del ciclo) y `resumen_ultimo_ciclo` |
 | `app/optimizer/caso.py` | 706 | +28 | 734 / 900 | `LecturaRecienteEconomica` + campo opcional `reciente_economica` en `InsumosPausa` (omitido del JSON si `None`: replay histórico intacto) |
 | `app/optimizer/bid.py` | 362 | +26 | 388 / 900 | Re-exporta constantes; `_decide_pause`/`decide_pause` aceptan `reciente_economica`, preservan `v1` y delegan `v2` con `(None, motivo)`, conservando la precedencia de `proteccion.motivo` |
 | `app/optimizer/politica.py` | 805 | +3 | 808 / 900 | Pasa `reciente_economica=caso.pausa.reciente_economica` a `_decide_pause` |
@@ -394,11 +408,55 @@ Medido con `splitlines()` en `3c9d7c4c`; techo general `900` (`:46`), `app/cycle
 | `app/dashboard_salud.py` | 242 | +12 | 254 / 900 | `pausa_economica: resumen_ultimo_ciclo(conn, plataforma)` (patrón `_ubicaciones_de`, `:190-196`) |
 | `app/optimizer/settings_lectura.py` | 308 | −10 | 298 / 900 | Retira constantes y lector del flag global |
 | `app/optimizer/goals.py` | **838** | −2 | 836 / 900 | Retira los dos re-exports (`:97`, `:126`) |
-| `app/etiquetas.py` | 1059 | +8 | **1067** (techo +8 con razón) | 6 etiquetas en `MOTIVO_SALUD`/`MOTIVO_DECISION`: los 3 motivos `v2`, `espera_reciente_economica`, `pausa_economica_anomalia_tope`, `pausa_economica_apagada` |
+| `app/etiquetas.py` | 1059 | +8 | **1067** (techo +8 con razón) | 8 etiquetas: los 5 motivos `v2` (`salvada`, `recuperando`, `reciente_incompleto`, `no_cruza_madura`, `cortes_incompletos`), `espera_reciente_economica`, `pausa_economica_anomalia_tope` y `pausa_economica_apagada` |
 | `tests/test_architecture.py` | 2462 | +0/−0 | — | Solo se sube `ALLOWLIST_TAMANO_TECHO["app/etiquetas.py"]` de `1059` a `1067` con la razón escrita (el techo es ratchet: crecer exige justificarlo) |
 | `tools/pausa_economica_verifica.py` | nuevo | +160 | 160 | CLI read-only: replay determinista sobre `entrada` + verificación `+10d` contra `v_metric_latest` |
 
 Ningún archivo nuevo ni modificado cruza su techo y **ninguno entra a la allowlist**.
+
+Notas del presupuesto: las 8 etiquetas nuevas van en `MOTIVO_SALUD` (motivos de práctica y de
+descarte de la evaluación), cada una en **una línea de ≤ 100 columnas**, así que el techo queda exacto
+en `1067`; `pause_economica` ya tiene texto en `MOTIVO_DECISION` y no se toca. Si alguna necesitara dos
+líneas se sube a `1068` con la razón escrita en el mismo PR, nunca se recorta el texto. La prueba
+`tests/test_etiquetas.py::test_vocabulario_dueno_cubierto` es la que obliga a que ningún motivo quede
+sin etiqueta (`faltan = set(vocabulario) - set(ETIQUETAS[dominio])`).
+
+### 3.9 Qué hojas producen fila en `pausa_economica_evaluacion` y qué cuenta `evaluadas`
+
+- **Regla de fila (una sola, igual en `shadow` y en `live`):** toda hoja elegible del recorrido (pasó
+  las compuertas de `_procesa_decisora`: `ENABLED`, no inerte, clave de pausa no bloqueada) **cuya
+  ventana de cortes esté medida** (`cortes_hoja is not None`, `windows.ventana_cortes`) produce
+  **exactamente una fila** por ciclo, cruce o no la puerta madura. `UNIQUE (cycle_id, ad_entity_id)`
+  garantiza una por hoja y ciclo.
+  - Una hoja **sin** ventana de cortes (`cortes_hoja is None`, `windows.py:482-484`) **no** produce
+    fila: no existirían ni `ventana_reciente_desde/hasta` ni `entrada` ciertas. Se cuenta aparte.
+  - Una hoja que sale antes de evaluarse (clave bloqueada en `apply_queue`, `cycle_recorrido.py:205-212`;
+    inerte; o `politica` apagada) no produce fila ese ciclo.
+- **Veredicto y motivo por caso:** `pausar`/`pause_economica` (pasa 1–4), y los cinco `mantener`:
+  `pause_economica_salvada_reciente`, `pause_economica_recuperando_reciente`,
+  `pause_economica_reciente_incompleto`, `pause_economica_cortes_incompletos` y
+  `pause_economica_no_cruza_madura`. `ventana_reciente_desde/hasta` siempre derivan de
+  `cortes_hoja.window_end + 1d` y `D - 1`, así que el `NOT NULL` del esquema se cumple en todas las
+  filas.
+- **Una sola evaluación por hoja:** el recorrido evalúa `evalua_pausa_economica` con la
+  `EntradaPausaEconomica` congelada; en `live` `_decide_pause` re-ejecuta la misma función pura con la
+  misma entrada (determinista y sin IO). La fila guarda esa `entrada` en JSONB, que es exactamente lo
+  que `tools/pausa_economica_verifica.py` re-ejecuta para el replay.
+- **Qué cuenta `notes.pausa_economica`** (un contador, una fuente, en `_Contadores`):
+  - `evaluadas`: filas que TX3 insertó en el ciclo = hojas juzgadas, incluidos todos los `mantener` y
+    los dos motivos del paso 1. Es el número de la compuerta 3.1.
+  - `pausar` y `mantener`: desglose del veredicto; pueden ser `0` y el ciclo sigue siendo válido.
+  - `sin_cortes`: hojas elegibles descartadas por no tener ventana medida (sin fila).
+  - `error` (lectura de caché o evaluación `shadow`) y `error_tx3` (inserción): si aparecen, el ciclo
+    no cuenta para la compuerta.
+  - `anomalia_tope`: `True` cuando el cortacircuito retiró pausas (las filas se insertan igual, con
+    `decision_id NULL`).
+  - El bloque se construye **una sola vez** con `pausa_economica_io.resumen_evals(evaluaciones)` a
+    partir de la lista de evaluaciones del ciclo (`contadores.pausa_economica_evals`); `evaluadas` es
+    su longitud y el desglose por motivo sale de la misma lista. No hay conteos paralelos.
+- **Efecto en la compuerta de 5 ciclos:** MX puede cerrar los 5 ciclos con `pausar = 0` y
+  `evaluadas > 0`; eso es lo que exige la compuerta 3.1 (sección 8.3), porque mide que la práctica
+  juzgó hojas, no que haya pausas.
 
 ---
 
@@ -418,6 +476,11 @@ función de entrada real, no a una pieza con el mismo nombre.
 6. `test_v2_no_es_subconjunto_pero_conserva_precedencia_de_proteccion` (con `pausa_umbral` +
    `proteccion.accion="esperar"`, el motivo devuelto es `proteccion.motivo`).
 7. `test_v1_congelada_sigue_reproduciendo_decisiones_historicas` (era `economic_pause_v1`).
+8. `test_v2_paso_1_distingue_no_cruza_madura_de_cortes_incompletos` (parametrizado: `cortes` medido
+   bajo umbral → `mantener`/`pause_economica_no_cruza_madura`; `cortes` con `completa=False`, moneda
+   distinta o campos `None`/negativos → `mantener`/`pause_economica_cortes_incompletos`).
+9. `test_v2_toda_hoja_juzgada_tiene_un_motivo_del_vocabulario_cerrado` (ningún caso devuelve `motivo`
+   vacío ni fuera de las 6 constantes; `veredicto` siempre en `VEREDICTOS_PAUSA_ECONOMICA`).
 
 ### 4.2 IO y esquema — `tests/test_pausa_economica_io.py`, `tests/test_apply_schema.py`
 
@@ -425,9 +488,10 @@ función de entrada real, no a una pieza con el mismo nombre.
    día cubierto sin fila de la hoja → cero medido; fila `NULL`/negativa/otra moneda → veneno).
 9. `test_tx3_pausa_economica_mapea_decision_id_y_persiste_null` (éxito y `anomalia_tope`).
 10. `test_tx3_pausa_economica_error_no_aborta_tx3` (`SAVEPOINT` + `error_tx3`).
-11. `test_pausa_economica_evaluacion_append_only` (UPDATE/DELETE/TRUNCATE revientan) y
+11. `test_pausa_economica_evaluacion_append_only` (UPDATE/DELETE/TRUNCATE revientan),
     `test_grants_de_pausa_economica_evaluacion` (4 roles `SELECT`, `app_decide` `INSERT`+secuencia,
-    cero `UPDATE`/`DELETE`).
+    cero `UPDATE`/`DELETE`) y `test_motivo_veredicto_check_rechaza_combinaciones_fuera_del_vocabulario`
+    (`pausar` con motivo distinto de `pause_economica`, `mantener` con motivo inventado).
 12. `test_motivos_sin_aplicar_espejo_estatico_del_check` (`tests/test_apply_schema.py:989`) debe
     seguir verde con 17 motivos, mismo orden, apéndice al final.
 13. `test_reversa_0105_aborta_con_datos_live_o_espera_reciente` (guarda Regla 5).
@@ -452,6 +516,16 @@ función de entrada real, no a una pieza con el mismo nombre.
     `ORBIT_DSN_ADMIN` de prueba) y `test_guarda_config_rechaza_modo_invalido`
     (`app.config_write.guarda_config`).
 23. `test_editar_mx_no_toca_us_ni_optimizer_mode_ni_propuestas` (`guarda_config` + `proxima_config`).
+24. `test_corre_ciclo_shadow_mercado_sin_candidatos_cumple_compuerta` (`app.cycle.corre_ciclo` con
+    `ads_optimizer_mode=live` y `pausa_economica_amazon_mx=shadow`, mercado cuyas hojas no cruzan la
+    puerta madura): **una fila por hoja elegible con `cortes_hoja is not None`**, todas con
+    `veredicto='mantener'` y `motivo IN ('pause_economica_no_cruza_madura',
+    'pause_economica_cortes_incompletos')`, `notes.pausa_economica.evaluadas == len(hojas juzgadas)`,
+    `pausar == 0`, `sin_cortes` reportado sin fila y sin `error`/`error_tx3`: la compuerta 3.1 se
+    cumple con cero candidatos y cero pausas.
+25. `test_corre_ciclo_hoja_sin_ventana_no_escribe_fila` (hoja elegible sin ninguna fecha de métrica,
+    `windows.py:482-484` → `cortes_hoja is None`): cero filas para esa hoja, `sin_cortes` la cuenta y
+    el resto del ciclo no cambia.
 
 ---
 
@@ -486,6 +560,7 @@ CREATE TABLE pausa_economica_evaluacion (
     ventana_reciente_hasta DATE   NOT NULL,
     moneda            currency    NOT NULL,
     target_acos_pct   NUMERIC(7,4) NOT NULL,
+    cortes_completa   BOOLEAN     NOT NULL,
     cost_maduro       NUMERIC(14,4) NULL,
     revenue_maduro    NUMERIC(14,4) NULL,
     cost_reciente     NUMERIC(14,4) NULL,
@@ -498,6 +573,17 @@ CREATE TABLE pausa_economica_evaluacion (
     decision_id       BIGINT      NULL REFERENCES decision (id),
     CONSTRAINT pausa_economica_evaluacion_ventana
         CHECK (ventana_reciente_desde <= ventana_reciente_hasta),
+    -- Vocabulario cerrado: un `pausar` es siempre `pause_economica`; un `mantener`
+    -- lleva uno de los cinco motivos de no-pausa (Regla 3: dato faltante,
+    -- umbral no cruzado, salvada, recuperando e incompleto son distintos).
+    CONSTRAINT pausa_economica_evaluacion_motivo_veredicto
+        CHECK ((veredicto = 'pausar' AND motivo = 'pause_economica')
+               OR (veredicto = 'mantener' AND motivo IN (
+                       'pause_economica_salvada_reciente',
+                       'pause_economica_recuperando_reciente',
+                       'pause_economica_reciente_incompleto',
+                       'pause_economica_cortes_incompletos',
+                       'pause_economica_no_cruza_madura'))),
     -- Regla 3: un `mantener` no lleva decision; un `pausar` live puede no tenerla (tope).
     CONSTRAINT pausa_economica_evaluacion_veredicto_coherente
         CHECK ((veredicto = 'mantener' AND decision_id IS NULL)
@@ -507,6 +593,10 @@ CREATE TABLE pausa_economica_evaluacion (
     UNIQUE (cycle_id, ad_entity_id)
 );
 ```
+
+- La tabla **solo** admite filas de hojas con ventana de cortes medida (sección 3.9): `entrada` lleva
+  el `AgregadoMetricas` maduro y `cortes_completa` lo resume sin parsear JSON. Una hoja sin ventana no
+  se inserta, por eso `ventana_reciente_desde/hasta` y `cortes_completa` pueden ser `NOT NULL`.
 
 - Índice `pausa_economica_evaluacion_entidad_idx ON (platform, ad_entity_id, id DESC)`.
 - Triggers `pausa_economica_evaluacion_append_only` (`BEFORE UPDATE OR DELETE ... FOR EACH ROW
@@ -570,7 +660,7 @@ CHECK (motivo IN (
 | Frontera | (1) Nivel de medición y por qué | (2) Timeout / 429 / 500 / 401 / 403 / vacío o incompleto | (3) Pieza vecina apagada o lectura fallida | (4) Cambio de modo, cierre de día o reinicio a mitad | (5) Prueba E2E (función real de entrada) |
 |---|---|---|---|---|---|
 | **Lectura batch reciente (`lee_cache_reciente`) y escritura TX3 (`tx3_pausa_economica`)** | Cobertura por `(platform, moneda, metric_date)` y métricas por `(ad_entity_id, metric_date)` sobre `[D-40..D-1]`: ausencia en día cubierto = `0` medido; día sin ingesta de plataforma = hueco real. Se mide por día porque la atribución tardía llega día por día y la regla decide sobre una suma. | Hueco en `[cortes.window_end+1d .. D-1]`, `NULL`, negativo u otra moneda → `completa=False` → `(None, "pause_economica_reciente_incompleto")`. No hay HTTP en esta frontera. | **Aislamiento `SAVEPOINT` (TX2 y TX3):** si `lee_cache_reciente` o `tx3_pausa_economica` lanzan error SQL, se captura en `notes.pausa_economica.error` / `error_tx3`; en `live` degrada a `reciente_incompleto` (cero pausas económicas) y **las pujas `live` de la plataforma se emiten y confirman intactas**. | TX3 es atómica: un fallo previo al commit no deja filas huérfanas. Un ejecutor `resume_of` **no** re-evalúa ni reescribe filas de evaluación (`UNIQUE (cycle_id, ad_entity_id)` y `ON CONFLICT DO NOTHING`). | `app.cycle.corre_ciclo`: (a) hueco de 1 día en `D-2` → `motivo='pause_economica_reciente_incompleto'`, cero pausas; (b) lector con excepción en `shadow` y en `live` → **mismas decisiones de puja emitidas**, error anotado en `notes`; (c) `tx3_pausa_economica` que revienta → `error_tx3` y ciclo sellado. |
-| **Evaluación `shadow` vs `live`, `_proteccion_activa` y cortacircuito** | Por hoja elegible (`keyword`/`product_target`) en el ciclo de su plataforma; el cortacircuito se mide por plataforma y ciclo (`TOPE_PAUSA_ECONOMICA_CICLO = 5`) porque una ingesta rota se ve como "todas las hojas de ese mercado". | N/A: es puro en memoria, sin red ni reloj propio. | Si `ads_temporada_<plat>` está `off`, usa `exceso_minimo` base. Si `ads_proteccion_venta` está `on` y `cortes.orders == 0` con pedido reciente, `_proteccion_activa` recibe `reciente_economica` y coincide con `decide(caso)` sin descartar el `Pausar`; si no pausa económicamente, `proteccion.motivo` conserva precedencia (`politica.py:302`). Si `> 5` hojas disparan en `live`: se retiran todas las pausas económicas, se resta `contadores.decisiones["pause"]`, se re-evalúa `decisor(caso_sin_econ)` congelando el caso desde `cycle_recorrido.py:400` y se registra `skips.entidad["pausa_economica_anomalia_tope"]`, que `digest_ciclo` pinta junto a `:402-404`. | `off → shadow`: empieza el ciclo siguiente sin tocar `decision` ni `apply_queue`; pujas `live` intactas. Una hoja con fila `released` esperando (`espera_reciente_economica`) queda sin recortes de puja y sin fila de evaluación ese ciclo (`cycle_recorrido.py:205-212`) hasta resolverse. Reinicio a mitad de TX2: sin decisiones insertadas, el ciclo se recupera por `resume_of` y vuelve a decidir. | `app.cycle.corre_ciclo` + `app.notifica.digest_ciclo`: (a) `ads_optimizer_mode='live'` + `pausa_economica='shadow'` → hoja sangrante recibe recorte de bid `live` y guarda fila `shadow`; (b) `orders_mad=0` + venta reciente cara + `proteccion_venta_v1` → sí encola `pause_economica`; (c) 6 hojas sangrantes en `live` → 0 pausas encoladas, **los mismos recortes de puja que en `shadow` con replay fiel (`caso_sin_econ`)**, `contadores.decisiones["pause"] == 0`, texto de alerta verificado en `digest_ciclo` y filas con `decision_id NULL`. |
+| **Evaluación `shadow` vs `live`, `_proteccion_activa` y cortacircuito** | Por hoja elegible (`keyword`/`product_target`) en el ciclo de su plataforma, y **toda hoja elegible con ventana de cortes medida deja una fila** (sección 3.9), cruce o no la puerta madura: las que no cruzan se registran como `mantener` con su motivo (`no_cruza_madura` / `cortes_incompletos`). El cortacircuito se mide por plataforma y ciclo (`TOPE_PAUSA_ECONOMICA_CICLO = 5`) porque una ingesta rota se ve como «todas las hojas de ese mercado». | N/A: es puro en memoria, sin red ni reloj propio. | Si `ads_temporada_<plat>` está `off`, usa `exceso_minimo` base. Si `ads_proteccion_venta` está `on` y `cortes.orders == 0` con pedido reciente, `_proteccion_activa` recibe `reciente_economica` y coincide con `decide(caso)` sin descartar el `Pausar`; si no pausa económicamente, `proteccion.motivo` conserva precedencia (`politica.py:302`). Si `> 5` hojas disparan en `live`: se retiran todas las pausas económicas, se resta `contadores.decisiones["pause"]`, se re-evalúa `decisor(caso_sin_econ)` congelando el caso desde `cycle_recorrido.py:400` y se registra `skips.entidad["pausa_economica_anomalia_tope"]`, que `digest_ciclo` pinta junto a `:402-404`. | `off → shadow`: empieza el ciclo siguiente sin tocar `decision` ni `apply_queue`; pujas `live` intactas. Una hoja con fila `released` esperando (`espera_reciente_economica`) queda sin recortes de puja y sin fila de evaluación ese ciclo (`cycle_recorrido.py:205-212`) hasta resolverse. Reinicio a mitad de TX2: sin decisiones insertadas, el ciclo se recupera por `resume_of` y vuelve a decidir. | `app.cycle.corre_ciclo` + `app.notifica.digest_ciclo`: (a) `ads_optimizer_mode='live'` + `pausa_economica='shadow'` → hoja sangrante recibe recorte de bid `live` y guarda fila `shadow`; (a2) mercado cuyas hojas no cruzan la puerta madura → filas `mantener`/`pause_economica_no_cruza_madura` y `evaluadas > 0` con `pausar = 0`; (b) `orders_mad=0` + venta reciente cara + `proteccion_venta_v1` → sí encola `pause_economica`; (c) 6 hojas sangrantes en `live` → 0 pausas encoladas, **los mismos recortes de puja que en `shadow` con replay fiel (`caso_sin_econ`)**, `contadores.decisiones["pause"] == 0`, texto de alerta verificado en `digest_ciclo` y filas con `decision_id NULL`. |
 | **Lectura de caché en el barrido (`libera_vencidos`) y revalidación 48h (`revalida_pause`)** | Carga perezosa de `CacheRecienteEconomica` en `libera_vencidos` (`apply_cola.py:656-665`) solo con `modo == "live"` y al llegar la primera fila económica; revalidación por fila `released` contra `LIST` fresco y métricas frescas, con evidencia completa en `_registra_evidencia` (`apply_revalidacion.py:443-476`). Se mide por fila porque cada `decision` vence a su hora. | **401/403** en LIST/PUT → `propaga_aborto=True` (detiene la corrida, **no** descarta ni marca perdida). **Timeout/429/500** → `MOTIVO_SIN_RESPUESTA` (queda `released`, 0 cuota). **Reciente incompleto** → `MOTIVO_ESPERA_RECIENTE` (en `MOTIVOS_ESPERA`, queda `released`, 0 cuota, reintenta el ciclo siguiente). **Venta reciente que salva o recupera** → `discarded` (`ya_no_califica`, 0 PUT). | **`SAVEPOINT` en el barrido:** si `lee_cache_reciente` falla dentro de `libera_vencidos`, las filas económicas de ese barrido quedan en `MOTIVO_ESPERA_RECIENTE` y el resto (`pause_umbral`, `negative`, `harvest`) sigue normal. Si falla el `target` de `margen_producto` → `MOTIVO_ESPERA_TARGET`. Si la hoja ya no está `ENABLED` o tiene gracia manual → descarta sin PUT. | Bajar `live → shadow/off` en `cli_productos.py` descarta en la misma TX las filas en `espera_reciente_economica` (`pausa_economica_apagada`); al vencer el veto de otras filas `pending_veto`, `revalida_pause` hace `LIST` y las descarta (`ya_no_califica`, **0 PUT**) salvo que también califiquen por `pause_umbral`. Cierre de día o reinicio tras `applying` se reconcilia por readback; `reversa_pause` reactiva y abre gracia de 7d. | `app.apply_cola.libera_vencidos`: (a) venta tardía en 48h → `discarded` (`ya_no_califica`, 0 PUT); (b) hueco reciente o fallo de `lee_cache_reciente` → `released` con `espera_reciente_economica`, 0 cuota, `espera_reciente=1`, mientras `negative`/`harvest` siguen; (c) baja a `shadow` sin calificar umbral → `discarded` (0 PUT); (d) 401 → aborta sin descartar; (e) caso real → PUT `PAUSED` + evidencia reciente + readback + `reversa_pause`. |
 | **Configuración por mercado (`config_write` + `cli_productos`)** | Clave por plataforma (`ads_pause_economica_amazon_mx`, `ads_pause_economica_amazon_us`) porque el encendido es mercado por mercado y MX no debe moverse al tocar US. | Valor fuera de `{off, shadow, live}`, `None`, `bool` o entero → `SettingsInvalido` al escribir; `'off'` al leer (fail-closed). No hay red aquí. | `config_version` serializado con `pg_advisory_xact_lock` y `base_config_version_id` (409 si obsoleto): dos ediciones simultáneas no se pisan. | Editar MX jamás modifica US, `ads_optimizer_mode` ni `ads_propuestas_campana`. La guarda `D-H1` corre en la misma TX: si falla el descarte, `rollback` completo y el modo no baja. | `app.cli_productos.main` + `app.config_write.guarda_config`: MX a `shadow` deja US en `off`, rechaza valores inválidos y bajar `live → shadow` descarta `espera_reciente_economica` con `pausa_economica_apagada` en la misma TX; `404/409` por `base_config_version_id` obsoleto no deja cambio parcial. |
 
@@ -608,8 +698,11 @@ CHECK (motivo IN (
 2. **Activación de práctica:** `productos-modo --platform amazon_mx --pausa-economica shadow` y
    después lo mismo para `amazon_us`.
 3. **Compuerta de 5 ciclos en `shadow` (medible al ciclo 5, por mercado):**
-   1. Cobertura completa los 5 ciclos (`notes.pausa_economica.evaluadas > 0`, sin `error` ni
-      `error_tx3`).
+   1. Cobertura completa los 5 ciclos: `notes.pausa_economica.evaluadas > 0` (hojas juzgadas con fila
+      escrita, sección 3.9) y sin `error` ni `error_tx3`. **Un mercado sin candidatos cumple esta
+      compuerta con `pausar = 0`**: lo que se mide es que la práctica juzgó hojas
+      (`pause_economica_no_cruza_madura` / `pause_economica_cortes_incompletos` cuentan),
+      no que haya pausas. `sin_cortes` se reporta, sin mínimo exigido.
    2. Ningún ciclo muestra `> 5` `pausar` en ese mercado; si alguno lo supera, no se promueve hasta
       investigar.
    3. Replay 100% determinista en `tools/pausa_economica_verifica.py` sobre todas las filas de
