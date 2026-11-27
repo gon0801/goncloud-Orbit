@@ -321,7 +321,9 @@ def _corre_decisora(monkeypatch, caso: CasoHoja):
         margen_plataforma=None,
         snapshot_margen={},
         familias_ciclo=ciclo._FamiliasCiclo({}, {}, {}, {}, {}, None, DECIDED_AT.date(), None, {}),
-        pause_economica=False,
+        modo_economica="off",
+        politica_economica=None,
+        economia_live=False,
         politica="niveles_v3",
         lecturas=lecturas,
     )

@@ -60,9 +60,16 @@ def registra(sub) -> None:
         default=None,
         help="seleccion ORBIT 07 M1, global (off = ausente)",
     )
+    p.add_argument(
+        "--pausa-economica",
+        choices=("off", "shadow", "live"),
+        default=None,
+        help="pausa economica por mercado (P03; off = ausente)",
+    )
 
 
 def corre(args) -> int:
+    pausa_economica = getattr(args, "pausa_economica", None)
     if args.pausa is not None:
         if (
             args.meta is not None
@@ -71,8 +78,12 @@ def corre(args) -> int:
             or args.economia is not None
             or args.bid_economia is not None
             or args.proteccion is not None
+            or pausa_economica is not None
         ):
-            print("--pausa va solo: las demas claves en otra llamada", file=sys.stderr)
+            print(
+                "--pausa va solo: las demas claves (incluida --pausa-economica) en otra llamada",
+                file=sys.stderr,
+            )
             return 2
         return _corre_pausa(args.platform, args.pausa)
     modo = {t: v for t, v in (("meta", args.meta), ("pausa", args.pausa)) if v is not None}
@@ -94,10 +105,11 @@ def corre(args) -> int:
         and args.economia is None
         and args.bid_economia is None
         and args.proteccion is None
+        and pausa_economica is None
     ):
         print(
             "productos-modo necesita --meta, --pausa, --clics/--gasto, --economia,"
-            " --bid-economia o --proteccion",
+            " --bid-economia, --proteccion o --pausa-economica",
             file=sys.stderr,
         )
         return 2
@@ -109,7 +121,12 @@ def corre(args) -> int:
     # que esperaban por venta reciente (antes de que un rollback quede con el
     # codigo viejo, que las aplicaria de golpe).
     apaga_proteccion = args.proteccion == "off"
+    # P03 D-H1: bajar la pausa economica de live descarta en la MISMA TX las
+    # filas que esperaban por su ventana reciente.
+    baja_economica = pausa_economica in ("off", "shadow")
+    apaga = apaga_proteccion or baja_economica
     descartadas_proteccion = 0
+    descartadas_economica = 0
     try:
         conn = connect(dsn)
         try:
@@ -123,18 +140,25 @@ def corre(args) -> int:
                 base_config_version_id=base,
                 ahora=dt.datetime.now(dt.UTC),
                 actor="productos-modo",
-                confirma=not apaga_proteccion,
+                confirma=not apaga,
                 producto_modo=modo or None,
                 limites_pausa=limites,
                 proteccion_venta=args.proteccion,
                 economia_producto=args.economia,
                 economia_cambio=args.bid_economia,
+                pausa_economica_modo=pausa_economica,
             )
-            if apaga_proteccion:
+            if apaga:
                 try:
-                    descartadas_proteccion = sum(
-                        apply_cola.descarta_esperas_proteccion(conn, p) for p in PLATAFORMAS_MONEDA
-                    )
+                    if apaga_proteccion:
+                        descartadas_proteccion = sum(
+                            apply_cola.descarta_esperas_proteccion(conn, p)
+                            for p in PLATAFORMAS_MONEDA
+                        )
+                    if baja_economica:
+                        descartadas_economica = apply_cola.descarta_esperas_reciente_economica(
+                            conn, args.platform
+                        )
                     conn.commit()
                 except Exception:
                     conn.rollback()
@@ -155,6 +179,11 @@ def corre(args) -> int:
         print(
             f"{descartadas_proteccion} pausas en espera por venta reciente"
             " descartadas (proteccion_apagada)"
+        )
+    if baja_economica:
+        print(
+            f"{descartadas_economica} pausas en espera por ventana reciente"
+            " descartadas (pausa_economica_apagada)"
         )
     return 0
 

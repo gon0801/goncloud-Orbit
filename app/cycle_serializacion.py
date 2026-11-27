@@ -349,6 +349,7 @@ def _proteccion_activa(
         policy_version=pausa.politica_economica,
         proteccion=pausa.proteccion,
         exceso_minimo=pausa.exceso_minimo,
+        reciente_economica=pausa.reciente_economica,
     )
     if resultado.proteccion is None or resultado.motivo not in (
         subproteccion.MOTIVO_PROTEGIDA,
@@ -407,6 +408,10 @@ def _notas_cuerpo(
     # ads_temporada_<plat> en shadow; claves ausentes = no se comparo nada).
     if temporada is not None:
         cuerpo["temporada"] = temporada
+    # P03: la practica y el `live` dejan su bloque de conteo (una fuente:
+    # resumen_evals). Clave ausente = la regla esta apagada ese ciclo.
+    if contadores.pausa_economica_resumen is not None:
+        cuerpo["pausa_economica"] = contadores.pausa_economica_resumen
     if motivo_skip is not None:
         cuerpo["motivo_skip"] = motivo_skip
         cuerpo["detalle"] = detalle

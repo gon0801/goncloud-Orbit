@@ -11,6 +11,15 @@ HOY = dt.datetime(2026, 9, 24, 10, 0, tzinfo=dt.UTC)
 FIN = dt.date(2026, 9, 14)
 
 
+@pytest.fixture(autouse=True)
+def _sin_temporada(monkeypatch):
+    """Las pruebas de este modulo no juzgan temporada: la frontera fresca se
+    anula para no depender de la lectura de contexto (stubs de Conn viejos)."""
+    from app import apply_revalidacion
+
+    monkeypatch.setattr(apply_revalidacion.temporada_io, "frontera_hoja", lambda *_a, **_k: None)
+
+
 def _corte(cost, revenue, *, moneda="USD", fechas=7, clicks=231, orders=1):
     return windows.AgregadoMetricas(
         window_start=FIN - dt.timedelta(days=29),
@@ -24,6 +33,41 @@ def _corte(cost, revenue, *, moneda="USD", fechas=7, clicks=231, orders=1):
         clicks=clicks,
         orders=orders,
         observed_at_max=HOY,
+    )
+
+
+def _cache_completo():
+    """Ventana reciente medida en CERO para las pruebas de revalidacion (P03:
+    en `live` el motivo economico lo decide v2 y exige la ventana medible)."""
+    from app import pausa_economica_io as pio
+
+    desde = FIN + dt.timedelta(days=1)
+    hasta = HOY.date() - dt.timedelta(days=1)
+    dias = frozenset(desde + dt.timedelta(days=n) for n in range((hasta - desde).days + 1))
+    return pio.CacheRecienteEconomica(
+        plataforma="amazon_us",
+        evaluado_el=HOY.date(),
+        moneda="USD",
+        _lee_desde=FIN - dt.timedelta(days=40),
+        _dias_plataforma=dias,
+        _series={},
+    )
+
+
+def _cache_incompleto():
+    """Ventana reciente con un dia de plataforma sin ingesta (no medible)."""
+    from app import pausa_economica_io as pio
+
+    completo = _cache_completo()
+    dias = set(completo._dias_plataforma)
+    dias.discard(min(dias))
+    return pio.CacheRecienteEconomica(
+        plataforma=completo.plataforma,
+        evaluado_el=completo.evaluado_el,
+        moneda=completo.moneda,
+        _lee_desde=completo._lee_desde,
+        _dias_plataforma=frozenset(dias),
+        _series=completo._series,
     )
 
 
@@ -123,10 +167,10 @@ def test_revalida_pause_economica_con_venta_tardia(monkeypatch, cost, revenue, t
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    # B1: la revalidacion economica exige el flag prendido.
-    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: True)
+    # P03: la revalidacion economica exige el modo del mercado en `live`.
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "live")
     monkeypatch.setattr(
-        apply_cola, "_target_pause_vigente", lambda *_: (Decimal(target), "goal_campana")
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal(target), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
@@ -141,7 +185,12 @@ def test_revalida_pause_economica_con_venta_tardia(monkeypatch, cost, revenue, t
     aplicador = type(
         "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
     )()
-    assert apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY) == esperado
+    assert (
+        apply_cola._revalida_pause(
+            Conn(), aplicador, "amazon_us", fila, HOY, cache_reciente=_cache_completo()
+        )
+        == esperado
+    )
 
 
 def test_target_revalidacion_usa_goal_vigente_y_margen_del_ciclo():
@@ -213,10 +262,10 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    # B1: la revalidacion economica exige el flag prendido.
-    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: True)
+    # P03: la revalidacion economica exige el modo del mercado en `live`.
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "live")
     monkeypatch.setattr(
-        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
@@ -231,7 +280,12 @@ def test_pause_antigua_con_venta_tardia_conserva_corte_si_exceso_sigue_alto(monk
     aplicador = type(
         "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
     )()
-    assert apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY) is None
+    assert (
+        apply_cola._revalida_pause(
+            Conn(), aplicador, "amazon_us", fila, HOY, cache_reciente=_cache_completo()
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -259,7 +313,7 @@ def test_revalida_pause_sin_target_espera_solo_con_goal(monkeypatch, hay_goal, e
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    monkeypatch.setattr(apply_cola, "_target_pause_vigente", lambda *_: (None, None))
+    monkeypatch.setattr(apply_cola, "_target_pause_vigente", lambda *_, **__: (None, None))
     monkeypatch.setattr(apply_cola, "_hay_goal", lambda *_: hay_goal)
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(
@@ -432,9 +486,9 @@ def test_flag_apagado_revalidacion_legada_no_adopta_regla_economica(monkeypatch)
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "off")
     monkeypatch.setattr(
-        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
@@ -481,9 +535,9 @@ def test_fila_economica_que_solo_califica_umbral_sigue_aplicando(monkeypatch):
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: True)
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "live")
     monkeypatch.setattr(
-        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
@@ -500,9 +554,18 @@ def test_fila_economica_que_solo_califica_umbral_sigue_aplicando(monkeypatch):
         "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
     )()
     assert (
-        apply_cola._revalida_pause(Conn(), aplicador, "amazon_us", fila, HOY, evidencias_b) is None
+        apply_cola._revalida_pause(
+            Conn(),
+            aplicador,
+            "amazon_us",
+            fila,
+            HOY,
+            evidencias_b,
+            cache_reciente=_cache_completo(),
+        )
+        is None
     )
-    assert evidencias_b[0]["version"] == "economic_pause_v1"
+    assert evidencias_b[0]["version"] == "economic_pause_v2"
 
 
 def test_evidencia_registra_version_efectiva_no_nominal(monkeypatch):
@@ -530,9 +593,9 @@ def test_evidencia_registra_version_efectiva_no_nominal(monkeypatch):
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    monkeypatch.setattr(apply_cola, "_flag_pause_economica", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "off")
     monkeypatch.setattr(
-        apply_cola, "_target_pause_vigente", lambda *_: (Decimal("20"), "goal_campana")
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal("20"), "goal_campana")
     )
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
@@ -562,6 +625,55 @@ def test_economica_abstiene_con_orders_o_clicks_desconocidos():
     assert _decide(_corte("127.94", "0", orders=None)).motivo == "pause_orders_desconocido"
     assert _decide(_corte("127.94", "0", clicks=None)).kind is None
     assert _decide(_corte("127.94", "0", clicks=None)).motivo == "pause_clicks_o_cost_desconocidos"
+
+
+def test_revalida_no_espera_reciente_si_la_madura_ya_no_cruza(monkeypatch):
+    """P03 (revision): si el gasto maduro ya no justifica la pausa, una
+    ventana reciente incompleta se DESCARTA (`ya_no_califica`), no se espera:
+    la fila no debe seguir bloqueando los ajustes de puja."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params=None):
+            class Cursor:
+                def fetchall(self):
+                    return []
+
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return ({"motivo": "pause_economica"},)
+                    if sql == apply_cola._SQL_LEE_NOTAS_CICLO:
+                        return ("{}",)
+                    return (71,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "live")
+    monkeypatch.setattr(
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal("20"), "goal_campana")
+    )
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    # 300 de gasto para 1000 de venta al 20 %: NO cruza 3x (600) por si solo.
+    monkeypatch.setattr(
+        apply_cola.windows, "ventana_cortes", lambda *_, **__: _corte("300", "1000")
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert (
+        apply_cola._revalida_pause(
+            Conn(), aplicador, "amazon_us", fila, HOY, cache_reciente=_cache_incompleto()
+        )
+        == "ya_no_califica"
+    )
 
 
 def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypatch):
@@ -605,7 +717,7 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
     monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
     monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
     monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
-    monkeypatch.setattr(apply_cola, "_target_pause_vigente", lambda *_: (None, None))
+    monkeypatch.setattr(apply_cola, "_target_pause_vigente", lambda *_, **__: (None, None))
     monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
     monkeypatch.setattr(
         apply_cola.windows,
@@ -618,6 +730,13 @@ def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypat
     evidencias: list[dict] = []
     monkeypatch.setattr(
         apply_cola, "_registra_evidencia", lambda _conn, _cid, ev, item: ev.append(item)
+    )
+    from app import apply_revalidacion
+
+    monkeypatch.setattr(
+        apply_revalidacion,
+        "_registra_evidencia",
+        lambda _conn, _cid, ev, item: ev.append(item),
     )
     fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
     aplicador = type(

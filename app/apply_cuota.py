@@ -74,7 +74,9 @@ MOTIVO_VIGENCIA_VENCIDA = "vigencia_vencida"
 # ciclo para eludir el tope (el plan del dia ya impide un segundo origen con
 # TX3 comprometida).
 MOTIVO_TOPE_CICLO = "tope_ciclo"
-
+# P03: la pausa es economica y su ventana reciente no es medible todavia:
+# espera sin gastar cuota y se descarta al vencer TOPE_ESPERA_RECIENTE_DIAS.
+MOTIVO_ESPERA_RECIENTE = "espera_reciente_economica"
 # Etiqueta de skip en memoria del aplicador (NO se persiste): la decision ya
 # tiene un intento normal, cierto o fallido, y el aplicador no la vuelve a
 # mandar. Su desenlace lo pone la conciliacion con una lectura fresca.
@@ -104,6 +106,7 @@ MOTIVOS_SIN_APLICAR = (
     MOTIVO_BID_CAMBIADO_FUERA,
     MOTIVO_VIGENCIA_VENCIDA,
     MOTIVO_TOPE_CICLO,
+    MOTIVO_ESPERA_RECIENTE,
 )
 
 _SQL_SIN_APLICAR = """

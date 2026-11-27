@@ -94,7 +94,6 @@ from typing import TYPE_CHECKING
 from app.optimizer.settings_lectura import (  # noqa: F401 - re-export estable de lectores
     _ORDEN_MODO,
     CLAVE_SETTING_MODO,
-    CLAVE_SETTING_PAUSE_ECONOMICA,
     CLAVE_SETTING_PROPUESTAS_CAMPANA,
     CONFIANZA_MAX,
     CONFIANZA_MIN,
@@ -123,7 +122,6 @@ from app.optimizer.settings_lectura import (  # noqa: F401 - re-export estable d
     fraccion_desde_settings,
     gasto_para_concluir_desde_settings,
     modo_desde_settings,
-    pause_economica_desde_settings,
     politica_bid_desde_settings,
     presupuesto_alto,
     propuestas_campana_desde_settings,

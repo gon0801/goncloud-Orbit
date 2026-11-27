@@ -89,7 +89,15 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.optimizer import proteccion as subproteccion
-from app.optimizer.caso import InsumosProteccion, ResultadoProteccion
+from app.optimizer.caso import InsumosProteccion, LecturaRecienteEconomica, ResultadoProteccion
+from app.optimizer.pausa_economica import (
+    EXCESO_MINIMO,  # noqa: F401 - re-export estable
+    MOTIVO_PAUSE_ECONOMICA,  # noqa: F401 - re-export estable
+    MULT_PAUSE_ECONOMICA,  # noqa: F401 - re-export estable
+    POLITICA_PAUSE_ECONOMICA_V2,  # noqa: F401 - re-export estable
+    EntradaPausaEconomica,
+    evalua_pausa_economica,
+)
 from app.optimizer.windows import AgregadoMetricas
 
 PLATAFORMAS_MONEDA: dict[str, str] = {"amazon_us": "USD", "amazon_mx": "MXN"}
@@ -125,11 +133,10 @@ MIN_DELTA_ABSOLUTO = Decimal("0.01")  # |new - bid_actual| < 0.01 -> no-op (estr
 
 # Motivo de decision (vocabulario cerrado; los tests lo fijan literal)
 MOTIVO_PAUSE = "pause_umbral"
-MOTIVO_PAUSE_ECONOMICA = "pause_economica"
 MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE = "pause_economica_dato_faltante"
+# `v1` queda CONGELADA para el replay historico; `v2` estrena su constante en
+# app.optimizer.pausa_economica (re-exportada arriba).
 POLITICA_PAUSE_ECONOMICA = "economic_pause_v1"
-EXCESO_MINIMO = {"USD": Decimal("80"), "MXN": Decimal("1000")}
-MULT_PAUSE_ECONOMICA = Decimal("3")
 # Motivo de skip/no-op (vocabulario cerrado; los tests lo fijan literal)
 MOTIVO_PAUSE_CORTES_INCOMPLETO = "pause_cortes_incompleto"
 MOTIVO_PAUSE_MONEDA_INVALIDA = "pause_moneda_agregado_invalida"
@@ -204,6 +211,7 @@ def _decide_pause(
     policy_version: str | None,
     proteccion: ResultadoProteccion | None = None,
     exceso_minimo: Decimal | None = None,
+    reciente_economica: LecturaRecienteEconomica | None = None,
 ) -> tuple[ResultadoBid | None, str | None]:
     """El bloque pause: regla de cero pedidos con clicks/cost sobre el
     piso, y despues la economica versionada. El pause no consume bandas:
@@ -214,9 +222,24 @@ def _decide_pause(
     ORBIT 07 M1: `proteccion` llega YA EVALUADA por la subpolitica pura. Si la
     pausa por cero pedidos queda protegida (o el dato reciente es
     desconocido), no se pausa; la pausa economica, si califica, conserva la
-    precedencia. `proteccion=None` es la semantica historica intacta."""
+    precedencia. `proteccion=None` es la semantica historica intacta.
+
+    P03: con `economic_pause_v2` la regla economica delega en la funcion pura
+    `evalua_pausa_economica` y sus `mantener` salen como `(None, motivo)`, sin
+    congelar el juicio de pujas. `v1` conserva su camino exacto."""
     if cortes is None:
         return (None, None)
+    if policy_version == POLITICA_PAUSE_ECONOMICA_V2:
+        return _decide_pause_v2(
+            cortes,
+            moneda,
+            umbral_pause,
+            costo_piso,
+            target_acos_pct,
+            proteccion,
+            exceso_minimo,
+            reciente_economica,
+        )
     motivo: str | None = None
     if not cortes.completa:
         motivo = MOTIVO_PAUSE_CORTES_INCOMPLETO
@@ -258,6 +281,55 @@ def _decide_pause(
     if policy_version == POLITICA_PAUSE_ECONOMICA and exceso is None and motivo is None:
         motivo = MOTIVO_PAUSE_ECONOMICA_DATO_FALTANTE
     return (None, motivo)
+
+
+def _decide_pause_v2(
+    cortes: AgregadoMetricas,
+    moneda: str,
+    umbral_pause: int,
+    costo_piso: Decimal,
+    target_acos_pct: Decimal,
+    proteccion: ResultadoProteccion | None,
+    exceso_minimo: Decimal | None,
+    reciente_economica: LecturaRecienteEconomica | None,
+) -> tuple[ResultadoBid | None, str | None]:
+    """Era `v2`: la pausa por umbral se conserva intacta y la economica la
+    decide la funcion pura. Un `pausar` de `v2` gana (motivo
+    `pause_economica`); un `mantener` jamas congela el juicio de pujas y sale
+    como `(None, motivo)`, cediendo solo ante un `Pausar` por umbral o ante el
+    motivo de la proteccion por venta reciente cuando esa pausa queda
+    protegida (precedencia que consume `politica._frena_subida_normal`)."""
+    motivo: str | None = None
+    if not cortes.completa:
+        motivo = MOTIVO_PAUSE_CORTES_INCOMPLETO
+    elif cortes.metric_currency != moneda:
+        motivo = MOTIVO_PAUSE_MONEDA_INVALIDA
+    elif cortes.orders is None:
+        motivo = MOTIVO_PAUSE_ORDERS_DESCONOCIDO
+    elif cortes.clicks is None or cortes.cost is None:
+        motivo = MOTIVO_PAUSE_CLICKS_COST_DESCONOCIDOS
+    pausa_umbral = (
+        motivo is None
+        and cortes.orders == 0
+        and cortes.clicks >= umbral_pause
+        and cortes.cost >= costo_piso
+    )
+    veredicto = evalua_pausa_economica(
+        EntradaPausaEconomica(
+            cortes=cortes,
+            reciente=reciente_economica,
+            moneda=moneda,
+            target_acos_pct=target_acos_pct,
+            exceso_minimo=exceso_minimo if exceso_minimo is not None else EXCESO_MINIMO[moneda],
+        )
+    )
+    if veredicto.veredicto == "pausar":
+        return _pausa_economica(cortes)
+    if pausa_umbral:
+        if proteccion is not None and proteccion.accion in ("esperar", "indeterminada"):
+            return (None, proteccion.motivo)
+        return _pausa_umbral(cortes)
+    return (None, veredicto.motivo or motivo)
 
 
 def _pausa_umbral(cortes: AgregadoMetricas) -> tuple[ResultadoBid, None]:
@@ -305,6 +377,7 @@ def decide_pause(
     policy_version: str | None = None,
     proteccion: InsumosProteccion | None = None,
     exceso_minimo: Decimal | None = None,
+    reciente_economica: LecturaRecienteEconomica | None = None,
 ) -> ResultadoBid:
     """Decide SOLO la PAUSE con _decide_pause (BIDS 02 M.3): la usan la
     revalidacion de la cola, la proteccion y la politica niveles_v3. Si pausa,
@@ -322,7 +395,7 @@ def decide_pause(
         )
     if not target_acos_pct.is_finite() or target_acos_pct <= 0:
         raise ValueError(f"target_acos_pct invalido: {target_acos_pct!r} (debe ser > 0)")
-    if policy_version not in (None, POLITICA_PAUSE_ECONOMICA):
+    if policy_version not in (None, POLITICA_PAUSE_ECONOMICA, POLITICA_PAUSE_ECONOMICA_V2):
         raise ValueError(f"politica pause desconocida: {policy_version!r}")
     moneda = PLATAFORMAS_MONEDA[platform]
     costo_piso = cost_min if cost_min is not None else PAUSE_COST_MIN[platform]
@@ -336,6 +409,7 @@ def decide_pause(
         policy_version,
         proteccion=resultado_proteccion,
         exceso_minimo=exceso_minimo,
+        reciente_economica=reciente_economica,
     )
     if pausa is not None:
         return pausa

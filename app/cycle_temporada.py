@@ -88,8 +88,9 @@ def _pausa_sombra(
     frontera_h: temporada.FronteraHoja | None,
     en_vuelo: bool,
     evidencia: windows.EvidenciaAdGroup | None,
-    pause_economica: bool,
+    politica_economica: str | None,
     proteccion_cache: proteccion_venta.CacheProteccion | None,
+    reciente_cache=None,
 ) -> InsumosPausa | None:
     """Pausa de la sombra (ads_temporada en shadow): x mult y cerca de la hoja."""
     plat_t = contadores.temporada_plat
@@ -103,8 +104,9 @@ def _pausa_sombra(
         entidad_id=entidad_id,
         decided_at=decided_at,
         corte_pause=corte_pause_sombra,
-        pause_economica=pause_economica,
+        politica_economica=politica_economica,
         proteccion_cache=proteccion_cache,
+        reciente_cache=reciente_cache,
         mult_baja=mult_sombra,
         cerca=frontera_h.cerca_hoja,
     )

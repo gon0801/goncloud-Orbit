@@ -958,15 +958,24 @@ def test_procedencia_peldano_invalido_revienta_no_cae_al_siguiente():
         )
 
 
-def test_pause_economica_fail_closed():
-    """C.3 B1: solo JSON true habilita la PAUSE economica (fail-closed
-    como B.2a)."""
-    assert g.pause_economica_desde_settings({}) is False
-    assert g.pause_economica_desde_settings({"ads_pause_economica": True}) is True
-    assert g.pause_economica_desde_settings({"ads_pause_economica": False}) is False
-    assert g.pause_economica_desde_settings({"ads_pause_economica": None}) is False
-    assert g.pause_economica_desde_settings({"ads_pause_economica": "true"}) is False
-    assert g.pause_economica_desde_settings({"ads_pause_economica": 1}) is False
+def test_modo_pausa_economica_fail_closed_por_mercado():
+    """P03: el modo es por mercado y fail-closed; ausente, bool, entero o
+    texto fuera del vocabulario -> 'off'."""
+    from app.optimizer import pausa_economica as pe
+
+    assert g.modo_desde_settings({"ads_pause_economica_amazon_us": "live"}) == "off"
+    assert pe.modo_pausa_economica_desde_settings({}, "amazon_us") == "off"
+    assert (
+        pe.modo_pausa_economica_desde_settings(
+            {"ads_pause_economica_amazon_mx": "shadow"}, "amazon_us"
+        )
+        == "off"
+    )
+    valor = {"ads_pause_economica_amazon_us": "live"}
+    assert pe.modo_pausa_economica_desde_settings(valor, "amazon_us") == "live"
+    for crudo in (True, False, None, "true", 1, "LIVE"):
+        raro = {"ads_pause_economica_amazon_us": crudo}
+        assert pe.modo_pausa_economica_desde_settings(raro, "amazon_us") == "off"
 
 
 # ---------------------------------------------------------------------------

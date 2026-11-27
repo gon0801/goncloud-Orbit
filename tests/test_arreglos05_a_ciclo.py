@@ -954,7 +954,10 @@ def test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen()
     from app.optimizer import goals as g
 
     with _db_cola("orbit_a05_econ") as conn:
-        ids = _semilla(conn, caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica": True})
+        ids = _semilla(
+            conn,
+            caps={"ads_apply_cap_amazon_us_pause": 1, "ads_pause_economica_amazon_us": "live"},
+        )
         d = ids["ahora"]
         conn.execute(
             "UPDATE ads_optimizer_goal SET target_acos_pct = 20 WHERE platform = 'amazon_us'"
@@ -983,6 +986,9 @@ def test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen()
                 orders=1 if i == 0 else 0,
                 ad_revenue=100 if i == 0 else 0,
             )
+        # P03: v2 exige la ventana reciente medible (ceros medidos).
+        for fecha in _fechas(d.date() - dt.timedelta(days=9), d.date() - dt.timedelta(days=1)):
+            _metrica(conn, ids["run"], ids["kw"], fecha, ad_revenue=0)
         dec = _decision_corte(
             conn, ids["ciclo_dec"], ids["config"], ids["kw"], "pause", motivo="pause_economica"
         )
@@ -1010,7 +1016,12 @@ def test_arreglos05_a_ejecutor_libera_pausa_economica_con_el_target_del_origen()
         assert aplicador.cycle_id_ejecutor == ejecutor, "los intentos son del ejecutor"
         assert aplicador.ciclo_origen == origen, "el contexto de decision es el del origen"
         resultado = apply_cola.libera_vencidos(
-            conn, "amazon_us", ahora=d, aplicador=aplicador, cycle_id=ejecutor
+            conn,
+            "amazon_us",
+            ahora=d,
+            aplicador=aplicador,
+            cycle_id=ejecutor,
+            modo_economica="live",
         )
         assert resultado.aplicadas == 1 and resultado.espera_target == 0, (
             "la pausa economica pendiente del origen se completa en la recuperacion"
@@ -1246,7 +1257,7 @@ def test_arreglos05_a_ejecutor_no_aplica_pausa_con_la_evaluacion_del_origen(monk
             {
                 **_settings(conn),
                 "ads_optimizer_mode": "live",
-                "ads_pause_economica": True,
+                "ads_pause_economica_amazon_us": "live",
                 "ads_apply_cap_amazon_us_pause": 2,
             },
         )

@@ -71,6 +71,8 @@ from test_cycle import (
     SQL86,
     SQL92,
     SQL93,
+    SQL99,
+    SQL105,
     _config_version,
     _entidad,
     _estado,
@@ -241,6 +243,8 @@ def _db_temporal(prefijo: str):
         conn.execute(SQL94)  # 0094 (ARREGLOS 05 A): sello de TX3 y origen del ejecutor
         conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
+        conn.execute(SQL99)  # 0099: motivo tope_ciclo del CHECK
+        conn.execute(SQL105)  # 0105 (P03): pausa economica v2 + espera reciente
         conn.execute(SQL51)  # ARREGLOS 01 J: acta de listado por plataforma
         yield conn, conectar_extra
     finally:
@@ -1055,7 +1059,7 @@ def test_evidencia_economica_sobrevive_aborto_despues_de_liberar(secrets_falsos)
                 "ads_apply_cap_amazon_us_pause": 2,
                 "ads_apply_cap_amazon_us_negative": 5,
                 "ads_apply_cap_amazon_us_harvest": 2,
-                "ads_pause_economica": True,
+                "ads_pause_economica_amazon_us": "live",
             },
         )
         conn.execute(

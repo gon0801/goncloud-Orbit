@@ -50,6 +50,7 @@ from app.dashboard_resumen import CANALES_POR_DEFECTO as CANALES_RESUMEN_META
 from app.envios.estado import CLAVE_DIAS_CIERRE, dias_cierre_desde_settings
 from app.estimacion_universo import universo_de
 from app.optimizer import goals as g
+from app.optimizer import pausa_economica as regla_pausa
 from app.optimizer import productos
 from app.optimizer import proteccion as subproteccion
 from app.optimizer import temporada as temporada_mod
@@ -632,6 +633,18 @@ def _valida_resultante_ubicacion(nuevo: Mapping, platform: str) -> None:
         raise SettingsInvalido(str(exc)) from None
 
 
+def _aplica_pausa_economica(
+    nuevo: dict, cambios: list[str], platform: str, modo: str | None
+) -> None:
+    """P03: modo por mercado; delega validacion y texto en el motor puro."""
+    if modo is None:
+        return
+    try:
+        regla_pausa.aplica_modo_en_config(nuevo, cambios, platform, modo)
+    except ValueError as exc:
+        raise SettingsInvalido(str(exc)) from None
+
+
 def proxima_config(
     actual: Mapping,
     platform: str,
@@ -663,6 +676,7 @@ def proxima_config(
     ubicacion_modo: str | None = None,
     ubicacion_solo_bajadas: bool | None = None,
     ubicacion_max_en_espera: int | None = None,
+    pausa_economica_modo: str | None = None,
 ) -> tuple[dict, list[str]]:
     """Config NUEVA a partir de la vigente + la lista legible de cambios.
 
@@ -772,6 +786,7 @@ def proxima_config(
         solo_bajadas=ubicacion_solo_bajadas,
         max_en_espera=ubicacion_max_en_espera,
     )
+    _aplica_pausa_economica(nuevo, cambios, platform, pausa_economica_modo)
 
     if not cambios:
         raise EdicionVacia("edicion vacia: nada que cambiar")

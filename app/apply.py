@@ -58,6 +58,7 @@ from app.apply_cuota import (  # noqa: F401 - re-export estable para apply_cola/
     MOTIVO_CHOQUE_CLAVE,
     MOTIVO_ENTIDAD_NO_DECISORA,
     MOTIVO_ESPERA_PROTECCION,
+    MOTIVO_ESPERA_RECIENTE,
     MOTIVO_ESPERA_TARGET,
     MOTIVO_FALLO_HTTP,
     MOTIVO_FUERA_DE_CAP,

@@ -27,6 +27,7 @@ from app import (
 from app.optimizer import bid as motor_bid
 from app.optimizer import cortes, hygiene, productos, windows
 from app.optimizer import goals as g
+from app.optimizer import pausa_economica as regla_pausa
 from app.optimizer import proteccion as subproteccion
 
 if TYPE_CHECKING:
@@ -50,7 +51,8 @@ MOTIVO_PROTECCION_APAGADA = "proteccion_apagada"
 MOTIVO_CAMPANA_NO_ENABLED = apply.MOTIVO_CAMPANA_NO_ENABLED
 MOTIVO_GRUPO_NO_ENABLED = apply.MOTIVO_GRUPO_NO_ENABLED
 
-MOTIVOS_ESPERA = frozenset({MOTIVO_ESPERA_TARGET, MOTIVO_ESPERA_PROTECCION})
+MOTIVO_ESPERA_RECIENTE = apply.MOTIVO_ESPERA_RECIENTE
+MOTIVOS_ESPERA = frozenset({MOTIVO_ESPERA_TARGET, MOTIVO_ESPERA_PROTECCION, MOTIVO_ESPERA_RECIENTE})
 
 # El PAUSE antiguo no consume target; el economico resuelve el vigente.
 _TARGET_REVALIDA = Decimal("100")
@@ -145,13 +147,10 @@ def _pause_propio_verificado(conn: psycopg.Connection, ad_entity_id: int) -> boo
     return conn.execute(_SQL_PAUSE_PROPIO, (ad_entity_id,)).fetchone()[0]
 
 
-def _flag_pause_economica(conn: psycopg.Connection) -> bool:
-    """C.3 B1: la PAUSE economica rige solo con ads_pause_economica=true."""
-    config = conn.execute(_SQL_CONFIG_TARGET).fetchone()
-    settings = config[0] if config is not None else {}
-    if not isinstance(settings, dict):
-        return False
-    return g.pause_economica_desde_settings(settings)
+def _modo_pausa_economica(conn: psycopg.Connection, platform: str) -> str:
+    """P03: el modo de la pausa economica es POR MERCADO y fail-closed: sin
+    clave, NULL o valor invalido = 'off'. Un valor raro jamas enciende."""
+    return regla_pausa.modo_pausa_economica_desde_settings(_settings_vigentes(conn), platform)
 
 
 def _peldano_congelado(inputs: dict, peldano: str) -> Decimal | None:
@@ -501,9 +500,10 @@ def revalida_pause(
     *,
     evidencia_grupos: dict | None = None,
     temporada_ctx: temporada_io.ContextoRevalidacion | None = None,
+    cache_reciente=None,
     gracia_activa_fn=_gracia_activa,
     pause_propio_fn=_pause_propio_verificado,
-    flag_economica_fn=_flag_pause_economica,
+    modo_economica_fn=_modo_pausa_economica,
     target_vigente_fn=_target_pause_vigente,
     hay_goal_fn=_hay_goal,
 ) -> str | None:
@@ -585,10 +585,17 @@ def revalida_pause(
     umbral = cortes.umbral_corte(evidencia, "pause", mult_baja=mult_baja).umbral
     fresco = windows.ventana_cortes(conn, fila.ad_entity_id, ahora, cerca=cerca)
     version_efectiva = (
-        motor_bid.POLITICA_PAUSE_ECONOMICA
-        if target is not None and flag_economica_fn(conn)
+        motor_bid.POLITICA_PAUSE_ECONOMICA_V2
+        if target is not None and modo_economica_fn(conn, platform) == "live"
         else None
     )
+    reciente_economica = None
+    if cache_reciente is not None and fresco is not None:
+        reciente_economica = cache_reciente.lectura(
+            fila.ad_entity_id,
+            desde=fresco.window_end + dt.timedelta(days=1),
+            hasta=cache_reciente.evaluado_el - dt.timedelta(days=1),
+        )
     proteccion = (
         proteccion_cache.insumos(
             fila.ad_entity_id,
@@ -615,6 +622,7 @@ def revalida_pause(
         policy_version=version_efectiva,
         proteccion=proteccion,
         exceso_minimo=exceso_min_usado,
+        reciente_economica=reciente_economica,
     )
     califica = resultado.kind == "pause"
     if (
@@ -652,12 +660,50 @@ def revalida_pause(
                 "exceso": str(exceso) if exceso is not None else None,
                 "multiplicador": str(motor_bid.MULT_PAUSE_ECONOMICA),
                 "exceso_minimo": str(exceso_min_reportado),
+                "motivo_economica": resultado.motivo,
+                "ventana_reciente_desde": (
+                    reciente_economica.desde.isoformat() if reciente_economica else None
+                ),
+                "ventana_reciente_hasta": (
+                    reciente_economica.hasta.isoformat() if reciente_economica else None
+                ),
+                "cost_reciente": (
+                    str(reciente_economica.cost)
+                    if reciente_economica and reciente_economica.cost is not None
+                    else None
+                ),
+                "revenue_reciente": (
+                    str(reciente_economica.ad_revenue)
+                    if reciente_economica and reciente_economica.ad_revenue is not None
+                    else None
+                ),
+                "exceso_combinado": (
+                    None
+                    if reciente_economica is None
+                    or fresco is None
+                    or fresco.cost is None
+                    or fresco.ad_revenue is None
+                    or reciente_economica.cost is None
+                    or reciente_economica.ad_revenue is None
+                    or target is None
+                    else str(
+                        fresco.cost
+                        + reciente_economica.cost
+                        - target
+                        * (fresco.ad_revenue + reciente_economica.ad_revenue)
+                        / Decimal("100")
+                    )
+                ),
                 "resultado": "califica" if califica else MOTIVO_YA_NO_CALIFICA,
                 **({"economia": resolucion_economica} if resolucion_economica else {}),
             },
         )
     if califica:
         return None
+    # P03: solo una decision ECONOMICA espera por la ventana reciente; una
+    # pause_umbral conserva el desenlace de hoy (v2 no juzgo su motivo).
+    if economica and resultado.motivo == regla_pausa.MOTIVO_INCOMPLETO:
+        return MOTIVO_ESPERA_RECIENTE
     if (
         resultado.proteccion is not None
         and resultado.motivo in (subproteccion.MOTIVO_PROTEGIDA, subproteccion.MOTIVO_INDETERMINADA)

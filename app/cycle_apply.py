@@ -40,6 +40,7 @@ from app.apply_ubicacion import (
 from app.db import tx_durable
 from app.lock import SQL_OWNER as _SQL_OWNER_LOCK
 from app.optimizer import goals as g
+from app.optimizer import pausa_economica as regla_pausa
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -532,6 +533,9 @@ def _fase_apply(
                 aplicador=aplicador,
                 cycle_id=cycle_id,
                 proteccion_activa=proteccion_activa,
+                modo_economica=regla_pausa.modo_pausa_economica_desde_settings(
+                    settings or {}, platform
+                ),
             )
             alertas_harvest += res_cola.alertas
             caps_saturados += res_cola.caps_saturados
@@ -542,6 +546,8 @@ def _fase_apply(
                 "sin_quota": res_cola.sin_quota,
                 "carreras_perdidas": res_cola.carreras_perdidas,
                 "espera_target": res_cola.espera_target,
+                "espera_reciente": res_cola.espera_reciente,
+                "esperas_vencidas": res_cola.esperas_vencidas,
             }
             if res_cola.revalidaciones_economicas:
                 notas["revalidaciones_economicas"] = res_cola.revalidaciones_economicas

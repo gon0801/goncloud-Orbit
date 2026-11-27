@@ -839,6 +839,8 @@ def test_precio_pantalla_salud_agrega_precios_sin_cambiar_claves():
                 *_CLAVES_SALUD_PREVIAS,
                 "precios",
                 "avisos_campana",
+                # P03: el bloque de la pausa economica v2 (practica o None).
+                "pausa_economica",
             }
 
 
@@ -3149,6 +3151,7 @@ def test_s6_salud_corrida_ausente_dentro_del_bloque_precios():
             *_CLAVES_SALUD_PREVIAS,
             "precios",
             "avisos_campana",
+            "pausa_economica",
         }
 
 

@@ -855,6 +855,11 @@ SQL96 = (
 SQL99 = (
     Path(__file__).resolve().parents[1] / "migrations" / "0099_arreglos05_tope_ciclo.sql"
 ).read_text(encoding="utf-8")
+# P03 (0105): tabla append-only de la pausa economica v2 y
+# `espera_reciente_economica` en el CHECK de motivos.
+SQL105 = (
+    Path(__file__).resolve().parents[1] / "migrations" / "0105_pausa_economica_v2.sql"
+).read_text(encoding="utf-8")
 
 
 def _sql46() -> str:
@@ -915,6 +920,7 @@ def _db_temporal_d1(prefijo: str):
         conn.execute(SQL95)  # 0095 (ARREGLOS 05 B): evidencia previa del ledger
         conn.execute(SQL96)  # 0096 (ARREGLOS 05 B): historial del regreso del dueno
         conn.execute(SQL99)  # 0099 (ARREGLOS 05 H): motivo tope_ciclo del CHECK
+        conn.execute(SQL105)  # 0105 (P03): pausa economica v2 + espera reciente
         yield conn
     finally:
         if conn is not None:

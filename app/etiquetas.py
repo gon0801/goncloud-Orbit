@@ -168,6 +168,14 @@ MOTIVO_SALUD: dict[str, str] = {
     "guarda_sin_datos": "La plataforma no tiene métricas ni una lectura correcta de sus campañas",
     "pause_umbral": _PAUSA,
     "pause_economica_dato_faltante": ("Pausa por costo detenida: falta un dato para calcularla"),
+    "pause_economica_salvada_reciente": "No se pausa: la venta reciente deja el costo en la meta",
+    "pause_economica_recuperando_reciente": "No se pausa: con la venta reciente ya cuesta menos",
+    "pause_economica_reciente_incompleto": "Pausa detenida: los días recientes no son medibles",
+    "pause_economica_no_cruza_madura": "No se pausa: su costo maduro no llega a 3 veces la meta",
+    "pause_economica_cortes_incompletos": "Pausa detenida: faltan datos en su ventana madura",
+    "espera_reciente_economica": "Su pausa espera a que los días recientes sean medibles",
+    "pausa_economica_anomalia_tope": "Pausa por costo frenada: demasiadas en un ciclo",
+    "pausa_economica_apagada": "Pausa por costo descartada: la regla se apagó",
     "pause_cortes_incompleto": "Pausa detenida: faltan días en la ventana de la pausa",
     "pause_moneda_agregado_invalida": (
         "Pausa detenida: la moneda de las métricas no es la de la plataforma"

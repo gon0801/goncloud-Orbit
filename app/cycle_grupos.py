@@ -109,6 +109,13 @@ class _Contadores:
     temporada_sombra_diferencias: list[dict] = field(default_factory=list)
     ubicaciones: list[tuple] = field(default_factory=list)
     resumen_ubicaciones: dict | None = None
+    # P03: evaluaciones de la pausa economica v2 (fila por hoja juzgada),
+    # su bloque de notas y el error de lectura del cache (SAVEPOINT).
+    pausa_economica_evals: list = field(default_factory=list)
+    pausa_economica_resumen: dict | None = None
+    pausa_economica_error: str | None = None
+    pausa_economica_anomalia_tope: bool = False
+    pausa_economica_sin_cortes: int = 0
 
 
 def lee_goals(
