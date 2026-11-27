@@ -481,11 +481,18 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
 
     # P03: en `live` las pausas economicas se difieren hasta conocer el total
     # del mercado; con 6 o mas el cortacircuito las retira y re-juzga la puja.
+    # Solo se difieren las EMITIBLES: una hoja bloqueada por veto o por el
+    # cooldown de pausa no llegaria a la cola, asi que no debe inflar el tope
+    # (si lo hiciera, 5 pausas validas + 1 en cooldown retirarian las 5).
+    # `_proteccion_activa` no puede frenar un `pausar` de v2: la misma funcion
+    # pura con el mismo caso devuelve `pause_economica`, nunca protegida.
     if (
         economia_live
         and pausas_diferidas is not None
         and isinstance(veredicto, Pausar)
         and veredicto.motivo == MOTIVO_PAUSE_ECONOMICA
+        and not bloqueada
+        and not g.en_cooldown(conn, entidad_id, ahora=decided_at, kind="pause")
     ):
         pausas_diferidas.append((caso, veredicto, caso_sombra, _emite))
         return
@@ -543,8 +550,11 @@ def _anota_evaluacion_economica(
 
 def _rejuzga_pausas_economicas(contadores: _Contadores, pausas_diferidas: list, decisor) -> None:
     """Cortacircuito `TOPE_PAUSA_ECONOMICA_CICLO`: con mas de 5 pausas
-    economicas en el mercado se retiran todas, se re-juzga la puja con el caso
-    CONGELADO sin politica economica (replay exacto) y se avisa por Telegram.
+    economicas EMITIBLES en el mercado se retiran todas, se re-juzga la puja
+    con el caso CONGELADO sin politica economica (replay exacto) y se avisa por
+    Telegram. `pausas_diferidas` solo trae candidatas que pasaron las guardas de
+    emision (veto y cooldown de pausa), asi que el tope mide lo que de verdad
+    habria llegado a la cola.
 
     Las filas de evaluacion se insertan igual en TX3 (`veredicto='pausar'`,
     `decision_id NULL`): la auditoria no se pierde."""

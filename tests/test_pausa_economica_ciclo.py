@@ -312,6 +312,49 @@ def test_corre_ciclo_cortacircuito_retira_pausas_y_conserva_recortes(monkeypatch
     assert {f[4] for f in retiradas} == {None}
 
 
+def test_cortacircuito_no_cuenta_pausas_en_cooldown(monkeypatch):
+    """5 pausas emitibles + 1 en cooldown de pausa: el tope NO se dispara.
+
+    La sexta no habria llegado a la cola (cooldown), asi que no debe inflar el
+    conteo ni retirar las cinco validas. Su fila de evaluacion se conserva con
+    `decision_id NULL` y queda contada como `cooldown_7d`."""
+    hojas = ["9611", "9612", "9613", "9614", "9615", "9616"]
+    with _db_temporal("orbit_p03_ct_cooldown") as (conn, _):
+        ids = _siembra_maestra(
+            conn,
+            escalera="live",
+            settings={
+                "ads_bid_politica_amazon_us": "niveles_v3",
+                "ads_pause_economica_amazon_us": "live",
+                **CAPS,
+            },
+        )
+        sangrantes = [_siembra_sangrante(conn, ext) for ext in hojas]
+        _ceros_recientes(conn, ids, [ids["kw_bid"], ids["kw_pause"], *sangrantes])
+        from app import cycle as ciclo_mod
+
+        sexta = sangrantes[-1]
+        monkeypatch.setattr(
+            ciclo_mod.g,
+            "en_cooldown",
+            lambda _conn, entidad, *, ahora, kind=None: entidad == sexta,
+        )
+        res = _corre(conn)
+        notas = json.loads(res.notes)
+        assert "anomalia_tope" not in notas["pausa_economica"]
+        economicas = conn.execute(
+            "SELECT count(*) FROM decision WHERE cycle_id = %s AND kind = 'pause'"
+            " AND inputs->>'motivo' = 'pause_economica'",
+            (res.cycle_id,),
+        ).fetchone()[0]
+        assert economicas == len(hojas) - 1
+        assert notas["skips"]["entidad"]["cooldown_7d"] == 1
+        filas = {f[0]: f for f in _filas_evaluacion(conn, res.cycle_id)}
+        assert all(filas[hoja][2] == "pausar" for hoja in sangrantes)
+        assert filas[sexta][4] is None
+        assert all(filas[hoja][4] is not None for hoja in sangrantes[:-1])
+
+
 def test_digest_ciclo_menciona_anomalia_tope_y_la_omite_sin_clave():
     linea = "pausa economica frenada por tope: 6"
     con = notifica.digest_ciclo(
