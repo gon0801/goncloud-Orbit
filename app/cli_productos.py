@@ -82,6 +82,7 @@ def corre(args) -> int:
             return 2
         return _corre_pausa(args.platform, args.pausa)
     modo = {t: v for t, v in (("meta", args.meta), ("pausa", args.pausa)) if v is not None}
+    pausa_economica = getattr(args, "pausa_economica", None)
     if (args.clics is None) != (args.gasto is None):
         print("--clics y --gasto van juntos", file=sys.stderr)
         return 2
@@ -100,7 +101,7 @@ def corre(args) -> int:
         and args.economia is None
         and args.bid_economia is None
         and args.proteccion is None
-        and args.pausa_economica is None
+        and pausa_economica is None
     ):
         print(
             "productos-modo necesita --meta, --pausa, --clics/--gasto, --economia,"
@@ -118,7 +119,7 @@ def corre(args) -> int:
     apaga_proteccion = args.proteccion == "off"
     # P03 D-H1: bajar la pausa economica de live descarta en la MISMA TX las
     # filas que esperaban por su ventana reciente.
-    baja_economica = args.pausa_economica in ("off", "shadow")
+    baja_economica = pausa_economica in ("off", "shadow")
     apaga = apaga_proteccion or baja_economica
     descartadas_proteccion = 0
     descartadas_economica = 0
@@ -141,7 +142,7 @@ def corre(args) -> int:
                 proteccion_venta=args.proteccion,
                 economia_producto=args.economia,
                 economia_cambio=args.bid_economia,
-                pausa_economica_modo=args.pausa_economica,
+                pausa_economica_modo=pausa_economica,
             )
             if apaga:
                 try:
