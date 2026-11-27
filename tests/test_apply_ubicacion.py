@@ -1149,3 +1149,41 @@ def test_reconcilia_y_consola_tratan_campaigns_null_como_ilegible():
         assert res.aplicadas == 0
         assert res.sin_aplicar == ((ev2, "error_put"),)
         assert _cuenta(conn, "apply_quota_state") == 0
+
+
+@_skip_db
+def test_aplica_ajuste_motor_falla_cerrado_sin_estrategia_viva():
+    """P2-B: llamada directa a `aplica_ajuste_motor` con lectura viva vacia o sin
+    estrategia falla cerrado con `AjusteNoConfirmado` y cero PUTs (sin fallback)."""
+    from app.apply_ajustes import AjusteNoConfirmado
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = _ClienteIlegible(_config(0), _config(15))
+        conexion = _abre_decide(dsn)
+        try:
+            with pytest.raises(
+                AjusteNoConfirmado,
+                match=(
+                    "Amazon no devolvió la configuración completa de la campaña;"
+                    " no se envió el cambio"
+                ),
+            ):
+                aplica_ajuste_motor(
+                    conexion,
+                    cliente,
+                    campana_id=camp,
+                    plataforma="amazon_mx",
+                    ajuste=CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=15),
+                    evaluacion_id=eval_id,
+                )
+        finally:
+            conexion.close()
+        assert cliente.puts == 0
+        assert conn.execute(
+            "SELECT confirmado_el IS NULL FROM campana_ajuste WHERE evaluacion_id = %s",
+            (eval_id,),
+        ).fetchone() == (True,)

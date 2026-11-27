@@ -61,8 +61,8 @@ def test_donde_poner_el_dinero_muestra_sugerencia_practica_vigente():
         )
         sugerencia = fila.como_dict()["sugerencia_ubicacion"]
         assert sugerencia["frase"] == (
-            "Práctica: subir arriba de búsqueda de +0 % a +15 % (bajo la meta con ventaja"
-            " contra el resto de la campana)."
+            "Práctica: subir arriba de búsqueda de +0 % a +15 % (bajo la meta y rinde más"
+            " que el resto de la campaña)."
         )
         html = ui.templates.env.get_template("donde_poner_el_dinero.html").render(
             pantalla="donde-poner-el-dinero",
@@ -206,3 +206,114 @@ def test_auto04_verifica_replay_vacio_o_solo_sustituidas_sale_con_1(monkeypatch,
             "revisadas": 2,
             "sustituidas": 1,
         }
+
+
+def test_motivos_ubicacion_es_sin_jerga_ni_faltas_de_ortografia():
+    """P2-A: los textos visibles llevan ortografia correcta y frases de negocio."""
+    import re
+
+    from app.optimizer.ubicacion import MOTIVOS_UBICACION_ES
+
+    esperados = {
+        "campana_no_elegible": "la campaña no está habilitada para ajustes automáticos",
+        "campana_en_impulso": "un producto de la campaña está en impulso",
+        "sin_dynamic_bidding": "Amazon no reporta la estrategia de puja de la campaña",
+        "estrategia_desconocida": "la estrategia de puja no es compatible con ajustes automáticos",
+        "ajuste_en_vuelo": "hay un cambio de ubicación pendiente de confirmar",
+        "en_enfriamiento_14d": "en espera de 14 días tras el último cambio",
+        "datos_placements_incompletos": "faltan datos recientes de ubicaciones",
+        "descuadre_placements_campana": (
+            "el gasto por ubicación no coincide con el total de la campaña"
+        ),
+        "sin_meta_campana": "la campaña no tiene meta de ACoS definida",
+        "acos_sobre_meta_fuerte": "ACoS muy por encima de la meta",
+        "acos_sobre_meta": "ACoS por encima de la meta",
+        "gasto_sin_venta_doble": "gasto muy alto sin ventas",
+        "gasto_sin_venta": "gasto alto sin ventas",
+        "solo_bajadas_activo": "solo se permiten bajadas en este mercado",
+        "temporada_baja_sin_subida": "temporada baja, no se proponen subidas",
+        "presupuesto_sin_medir": "sin datos suficientes del uso de presupuesto",
+        "campana_topada": "la campaña agota su presupuesto diario",
+        "bajo_meta_con_ventaja": "bajo la meta y rinde más que el resto de la campaña",
+        "sin_evidencia_ubicacion": "sin datos suficientes en ninguna ubicación",
+        "producto_sin_evidencia": (
+            "faltó evidencia para calcular la meta de un producto de la campaña"
+        ),
+    }
+    assert esperados == MOTIVOS_UBICACION_ES
+    prohibidos = (
+        "campana",
+        "ubicacion",
+        "dias",
+        "ultimo",
+        "quedo",
+        "dynamic bidding",
+        "meta laxa",
+        "hoja",
+        "umbral",
+        "topada",
+        "enfriamiento",
+        "congelada",
+    )
+    for clave, texto in MOTIVOS_UBICACION_ES.items():
+        bajo = texto.lower()
+        for malo in prohibidos:
+            assert not re.search(rf"\b{re.escape(malo)}\b", bajo), (
+                f"{clave}: contiene {malo!r} en {texto!r}"
+            )
+
+
+@_skip_db
+def test_donde_poner_el_dinero_oculta_sugerencia_cuando_ubicacion_esta_en_off():
+    """P2-A: en `off` (o clave ausente) la pantalla no muestra la sugerencia;
+    en `shadow` se sigue viendo como practica."""
+    with _db() as (conn, _dsn):
+        cv = _config_version(conn, {**_settings(), "ads_ubicacion_amazon_mx": "shadow"})
+        camp, config_id = _siembra(conn, top=0)
+        _guarda(
+            conn, _ciclo(conn, "shadow"), cv, [(_caso(camp, config_id, 0, 15), "shadow", _SUBE)]
+        )
+
+        def _render(fila):
+            return ui.templates.env.get_template("donde_poner_el_dinero.html").render(
+                pantalla="donde-poner-el-dinero",
+                plataforma="amazon_mx",
+                moneda="MXN",
+                desde="2026-10-27",
+                hasta="2026-11-25",
+                filas=[],
+                total=None,
+                hojas_sin_clasificar=0,
+                target_acos_pct=None,
+                clases_ajuste=["ajuste_ubicacion"],
+                por_campana=[fila.como_dict()],
+            )
+
+        (fila_shadow,) = lee_campanas(
+            conn, plataforma="amazon_mx", desde=_HASTA - dt.timedelta(days=29), hasta=_HASTA
+        )
+        assert fila_shadow.como_dict()["sugerencia_ubicacion"] is not None
+        assert "data-sugerencia-ubicacion" in _render(fila_shadow)
+
+        _config_version(conn, {**_settings(), "ads_ubicacion_amazon_mx": "off"})
+        (fila_off,) = lee_campanas(
+            conn, plataforma="amazon_mx", desde=_HASTA - dt.timedelta(days=29), hasta=_HASTA
+        )
+        assert fila_off.como_dict()["sugerencia_ubicacion"] is None
+        assert "data-sugerencia-ubicacion" not in _render(fila_off)
+
+        _config_version(conn, {"ads_optimizer_mode": "shadow"})
+        (fila_ausente,) = lee_campanas(
+            conn, plataforma="amazon_mx", desde=_HASTA - dt.timedelta(days=29), hasta=_HASTA
+        )
+        assert fila_ausente.como_dict()["sugerencia_ubicacion"] is None
+        assert "data-sugerencia-ubicacion" not in _render(fila_ausente)
+
+        (fila_override,) = lee_campanas(
+            conn,
+            plataforma="amazon_mx",
+            desde=_HASTA - dt.timedelta(days=29),
+            hasta=_HASTA,
+            settings={"ads_ubicacion_amazon_mx": "shadow"},
+        )
+        assert fila_override.como_dict()["sugerencia_ubicacion"] is not None

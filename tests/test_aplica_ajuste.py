@@ -1252,7 +1252,7 @@ def test_regresa_fuera_de_amazon_rechazado_sin_http(monkeypatch):
 def test_aplica_ajuste_ubicacion_por_put_y_readback(monkeypatch):
     with _db("orbit_aj_ubi") as conn:
         camp, _cfg = _siembra(conn)
-        remoto = {EXTERNA: {}}
+        remoto = _remoto_b11()
         handler, vistos = _handler_campanas(remoto)
         _creds_fake(monkeypatch)
         plan = _plan(
@@ -2621,3 +2621,229 @@ def test_aplica_y_regresa_cierran_cliente_http_solo_si_crearon_transporte(monkey
         reg2 = apply_ajustes.regresa_ajuste_campana(conn, ajuste_id=hecho2.ajuste_id, actor="dueno")
         assert reg2.confirmada is True
         assert len(cerrados_propio) == 4
+
+
+@_skip_db
+def test_ubicacion_manual_falla_cerrado_con_lectura_vacia_o_sin_estrategia(monkeypatch):
+    """P2-B: lectura viva vacia, nula, de otra campana o sin estrategia cierra
+    fail-closed antes de insertar fila o mandar PUT en aplicar y regresar."""
+    msg = "Amazon no devolvió la configuración completa de la campaña; no se envió el cambio"
+    payloads_incompletos = (
+        {"campaigns": []},
+        {"campaigns": None},
+        {"campaigns": [{"campaignId": "99999999999999", "dynamicBidding": {"strategy": "MANUAL"}}]},
+        {"campaigns": [{"campaignId": EXTERNA}]},
+        {"campaigns": [{"campaignId": EXTERNA, "dynamicBidding": {}}]},
+    )
+
+    def _handler_list_incompleto(payload, puts_out):
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=[PERFIL_MX_RAW])
+            if request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                return httpx.Response(200, json=payload)
+            if request.method == "PUT" and request.url.path == "/sp/campaigns":
+                puts_out.append(request)
+                return httpx.Response(207, json={"campaigns": [{"code": "200"}]})
+            raise AssertionError(f"request inesperado: {request.method} {request.url.path}")
+
+        return handler
+
+    with _db("orbit_aj_p2b_pre") as conn:
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        )
+        for payload in payloads_incompletos:
+            puts: list[httpx.Request] = []
+            with pytest.raises(apply_ajustes.AjusteNoConfirmado, match=msg):
+                apply_ajustes.aplica_ajuste_campana(
+                    conn,
+                    plan,
+                    huella=plan.huella(),
+                    confirmacion="APLICAR AJUSTE",
+                    actor="dueno",
+                    transport=httpx.MockTransport(_handler_list_incompleto(payload, puts)),
+                )
+            assert puts == []
+            assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 0
+
+        # Aplica uno valido para probar el regreso con lectura vacia y sin estrategia.
+        remoto = _remoto_b11()
+        handler_ok, _vistos = _handler_mezcla(remoto)
+        hecho = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=httpx.MockTransport(handler_ok),
+        )
+        assert hecho.confirmada is True
+        for payload in ({"campaigns": []}, {"campaigns": [{"campaignId": EXTERNA}]}):
+            puts_reg: list[httpx.Request] = []
+            with pytest.raises(apply_ajustes.AjusteNoConfirmado, match=msg):
+                apply_ajustes.regresa_ajuste_campana(
+                    conn,
+                    ajuste_id=hecho.ajuste_id,
+                    actor="dueno",
+                    transport=httpx.MockTransport(_handler_list_incompleto(payload, puts_reg)),
+                )
+            assert puts_reg == []
+            assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 1
+
+
+@_skip_db
+def test_ubicacion_manual_falla_cerrado_en_segunda_lectura_y_recuperacion(monkeypatch):
+    """P2-B: la segunda lectura bajo candado y la recuperacion tambien fallan
+    cerrado sin PUT; 401/403 y 500 pre-INSERT no dejan fila; reintentar con
+    lectura completa reutiliza y sella la misma fila sin duplicarla."""
+    import time
+
+    from app.ads.campana_config import cuerpo_put_campana
+    from app.ads.client import AdsApiError
+
+    msg = "Amazon no devolvió la configuración completa de la campaña; no se envió el cambio"
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    with _db("orbit_aj_p2b_lock") as conn:
+        camp, _cfg = _siembra(conn)
+        _creds_fake(monkeypatch)
+        plan = _plan(
+            conn, camp, CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
+        )
+
+        # 403 y 500 pre-INSERT no dejan fila ni PUT.
+        for codigo in (403, 500):
+            puts_err: list[httpx.Request] = []
+
+            def _handler_err(
+                request: httpx.Request,
+                status: int = codigo,
+                puts_lista: list[httpx.Request] = puts_err,
+            ) -> httpx.Response:
+                if request.url.host == "api.amazon.com":
+                    return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+                if request.method == "GET" and request.url.path == "/v2/profiles":
+                    return httpx.Response(200, json=[PERFIL_MX_RAW])
+                if request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                    return httpx.Response(status, json={"message": f"http {status}"})
+                if request.method == "PUT":
+                    puts_lista.append(request)
+                raise AssertionError(f"inesperado: {request.method} {request.url.path}")
+
+            with pytest.raises(AdsApiError):
+                apply_ajustes.aplica_ajuste_campana(
+                    conn,
+                    plan,
+                    huella=plan.huella(),
+                    confirmacion="APLICAR AJUSTE",
+                    actor="dueno",
+                    transport=httpx.MockTransport(_handler_err),
+                )
+            assert puts_err == []
+            assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 0
+
+        # Orden nueva: 1a lectura completa, 2a bajo candado vacia -> 0 PUTs, 1 fila pendiente.
+        base = cuerpo_put_campana(_vigente_config())
+        destino = copy.deepcopy(base)
+        destino["dynamicBidding"]["placementBidding"] = [
+            {"placement": "PLACEMENT_TOP", "percentage": 20},
+            {"placement": "PLACEMENT_PRODUCT_PAGE", "percentage": 40},
+        ]
+        secuencia: list[dict] = [
+            {"campaigns": [base]},
+            {"campaigns": []},
+            {"campaigns": [{"campaignId": EXTERNA}]},
+            {"campaigns": [base]},
+            {"campaigns": [destino]},
+        ]
+        puts: list[httpx.Request] = []
+
+        def handler_seq(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "api.amazon.com":
+                return httpx.Response(200, json={"access_token": "fake", "expires_in": 3600})
+            if request.method == "GET" and request.url.path == "/v2/profiles":
+                return httpx.Response(200, json=[PERFIL_MX_RAW])
+            if request.method == "POST" and request.url.path == "/sp/campaigns/list":
+                return httpx.Response(200, json=secuencia.pop(0))
+            if request.method == "PUT" and request.url.path == "/sp/campaigns":
+                puts.append(request)
+                return httpx.Response(207, json={"campaigns": [{"code": "200"}]})
+            raise AssertionError(f"inesperado: {request.method} {request.url.path}")
+
+        transporte = httpx.MockTransport(handler_seq)
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado, match=msg):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte,
+            )
+        assert puts == []
+        (pend_id,) = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE confirmado_el IS NULL"
+        ).fetchone()
+
+        # Reintento (recuperando=True) con lectura sin dynamicBidding -> 0 PUTs, sin duplicar.
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado, match=msg):
+            apply_ajustes.aplica_ajuste_campana(
+                conn,
+                plan,
+                huella=plan.huella(),
+                confirmacion="APLICAR AJUSTE",
+                actor="dueno",
+                transport=transporte,
+            )
+        assert puts == []
+        assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 1
+
+        # Reintento con lectura completa -> reutiliza pend_id, manda 1 PUT y sella.
+        hecho = apply_ajustes.aplica_ajuste_campana(
+            conn,
+            plan,
+            huella=plan.huella(),
+            confirmacion="APLICAR AJUSTE",
+            actor="dueno",
+            transport=transporte,
+        )
+        assert (hecho.ajuste_id, hecho.confirmada, len(puts)) == (pend_id, True, 1)
+        assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 1
+
+        # Mismo patron en regreso: 1a completa, 2a sin strategy -> 0 PUTs; recuperacion
+        # vacia -> 0 PUTs; recuperacion completa -> reutiliza fila hija y sella.
+        secuencia.extend(
+            [
+                {"campaigns": [destino]},
+                {"campaigns": [{"campaignId": EXTERNA, "dynamicBidding": {}}]},
+                {"campaigns": []},
+                {"campaigns": [destino]},
+                {"campaigns": [base]},
+            ]
+        )
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado, match=msg):
+            apply_ajustes.regresa_ajuste_campana(
+                conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
+            )
+        assert len(puts) == 1
+        (hijo_id,) = conn.execute(
+            "SELECT id FROM campana_ajuste WHERE regresa_a = %s AND confirmado_el IS NULL",
+            (hecho.ajuste_id,),
+        ).fetchone()
+
+        with pytest.raises(apply_ajustes.AjusteNoConfirmado, match=msg):
+            apply_ajustes.regresa_ajuste_campana(
+                conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
+            )
+        assert len(puts) == 1
+
+        reg = apply_ajustes.regresa_ajuste_campana(
+            conn, ajuste_id=hecho.ajuste_id, actor="dueno", transport=transporte
+        )
+        assert (reg.ajuste_id, reg.confirmada, len(puts)) == (hijo_id, True, 2)
+        assert conn.execute("SELECT count(*) FROM campana_ajuste").fetchone()[0] == 2
