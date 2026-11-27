@@ -1,6 +1,6 @@
 # BIDS 01 — cero ventas baja −25% (relativo al producto) + entidades sin tráfico fuera del motor, reportadas y archivables
 
-> **Seguimiento 4-nov-2026:** el plan permanece cerrado. El primer lote manual de archivo sigue diferido y el ledger está vacío (ROADMAP P07). La fecha 4-oct no autorizó archivados automáticos.
+> **Cierre operativo 27-nov-2026 UTC (ROADMAP P07 cerrado):** tras `ARREGLOS 05 C` y `05 D`, el dueño autorizó y se ejecutó el primer lote piloto `inertes-2026-11-27` (`amazon_mx`, `peso_muerto`, `--limite 10`): 10/10 keywords archivadas con readback `ARCHIVED` y ledger `keyword_archivo_manual` `id=1..10` en `applied`. Acta: [cierre-p07-2026-11-27.md](../docs/evidencia/bids-01/cierre-p07-2026-11-27.md).
 
 > **Propósito**: cerrar los dos huecos de diseño que la verificación
 > adversarial triple de ORBIT 05 (tarea 2.1, 2026-09-02) vio EN VIVO: (1) una
