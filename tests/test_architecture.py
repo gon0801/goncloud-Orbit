@@ -72,8 +72,9 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # TEMPORADA 01 B: los tres textos de Salud de los motivos de temporada.
     # ENVIOS 01: tres vocabularios de la pantalla /envios (estado, tipo
     # logistico y motivo de atencion) y la fuente `envios_meli`; despues el
-    # estado `cerrado_sin_confirmar` (una linea).
-    "app/etiquetas.py": 1058,
+    # estado `cerrado_sin_confirmar` (una linea). AUTO-04: el kind de cuota
+    # `ubicacion` que muestra Salud (una linea).
+    "app/etiquetas.py": 1059,
     # ARREGLOS 05 A: techo congelado del orquestador unico del ciclo.
     "app/cycle.py": 1148,
 }

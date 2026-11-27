@@ -113,6 +113,8 @@ def _lee(
             list(configs_hist),
             list(regresables),
             list(ultimo_precio),
+            # AUTO-04: sin migracion 0104 no hay sugerencias de ubicacion.
+            [(False,)],
             notas,
         ]
     )

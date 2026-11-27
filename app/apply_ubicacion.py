@@ -53,7 +53,11 @@ from app.optimizer.ubicacion import (
     max_en_espera_desde_settings,
     modo_ubicacion_desde_settings,
 )
-from app.ubicacion_io import evaluaciones_a_aplicar, sql_orden_viva
+from app.ubicacion_io import (
+    esquema_ubicaciones_disponible,
+    evaluaciones_a_aplicar,
+    sql_orden_viva,
+)
 
 MOTIVO_CUOTA = "cuota_agotada"
 MOTIVO_TOPE = "tope_campanas_en_espera"
@@ -147,14 +151,6 @@ class _ClienteVigilado:
     def ajustar_campana(self, externa, cuerpo):
         self.put_iniciado = True
         return self._cliente.ajustar_campana(externa, cuerpo)
-
-
-def esquema_ubicaciones_disponible(conn: psycopg.Connection) -> bool:
-    """False en una base anterior a la migracion 0104: el motor no existe y
-    ninguna capa intenta leer sus tablas."""
-    return bool(
-        conn.execute("SELECT to_regclass('public.ubicacion_evaluacion') IS NOT NULL").fetchone()[0]
-    )
 
 
 def hay_pendientes_automaticos(conn: psycopg.Connection, platform: str) -> bool:

@@ -24,6 +24,7 @@ from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.windows import _SQL_SYNC_PLATAFORMA, _SQL_WATERMARK_PLATAFORMA
 from app.redaction import install_scrub_filter, scrub
 from app.spapi.salud import bloque_salud
+from app.ubicacion_io import resumen_ultimo_ciclo
 
 logger = logging.getLogger(__name__)
 install_scrub_filter(logger)
@@ -186,6 +187,14 @@ def _spapi_de(conn, plataforma: str, *, spapi_salud_fn=bloque_salud) -> dict | N
         return None
 
 
+def _ubicaciones_de(conn, plataforma: str) -> dict | None:
+    try:
+        return resumen_ultimo_ciclo(conn, plataforma)
+    except Exception as exc:
+        logger.warning("salud: ubicaciones %s ilegibles: %s", plataforma, scrub(str(exc)))
+        return None
+
+
 def _quota_de(conn, plataforma: str) -> dict:
     quota: dict = {}
     for kind in KINDS_QUOTA:
@@ -222,6 +231,7 @@ def leer_salud(conn, *, hoy_pantalla_fn, spapi_salud_fn=bloque_salud) -> dict:
             "skips": _skips_de(ultimo),
             "harvest_destino": _harvest_destino_de(ultimo),
             "quota": _quota_de(conn, plataforma),
+            "ubicaciones": _ubicaciones_de(conn, plataforma),
             "avisos_propuesta": _avisos_propuesta_de(conn, plataforma, ultimo),
             "target_margen": bloque_target_margen(ultimo),
             "spapi": _spapi_de(conn, plataforma, spapi_salud_fn=spapi_salud_fn),

@@ -104,6 +104,9 @@
       <td>{% for ubi, pct in fila.ajustes_ubicacion %}+{{ pct }} % en {{ ubi | etiqueta("ubicacion") | lower }}{% if not loop.last %}; {% endif %}{% else %}—{% endfor %}</td>
       <td class="num">{{ fila.gasto_fuera_de_amazon | dinero }}</td>
       <td>
+        {% if fila.sugerencia_ubicacion %}
+        <p data-sugerencia-ubicacion data-campana-id="{{ fila.campana_id }}">{{ fila.sugerencia_ubicacion.frase }}</p>
+        {% endif %}
         {% for clase in clases_ajuste %}
         <button type="button" data-ajuste-clase="{{ clase }}" data-campana-id="{{ fila.campana_id }}">{{ BOTONES_AJUSTE[clase] }}</button>
         {% endfor %}

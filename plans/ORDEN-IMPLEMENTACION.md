@@ -93,7 +93,7 @@ Los P del [ROADMAP](ROADMAP.md) conservan su evidencia fechada. «Falta comproba
 
 ## Futuros sin implementación autorizada
 
-- AUTO-04 placements automáticos; AUTO-05 redistribución/pacing/intradía; AUTO-06 reactivación/limpieza automática. BIDS 01/02 ya entregaron las herramientas manuales. Las propuestas de TEMPORADA no autorizan el automatismo completo de presupuestos.
+- AUTO-05 redistribución/pacing/intradía; AUTO-06 reactivación/limpieza automática. BIDS 01/02 ya entregaron las herramientas manuales. AUTO-04 (ubicaciones) quedó implementado en práctica; su paso a `live` es una compuerta operativa con aprobación de David, no código por construir. Las propuestas de TEMPORADA no autorizan el automatismo completo de presupuestos.
 - `meli-ads-01` (propuestas, sin escritura publicitaria) y AUTO-08/promociones: sin plan ejecutable. ENVIOS 01 (envíos Amazon/MeLi) está entregado: PR #780, `52cb4b02`, [acta](../docs/evidencia/envios-01/cierre-produccion.md).
 - AUTO-09/REPUTACION 02: stub sin brief. Su fuente Amazon debe redefinirse después de retirar Apify; P05 no es permiso para reactivarlo.
 - Integraciones cruzadas reputación/campañas/promociones/envíos; JEV E.1/E.3/fábrica excluidos de cierres anteriores.

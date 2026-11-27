@@ -438,6 +438,7 @@ def _plataforma(plataforma: str, datos: dict) -> dict:
         "propuesta": propuesta,
         "harvest": datos.get("harvest_destino"),
         "quota": _quota(datos.get("quota")),
+        "ubicaciones": datos.get("ubicaciones"),
         "precios": _precios(datos.get("precios")) if "precios" in datos else None,
     }
 

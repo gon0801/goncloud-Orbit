@@ -247,6 +247,20 @@
     </div>
     {% endif %}
 
+    {% if p.ubicaciones %}
+    <div class="tarjeta salud-hecho" data-ubicaciones-ciclo>
+      <h3>Ubicaciones del último ciclo</h3>
+      <div class="tabla-scroll" role="region" aria-label="Tabla de datos" tabindex="0">
+      <table>
+        <thead><tr><th class="num">Evaluadas</th><th class="num">Para mover</th><th class="num">En práctica</th><th class="num">Aplicadas</th></tr></thead>
+        <tbody>
+          <tr><td class="num">{{ p.ubicaciones.evaluadas | numero }}</td><td class="num">{{ p.ubicaciones.mover | numero }}</td><td class="num">{{ p.ubicaciones.en_practica | numero }}</td><td class="num">{{ p.ubicaciones.aplicadas | numero }}</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+    {% endif %}
+
     {% if p.precios is not none %}
     <div class="tarjeta salud-hecho" id="bloque-precios-{{ p.id }}">
       <h3>Precios</h3>
