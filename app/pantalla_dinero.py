@@ -502,7 +502,7 @@ def lee_campanas(
         cid: confirmado
         for cid, confirmado in conn.execute(_SQL_ULTIMO_AJUSTE_PRECIO, (plataforma,)).fetchall()
     }
-    sugerencias = ultimas_evaluaciones_por_campana(conn, plataforma)
+    sugerencias = ultimas_evaluaciones_por_campana(conn, plataforma, settings=crudo)
     # TEMPORADA 01 G: propuesta de presupuesto por campana (solo lectura).
     config_t = temporada.desde_settings(crudo)
     episodio = None

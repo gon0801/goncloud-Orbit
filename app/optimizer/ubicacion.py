@@ -116,26 +116,28 @@ MOTIVO_PRODUCTO_SIN_EVIDENCIA = "producto_sin_evidencia"
 
 # Texto para la pantalla. Una sola fuente del vocabulario en espanol.
 MOTIVOS_UBICACION_ES: dict[str, str] = {
-    MOTIVO_CAMPANA_NO_ELEGIBLE: "la campana no es elegible",
-    MOTIVO_CAMPANA_EN_IMPULSO: "la campana tiene un impulso abierto",
-    MOTIVO_SIN_DYNAMIC_BIDDING: "sin dynamic bidding conocido",
-    MOTIVO_ESTRATEGIA_DESCONOCIDA: "estrategia de puja desconocida",
-    MOTIVO_AJUSTE_EN_VUELO: "hay un ajuste pendiente de confirmar",
-    MOTIVO_ENFRIAMIENTO: "en enfriamiento de 14 dias tras el ultimo cambio",
-    MOTIVO_DATOS_INCOMPLETOS: "faltan datos frescos de ubicaciones",
-    MOTIVO_DESCUADRE: "las ubicaciones no cuadran con el gasto de la campana",
-    MOTIVO_SIN_META: "la campana no tiene meta congelada",
-    MOTIVO_ACOS_FUERTE: "ACoS muy por encima de la meta laxa",
-    MOTIVO_ACOS: "ACoS por encima de la meta laxa",
-    MOTIVO_GASTO_SIN_VENTA_DOBLE: "gasto sin venta por encima del doble del umbral",
-    MOTIVO_GASTO_SIN_VENTA: "gasto sin venta sobre el umbral",
-    MOTIVO_SOLO_BAJADAS: "solo bajadas habilitado",
-    MOTIVO_TEMPORADA_BAJA: "temporada baja, sin subidas",
-    MOTIVO_PRESUPUESTO_SIN_MEDIR: "presupuesto sin medir",
-    MOTIVO_CAMPANA_TOPADA: "la campana esta topada",
-    MOTIVO_SUBIDA: "bajo la meta con ventaja contra el resto de la campana",
-    MOTIVO_SIN_EVIDENCIA: "sin evidencia suficiente en ninguna ubicacion",
-    MOTIVO_PRODUCTO_SIN_EVIDENCIA: "una hoja de la campana se quedo sin meta",
+    MOTIVO_CAMPANA_NO_ELEGIBLE: "la campaña no está habilitada para ajustes automáticos",
+    MOTIVO_CAMPANA_EN_IMPULSO: "un producto de la campaña está en impulso",
+    MOTIVO_SIN_DYNAMIC_BIDDING: "Amazon no reporta la estrategia de puja de la campaña",
+    MOTIVO_ESTRATEGIA_DESCONOCIDA: "la estrategia de puja no es compatible con ajustes automáticos",
+    MOTIVO_AJUSTE_EN_VUELO: "hay un cambio de ubicación pendiente de confirmar",
+    MOTIVO_ENFRIAMIENTO: "en espera de 14 días tras el último cambio",
+    MOTIVO_DATOS_INCOMPLETOS: "faltan datos recientes de ubicaciones",
+    MOTIVO_DESCUADRE: "el gasto por ubicación no coincide con el total de la campaña",
+    MOTIVO_SIN_META: "la campaña no tiene meta de ACoS definida",
+    MOTIVO_ACOS_FUERTE: "ACoS muy por encima de la meta",
+    MOTIVO_ACOS: "ACoS por encima de la meta",
+    MOTIVO_GASTO_SIN_VENTA_DOBLE: "gasto muy alto sin ventas",
+    MOTIVO_GASTO_SIN_VENTA: "gasto alto sin ventas",
+    MOTIVO_SOLO_BAJADAS: "solo se permiten bajadas en este mercado",
+    MOTIVO_TEMPORADA_BAJA: "temporada baja, no se proponen subidas",
+    MOTIVO_PRESUPUESTO_SIN_MEDIR: "sin datos suficientes del uso de presupuesto",
+    MOTIVO_CAMPANA_TOPADA: "la campaña agota su presupuesto diario",
+    MOTIVO_SUBIDA: "bajo la meta y rinde más que el resto de la campaña",
+    MOTIVO_SIN_EVIDENCIA: "sin datos suficientes en ninguna ubicación",
+    MOTIVO_PRODUCTO_SIN_EVIDENCIA: (
+        "faltó evidencia para calcular la meta de un producto de la campaña"
+    ),
 }
 
 # ---------------------------------------------------------------------------

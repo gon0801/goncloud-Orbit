@@ -386,17 +386,7 @@ def _aplica_y_confirma(
                     # El PUT de un intento anterior ya llego (readback fallido).
                     _sella(conn, plataforma, ajuste_id, previa, actual)
                     return
-            _exige_previa(ajuste, actual, previa)
-            strategy = actual.estrategia_puja if actual is not None else None
-            if strategy is None:
-                # La lectura no trae dynamicBidding (raro: el vigente si
-                # tenia, o planear habria rechazado): fallback al vigente,
-                # no hay actual que respetar. Sin ninguna, fail-closed.
-                strategy = destino.estrategia_puja
-            if strategy is None:
-                raise AjusteNoConfirmado(
-                    f"ajuste {ajuste_id}: sin estrategia no se manda el PUT de un placement"
-                )
+            strategy = _exige_previa(ajuste, actual, previa)
             cuerpo = cuerpo_put_ubicacion(
                 PLACEMENT_POR_CAMPO[campo], ajuste.porcentaje, destino, strategy
             )
@@ -435,12 +425,14 @@ def _ya_en_destino(ajuste, actual, previa, destino) -> bool:
     )
 
 
-def _exige_previa(ajuste, actual, previa) -> None:
-    """Un valor o una estrategia vivos distintos de lo juzgado son mano del
-    dueno en la consola despues del sync: 409 sin PUT ni fila nueva. Sin
-    estrategia la lectura es incompleta y no prueba nada."""
+def _exige_previa(ajuste, actual, previa) -> str:
+    """Exige lectura viva completa (con estrategia) y coincidente con `previa`.
+    Lectura vacia o sin estrategia: 502 AjusteNoConfirmado sin PUT ni fila.
+    Valor o estrategia distintos: 409 CambioExternoDetectado sin PUT."""
     if actual is None or actual.estrategia_puja is None:
-        return
+        raise AjusteNoConfirmado(
+            "Amazon no devolvió la configuración completa de la campaña; no se envió el cambio"
+        )
     campo = campo_del_ajuste(ajuste)
     if actual.estrategia_puja != previa.estrategia_puja or (
         (getattr(actual, campo) or 0) != (getattr(previa, campo) or 0)
@@ -451,6 +443,7 @@ def _exige_previa(ajuste, actual, previa) -> None:
             f" {previa.estrategia_puja!r}. Recarga tras el siguiente sync.",
             None,
         )
+    return actual.estrategia_puja
 
 
 def _pendientes_hn(conn, huella: str, campana_id: int, clase: str) -> list:

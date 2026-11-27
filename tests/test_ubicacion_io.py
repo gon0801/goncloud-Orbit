@@ -128,9 +128,10 @@ def _hojas(conn, campana: int) -> list[int]:
     ]
 
 
-def _config_version(conn) -> int:
+def _config_version(conn, settings: dict | None = None) -> int:
     return conn.execute(
-        "INSERT INTO config_version (label, settings) VALUES ('uio', '{}'::jsonb) RETURNING id"
+        "INSERT INTO config_version (label, settings) VALUES ('uio', %s::jsonb) RETURNING id",
+        (json.dumps(settings or {}),),
     ).fetchone()[0]
 
 
@@ -325,7 +326,7 @@ def test_guarda_evaluaciones_y_lee_sugerencia_vigente():
         b = _campana(conn, external="c-uio-b")
         config_a = _config(conn, a["campana"], _ANCLA - dt.timedelta(days=20), top=0)
         config_b = _config(conn, b["campana"], _ANCLA - dt.timedelta(days=20), top=10)
-        cv = _config_version(conn)
+        cv = _config_version(conn, {"ads_ubicacion_amazon_mx": "shadow"})
         eco = _eco()
         caso_a = CasoCampana(
             campana_id=a["campana"],
@@ -853,3 +854,46 @@ def test_frescura_placements_es_por_plataforma_y_conciliacion_caza_huecos():
         caso_hueco = casos[camp_hueco]
         assert caso_hueco.placements_frescos is True
         assert decide_ubicacion(caso_hueco) == MantenerUbicacion("descuadre_placements_campana")
+
+
+@_skip_db
+def test_ultimas_evaluaciones_oculta_cuando_flag_off_o_ausente():
+    """P2-A: `ultimas_evaluaciones_por_campana` devuelve {} si `ads_ubicacion_<platform>`
+    esta en `off` o ausente, y muestra las sugerencias en `shadow` y `live`."""
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp = _campana(conn, external="c-uio-off")["campana"]
+        config_id = _config(conn, camp, _ANCLA - dt.timedelta(days=20), top=0)
+        cv = _config_version(conn, {})
+        mover = MoverUbicacion("arriba_de_busqueda", 0, 15, "bajo_meta_con_ventaja")
+        guarda_evaluaciones(
+            conn,
+            cycle_id=_ciclo(conn),
+            config_version_id=cv,
+            platform="amazon_mx",
+            decided_at=_HOY,
+            evaluaciones=[(_caso_simple(camp, config_id), "shadow", mover)],
+        )
+        assert ultimas_evaluaciones_por_campana(conn, "amazon_mx") == {}
+
+        _config_version(conn, {"ads_ubicacion_amazon_mx": "off"})
+        assert ultimas_evaluaciones_por_campana(conn, "amazon_mx") == {}
+
+        _config_version(conn, {"ads_ubicacion_amazon_mx": "shadow"})
+        sug_shadow = ultimas_evaluaciones_por_campana(conn, "amazon_mx")
+        assert set(sug_shadow) == {camp}
+        assert sug_shadow[camp].modo == "shadow"
+
+        _config_version(conn, {"ads_ubicacion_amazon_mx": "live"})
+        assert set(ultimas_evaluaciones_por_campana(conn, "amazon_mx")) == {camp}
+
+        assert (
+            ultimas_evaluaciones_por_campana(
+                conn, "amazon_mx", settings={"ads_ubicacion_amazon_mx": "off"}
+            )
+            == {}
+        )
+        with pytest.raises(ValueError, match="ads_ubicacion_amazon_mx"):
+            ultimas_evaluaciones_por_campana(
+                conn, "amazon_mx", settings={"ads_ubicacion_amazon_mx": "invalido"}
+            )

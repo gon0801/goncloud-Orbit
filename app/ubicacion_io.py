@@ -21,6 +21,7 @@ from decimal import Decimal
 import psycopg
 from psycopg.types.json import Json
 
+from app.db import settings_vigentes
 from app.lecturas_historia import presupuestos_campanas_hoy
 from app.optimizer import goals as g
 from app.optimizer import temporada
@@ -524,15 +525,23 @@ def evaluaciones_a_aplicar(
 
 
 def ultimas_evaluaciones_por_campana(
-    conn: psycopg.Connection, platform: str
+    conn: psycopg.Connection,
+    platform: str,
+    *,
+    settings: Mapping | None = None,
 ) -> dict[int, SugerenciaUbicacion]:
-    """La evaluacion mas reciente por campana, solo si sigue vigente.
+    """La evaluacion mas reciente por campana, solo si sigue vigente y el flag
+    `ads_ubicacion_<platform>` no esta en `off`.
 
-    Una sugerencia deja de mostrarse cuando el `antes_config_id` juzgado ya no
-    es la configuracion vigente (el dueño cambio algo) o cuando la evaluacion ya
+    Una sugerencia deja de mostrarse cuando `ads_ubicacion_<platform>` esta en
+    `off` (o ausente), cuando el `antes_config_id` juzgado ya no es la
+    configuracion vigente (el dueño cambio algo) o cuando la evaluacion ya
     tiene un ajuste asociado (aplicado o pendiente).
     """
     if not esquema_ubicaciones_disponible(conn):
+        return {}
+    vigentes = settings if settings is not None else (settings_vigentes(conn) or {})
+    if modo_ubicacion_desde_settings(vigentes, platform) == "off":
         return {}
     filas = conn.execute(
         """
