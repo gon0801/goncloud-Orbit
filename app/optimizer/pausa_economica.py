@@ -175,13 +175,16 @@ def evalua_pausa_economica(entrada: EntradaPausaEconomica) -> VeredictoPausaEcon
         return _veredicto("mantener", MOTIVO_CORTES_INCOMPLETOS, None)
     if not _cortes_juzgables(cortes, entrada.moneda):
         return _veredicto("mantener", MOTIVO_CORTES_INCOMPLETOS, cortes)
+    # El umbral maduro se mide ANTES de la ventana reciente: si los datos
+    # maduros ya no justifican pausar, no hay nada que esperar y la fila en
+    # cola se descarta (`ya_no_califica`) en vez de quedar bloqueando pujas.
+    if not _cruza(cortes.cost, cortes.ad_revenue, entrada.target_acos_pct, entrada.exceso_minimo):
+        return _veredicto("mantener", MOTIVO_NO_CRUZA_MADURA, cortes)
     reciente = entrada.reciente
     if not _reciente_integra(reciente, cortes, entrada.moneda):
         return _veredicto("mantener", MOTIVO_INCOMPLETO, cortes)
     assert reciente is not None and reciente.cost is not None
     assert reciente.ad_revenue is not None and reciente.orders is not None
-    if not _cruza(cortes.cost, cortes.ad_revenue, entrada.target_acos_pct, entrada.exceso_minimo):
-        return _veredicto("mantener", MOTIVO_NO_CRUZA_MADURA, cortes)
     cost_tot = cortes.cost + reciente.cost
     rev_tot = cortes.ad_revenue + reciente.ad_revenue
     exceso_tot = cost_tot - entrada.target_acos_pct * rev_tot / _CIEN

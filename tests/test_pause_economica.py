@@ -54,6 +54,23 @@ def _cache_completo():
     )
 
 
+def _cache_incompleto():
+    """Ventana reciente con un dia de plataforma sin ingesta (no medible)."""
+    from app import pausa_economica_io as pio
+
+    completo = _cache_completo()
+    dias = set(completo._dias_plataforma)
+    dias.discard(min(dias))
+    return pio.CacheRecienteEconomica(
+        plataforma=completo.plataforma,
+        evaluado_el=completo.evaluado_el,
+        moneda=completo.moneda,
+        _lee_desde=completo._lee_desde,
+        _dias_plataforma=frozenset(dias),
+        _series=completo._series,
+    )
+
+
 def _decide(corte, *, platform="amazon_us", target="20", politica="economic_pause_v1"):
     return bid.decide_pause(
         platform=platform,
@@ -608,6 +625,55 @@ def test_economica_abstiene_con_orders_o_clicks_desconocidos():
     assert _decide(_corte("127.94", "0", orders=None)).motivo == "pause_orders_desconocido"
     assert _decide(_corte("127.94", "0", clicks=None)).kind is None
     assert _decide(_corte("127.94", "0", clicks=None)).motivo == "pause_clicks_o_cost_desconocidos"
+
+
+def test_revalida_no_espera_reciente_si_la_madura_ya_no_cruza(monkeypatch):
+    """P03 (revision): si el gasto maduro ya no justifica la pausa, una
+    ventana reciente incompleta se DESCARTA (`ya_no_califica`), no se espera:
+    la fila no debe seguir bloqueando los ajustes de puja."""
+    from app import apply_cola
+
+    class Conn:
+        def execute(self, sql, params=None):
+            class Cursor:
+                def fetchall(self):
+                    return []
+
+                def fetchone(self):
+                    if sql == apply_cola._SQL_DECISION_INPUTS:
+                        return ({"motivo": "pause_economica"},)
+                    if sql == apply_cola._SQL_LEE_NOTAS_CICLO:
+                        return ("{}",)
+                    return (71,)
+
+            return Cursor()
+
+    monkeypatch.setattr(apply_cola.apply, "_identidad", lambda *_: ("keyword", "2423"))
+    monkeypatch.setattr(apply_cola.apply, "_estado_de_readback", lambda *_: "ENABLED")
+    monkeypatch.setattr(apply_cola, "_gracia_activa", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_pause_propio_verificado", lambda *_: False)
+    monkeypatch.setattr(apply_cola, "_modo_pausa_economica", lambda *_: "live")
+    monkeypatch.setattr(
+        apply_cola, "_target_pause_vigente", lambda *_, **__: (Decimal("20"), "goal_campana")
+    )
+    monkeypatch.setattr(apply_cola.windows, "ventanas_evidencia_ad_group", lambda *_: {})
+    # 300 de gasto para 1000 de venta al 20 %: NO cruza 3x (600) por si solo.
+    monkeypatch.setattr(
+        apply_cola.windows, "ventana_cortes", lambda *_, **__: _corte("300", "1000")
+    )
+    monkeypatch.setattr(
+        apply_cola.cortes, "umbral_corte", lambda *_, **__: type("U", (), {"umbral": 300})()
+    )
+    fila = apply_cola.FilaCola(1, "pause", 2423, None, 1, {}, "released")
+    aplicador = type(
+        "Aplicador", (), {"_cliente": lambda self: object(), "cycle_id_ejecutor": 42}
+    )()
+    assert (
+        apply_cola._revalida_pause(
+            Conn(), aplicador, "amazon_us", fila, HOY, cache_reciente=_cache_incompleto()
+        )
+        == "ya_no_califica"
+    )
 
 
 def test_revalida_pausa_por_umbral_con_procedencia_producto_sin_target(monkeypatch):

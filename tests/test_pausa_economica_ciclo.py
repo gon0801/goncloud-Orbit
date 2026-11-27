@@ -229,6 +229,9 @@ def test_corre_ciclo_hueco_en_d_minus_2_da_reciente_incompleto():
             },
         )
         _ceros_recientes(conn, ids, [ids["kw_bid"]])
+        # Una hoja que SI cruza la puerta madura es la que puede quedar
+        # "incompleta" por el hueco reciente.
+        sangrante = _siembra_sangrante(conn, "9621")
         # Deshace el dia D-2: sin ingesta de plataforma ese dia. El append-only
         # de metricas se desactiva SOLO en la base desechable de la prueba.
         conn.execute("SET session_replication_role = replica")
@@ -250,7 +253,9 @@ def test_corre_ciclo_hueco_en_d_minus_2_da_reciente_incompleto():
         ).fetchone()[0]
         assert economicas == 0
         incompletos = [f for f in filas if f[3] == regla.MOTIVO_INCOMPLETO]
-        assert incompletos, "una hoja madura con hueco reciente debe quedar incompleta"
+        assert [f for f in incompletos if f[0] == sangrante], (
+            "una hoja que cruza la madura con hueco reciente debe quedar incompleta"
+        )
 
 
 def test_corre_ciclo_cortacircuito_retira_pausas_y_conserva_recortes(monkeypatch):
@@ -489,6 +494,26 @@ def test_libera_vencidos_modo_no_live_descarta_espera_reciente():
         assert conn.execute(
             "SELECT estado, discard_motivo FROM apply_queue WHERE id = %s", (q,)
         ).fetchone() == ("discarded", apply_cola.MOTIVO_PAUSA_ECONOMICA_APAGADA)
+
+
+def test_cli_rechaza_pausa_y_pausa_economica_juntas(capsys):
+    """`--pausa` va solo: combinarla con `--pausa-economica` sale 2 sin tocar
+    config (antes devolvia 0 apagando solo la pausa por producto)."""
+    from types import SimpleNamespace
+
+    args = SimpleNamespace(
+        platform="amazon_us",
+        meta=None,
+        pausa="off",
+        clics=None,
+        gasto=None,
+        economia=None,
+        bid_economia=None,
+        proteccion=None,
+        pausa_economica="off",
+    )
+    assert cli_productos.corre(args) == 2
+    assert "va solo" in capsys.readouterr().err
 
 
 def test_guarda_config_rechaza_modo_invalido_y_editar_mx_no_toca_us():

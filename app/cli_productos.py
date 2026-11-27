@@ -69,6 +69,7 @@ def registra(sub) -> None:
 
 
 def corre(args) -> int:
+    pausa_economica = getattr(args, "pausa_economica", None)
     if args.pausa is not None:
         if (
             args.meta is not None
@@ -77,12 +78,15 @@ def corre(args) -> int:
             or args.economia is not None
             or args.bid_economia is not None
             or args.proteccion is not None
+            or pausa_economica is not None
         ):
-            print("--pausa va solo: las demas claves en otra llamada", file=sys.stderr)
+            print(
+                "--pausa va solo: las demas claves (incluida --pausa-economica) en otra llamada",
+                file=sys.stderr,
+            )
             return 2
         return _corre_pausa(args.platform, args.pausa)
     modo = {t: v for t, v in (("meta", args.meta), ("pausa", args.pausa)) if v is not None}
-    pausa_economica = getattr(args, "pausa_economica", None)
     if (args.clics is None) != (args.gasto is None):
         print("--clics y --gasto van juntos", file=sys.stderr)
         return 2

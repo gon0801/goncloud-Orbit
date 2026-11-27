@@ -133,6 +133,15 @@ def test_v2_invariantes_de_ventana_reciente_fail_closed(reciente):
     assert veredicto.motivo == regla.MOTIVO_INCOMPLETO
 
 
+def test_v2_madura_bajo_umbral_no_espera_por_la_reciente():
+    """El umbral maduro se mide ANTES de la ventana reciente: si ya no cruza,
+    el motivo es `no_cruza_madura` aunque la reciente este incompleta (la fila
+    en cola se descarta en vez de esperar)."""
+    veredicto = _evalua(_agregado("50", "100"), _reciente(completa=False))
+    assert veredicto.veredicto == "mantener"
+    assert veredicto.motivo == regla.MOTIVO_NO_CRUZA_MADURA
+
+
 def test_v2_es_subconjunto_de_v1():
     """Propiedad: donde v2 pausa, v1 (la era congelada) tambien pausa."""
     casos = [
