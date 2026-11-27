@@ -81,8 +81,7 @@ SELECT placement,
        CASE WHEN bool_and(clicks IS NOT NULL) THEN sum(clicks) END,
        CASE WHEN bool_and(cost IS NOT NULL) THEN sum(cost) END,
        CASE WHEN bool_and(orders IS NOT NULL) THEN sum(orders) END,
-       CASE WHEN bool_and(ad_revenue IS NOT NULL) THEN sum(ad_revenue) END,
-       max(metric_date)
+       CASE WHEN bool_and(ad_revenue IS NOT NULL) THEN sum(ad_revenue) END
   FROM ult
  GROUP BY placement
 """
@@ -212,7 +211,6 @@ def _placements(conn, campana: int, platform: str, desde: dt.date, hasta: dt.dat
             "gasto": fila[2],
             "pedidos": fila[3],
             "venta": fila[4],
-            "max_fecha": fila[5],
         }
         for fila in filas
     }
@@ -339,11 +337,15 @@ def lee_casos(
     abiertos = {f[0] for f in conn.execute(_SQL_IMPULSOS_ABIERTOS, (platform,))}
     en_vuelo = campanas_con_ajuste_en_vuelo(conn, platform)
     hoy = _fecha_utc(decided_at)
+    hasta_plat = hoy - dt.timedelta(days=DIAS_REZAGO)
     topada, dias_topados_por_campana = _dias_topados(conn, platform, decided_at, settings)
+    dias_recientes = _dias_con_placements(conn, platform, hasta_plat, hoy - dt.timedelta(days=1))
+    # Frescura medida a nivel plataforma (D-3 presente): una campana activa sin
+    # impresiones exactamente en D-3 no se bloquea y la conciliacion de gasto
+    # detecta huecos reales por campana.
+    plataforma_fresca = hasta_plat in dias_recientes
     cubre_inmaduros = _cubre_ingesta(
-        _dias_con_placements(
-            conn, platform, hoy - dt.timedelta(days=2), hoy - dt.timedelta(days=1)
-        ),
+        dias_recientes,
         hoy - dt.timedelta(days=2),
         hoy - dt.timedelta(days=1),
     )
@@ -383,13 +385,6 @@ def lee_casos(
         total = None
         if placements and all(info["gasto"] is not None for info in placements.values()):
             total = sum((info["gasto"] for info in placements.values()), Decimal(0))
-        fresco = (
-            bool(placements)
-            and max(
-                info["max_fecha"] for info in placements.values() if info["max_fecha"] is not None
-            )
-            >= hasta
-        )
         casos.append(
             CasoCampana(
                 campana_id=campana,
@@ -403,7 +398,7 @@ def lee_casos(
                 economia=economia,
                 gasto_campana=_gasto_campana(conn, campana, desde, hasta),
                 gasto_placements_total=total,
-                placements_frescos=fresco,
+                placements_frescos=plataforma_fresca,
                 dias_desde_ultimo_cambio=None if ultimo is None else (hoy - ultimo).days,
                 ajuste_en_vuelo=campana in en_vuelo,
                 elegible=elegible,

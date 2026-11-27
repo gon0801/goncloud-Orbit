@@ -256,13 +256,20 @@ class _TransportGuardado(httpx.BaseTransport):
     """Transport decorado con el guard pre-HTTP (gancho 2.4, decision 11): el
     callback corre ANTES de despachar CADA request."""
 
-    def __init__(self, base: httpx.BaseTransport, guard: Callable[[], None]) -> None:
+    def __init__(
+        self, base: httpx.BaseTransport, guard: Callable[[], None], *, cerrar_base: bool = False
+    ) -> None:
         self._base = base
         self._guard = guard
+        self._cerrar_base = cerrar_base
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         self._guard()
         return self._base.handle_request(request)
+
+    def close(self) -> None:
+        if self._cerrar_base:
+            self._base.close()
 
 
 class Aplicador:
@@ -354,8 +361,10 @@ class Aplicador:
         if self._write_client is None:
             transport: httpx.BaseTransport | None = self._transport
             if self._guard_http is not None:
-                base = self._transport if self._transport is not None else httpx.HTTPTransport()
-                transport = _TransportGuardado(base, self._guard_http)
+                propio = self._transport is None
+                base = httpx.HTTPTransport() if propio else self._transport
+                assert base is not None
+                transport = _TransportGuardado(base, self._guard_http, cerrar_base=propio)
             extra: dict = {"sleep": self._sleep} if self._sleep is not None else {}
             self._write_client = AdsWriteClient(
                 self._credentials,
@@ -366,6 +375,12 @@ class Aplicador:
                 **extra,
             )
         return self._write_client
+
+    def close(self) -> None:
+        """Cierra el cliente HTTP si se llego a construir (idempotente)."""
+        if self._write_client is not None:
+            self._write_client.close()
+            self._write_client = None
 
     def aplica_bids(
         self, decisiones: list[DecisionBid], *, escalera_global: str

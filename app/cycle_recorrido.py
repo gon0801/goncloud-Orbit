@@ -268,6 +268,8 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         productos_ciclo, goal=goal, ad_group_id=ad_group_id, previo=previo, destino=target_base
     )
     if meta_viva == MOTIVO_PRODUCTO_SIN_EVIDENCIA:
+        if productos_ciclo is not None:
+            productos_ciclo.hojas_sin_evidencia.add(entidad_id)
         contadores.skips_entidad[MOTIVO_PRODUCTO_SIN_EVIDENCIA] += 1
         tick()
         return
@@ -633,6 +635,12 @@ def _recorre_plataforma(
             contadores.decisiones["pause"] += 1
     modo_ubicacion = modo_ubicacion_desde_settings(settings, platform)
     if modo_ubicacion != "off":
+        overlay_t = target_ciclo.overlay
+        fase_temporada = (
+            overlay_t.estacion.fase
+            if overlay_t is not None and overlay_t.modo == "live" and overlay_t.estacion is not None
+            else None
+        )
         casos = lee_casos(
             conn,
             platform,
@@ -642,7 +650,7 @@ def _recorre_plataforma(
             metas_hoja=contadores.targets,
             goal_plataforma=goals[0],
             economia=economia,
-            fase_temporada=plat_t.estacion.fase if plat_t is not None else None,
+            fase_temporada=fase_temporada,
         )
         for caso in casos:
             objetivo = g.resuelve_goal(goals[1].get(caso.campana_id), goals[0])

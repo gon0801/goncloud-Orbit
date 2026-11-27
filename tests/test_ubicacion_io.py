@@ -795,3 +795,61 @@ def test_lee_casos_produce_enteros_y_guarda_la_evaluacion():
             evaluaciones=[(caso, "shadow", MantenerUbicacion("sin_evidencia_ubicacion"))],
         )
         assert ids[camp]
+
+
+@_skip_db
+def test_frescura_placements_es_por_plataforma_y_conciliacion_caza_huecos():
+    """P1-1: frescura a nivel plataforma permite recortar una campana sin
+    impresiones exactamente en D-3; un hueco real en sus placements lo atrapa
+    la conciliacion contra el gasto de campana."""
+    from app.optimizer.ubicacion import decide_ubicacion
+
+    with _db() as (conn, _dsn):
+        _goal(conn)
+        camp_recorte = _campana(conn, external="c-uio-sin-d3")["campana"]
+        camp_fresca = _campana(conn, external="c-uio-fresca")["campana"]
+        camp_hueco = _campana(conn, external="c-uio-hueco")["campana"]
+        for camp, top in ((camp_recorte, 40), (camp_fresca, 0), (camp_hueco, 40)):
+            _config(conn, camp, _ANCLA - dt.timedelta(days=30), top=top)
+        ingest = _ingest(conn)
+        hoy = _HOY.date()
+        # Plataforma fresca: camp_fresca tiene placements en D-3, D-2 y D-1.
+        for dias in (3, 2, 1):
+            dia = hoy - dt.timedelta(days=dias)
+            _placement(conn, camp_fresca, "arriba_de_busqueda", dia, cost=_D("10"))
+            _metrica(conn, camp_fresca, dia, _D("10"), ingest)
+        # camp_recorte: 29 dias con gasto (D-32..D-4), 0 impresiones en D-3.
+        for dias in range(4, 33):
+            dia = hoy - dt.timedelta(days=dias)
+            _placement(
+                conn, camp_recorte, "arriba_de_busqueda", dia, cost=_D("20"), clics=5, pedidos=0
+            )
+            _metrica(conn, camp_recorte, dia, _D("20"), ingest)
+        # camp_hueco: faltan filas de placements frente al gasto real de campana.
+        for dias in range(4, 14):
+            dia = hoy - dt.timedelta(days=dias)
+            _metrica(conn, camp_hueco, dia, _D("50"), ingest)
+            if dias >= 8:
+                _placement(
+                    conn, camp_hueco, "arriba_de_busqueda", dia, cost=_D("50"), clics=5, pedidos=0
+                )
+
+        metas = {
+            h: (_D("20"), "setting_plataforma")
+            for c in (camp_recorte, camp_fresca, camp_hueco)
+            for h in _hojas(conn, c)
+        }
+        casos = {c.campana_id: c for c in _lee(conn, metas=metas)}
+        caso_rec = casos[camp_recorte]
+        assert caso_rec.placements_frescos is True
+        assert caso_rec.gasto_campana == _D("580")
+        assert caso_rec.gasto_placements_total == _D("580")
+        veredicto = decide_ubicacion(caso_rec)
+        assert isinstance(veredicto, MoverUbicacion)
+        assert veredicto.ubicacion == "arriba_de_busqueda"
+        assert veredicto.de_pct == 40
+        assert veredicto.a_pct == 25
+
+        caso_hueco = casos[camp_hueco]
+        assert caso_hueco.placements_frescos is True
+        assert decide_ubicacion(caso_hueco) == MantenerUbicacion("descuadre_placements_campana")

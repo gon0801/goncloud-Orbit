@@ -55,6 +55,9 @@ class _ProductosCiclo:
     # AUTO-03 F.2, meta en live: hoja de grupo apto -> product_id de la
     # evaluacion que la decidio (sin ella guardada, la hoja no decide).
     hojas_aptas: dict[int, int] = field(default_factory=dict)
+    # AUTO-04 P1-4: hojas descartadas en TX2 con producto_sin_evidencia
+    # (p. ej. lectura fallida) para abstener tambien campanas mixtas en TX3.
+    hojas_sin_evidencia: set[int] = field(default_factory=set)
 
     @property
     def lectura_fallida(self) -> bool:
@@ -506,7 +509,7 @@ def tx3_ubicaciones(
 
     perdidas: set[int] = set()
     if contadores.productos is not None:
-        perdidas = {
+        perdidas = set(getattr(contadores.productos, "hojas_sin_evidencia", ())) | {
             hoja
             for hoja, pid in contadores.productos.hojas_aptas.items()
             if pid not in ids_evaluacion

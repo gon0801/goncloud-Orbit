@@ -17,7 +17,7 @@ from app.ads.campana_config import (
     cuerpo_put_campana,
     guarda_config,
 )
-from app.ads.client import AdsApiError
+from app.ads.client import AdsApiError, AdsAuthError
 from app.ads.write import AdsApiErrorMutacion
 from app.apply_ajustes import aplica_ajuste_campana
 from app.apply_ubicacion import aplica_ajuste_motor, aplica_automaticos, reconcilia_automaticos
@@ -686,23 +686,28 @@ def test_lectura_previa_fallida_descarta_sin_cobrar_cuota_ni_escribir_intencion(
 
 
 @_skip_db
-def test_rechazo_de_identidad_aborta_la_fase():
+@pytest.mark.parametrize(
+    "exc",
+    [_error_api(401), _error_api(403), AdsAuthError("LWA token 401")],
+)
+def test_rechazo_de_identidad_aborta_la_fase_sin_descartar_evaluaciones(exc):
+    """P1-5: 401/403/AdsAuthError en _motivo_consola aborta sin quemar ninguna
+    evaluacion en `ubicacion_sin_aplicar`: la recuperacion retoma desde #1."""
+    from app.ubicacion_io import evaluaciones_a_aplicar
+
     with _db() as (conn, dsn):
         cv = _config_version(conn, _settings())
-        camp, config_id = _siembra(conn, top=0)
+        c1, cfg1 = _siembra(conn, top=0, externa="93600000000011")
+        c2, cfg2 = _siembra(conn, top=0, externa="93600000000012")
         ciclo = _ciclo(conn)
-        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
-        with pytest.raises(AdsApiError):
-            _corre(
-                conn,
-                dsn,
-                ciclo,
-                ClienteFalla(_config(0), donde="lectura_previa", exc=_error_api(401)),
-            )
-        assert conn.execute(
-            "SELECT motivo FROM ubicacion_sin_aplicar WHERE evaluacion_id = %s", (eval_id,)
-        ).fetchone() == ("error_put",)
+        ev1 = _eval(conn, ciclo=ciclo, campana=c1, antes=cfg1, cv=cv, de_pct=0, a_pct=15)
+        ev2 = _eval(conn, ciclo=ciclo, campana=c2, antes=cfg2, cv=cv, de_pct=0, a_pct=15)
+        with pytest.raises(type(exc)):
+            _corre(conn, dsn, ciclo, ClienteFalla(_config(0), donde="lectura_previa", exc=exc))
+        assert _cuenta(conn, "ubicacion_sin_aplicar") == 0
         assert _cuenta(conn, "apply_quota_state") == 0
+        assert _cuenta(conn, "campana_ajuste") == 0
+        assert [e[0] for e in evaluaciones_a_aplicar(conn, ciclo, "amazon_mx")] == [ev1, ev2]
 
     with _db() as (conn, dsn):
         cv = _config_version(conn, _settings())
@@ -715,6 +720,89 @@ def test_rechazo_de_identidad_aborta_la_fase():
             "el PUT empezo: decide la reconciliacion"
         )
         assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({camp})
+        assert eval_id > 0
+
+
+@_skip_db
+def test_401_en_segunda_lectura_converge_por_reconciliacion():
+    """Frontera 8d: si 401 ocurre en la segunda lectura (post-INSERT pre-PUT),
+    aborta sin descartar ni enviar PUT, y la reconciliacion libera ajuste_en_vuelo."""
+
+    class ClienteFallaSegundaLectura(ClienteFalso):
+        def __init__(self, actual):
+            super().__init__(actual, actual)
+            self.listas = 0
+
+        def list_sellado(self, path, payload):
+            self.listas += 1
+            if self.listas == 2:
+                raise _error_api(401)
+            return super().list_sellado(path, payload)
+
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = ClienteFallaSegundaLectura(_config(0))
+        with pytest.raises(AdsApiError):
+            _corre(conn, dsn, ciclo, cliente)
+        assert cliente.puts == 0
+        assert _cuenta(conn, "ubicacion_sin_aplicar") == 0
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset({camp})
+
+        rec = reconcilia_automaticos(conn, ClienteFalso(_config(0), _config(0)), "amazon_mx")
+        assert (rec.revisadas, rec.selladas, rec.cerradas) == (1, 0, 1)
+        assert conn.execute(
+            "SELECT motivo FROM ubicacion_sin_aplicar WHERE evaluacion_id = %s", (eval_id,)
+        ).fetchone() == ("error_put",)
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset()
+
+
+def test_transport_guardado_y_aplicador_close_liberan_pool():
+    """P1-6 / sugerencia 2 de Opus: `_TransportGuardado.close()` cierra el
+    transporte base cuando el Aplicador lo creo, no cierra uno inyectado, y
+    `Aplicador.close()` libera `_write_client`."""
+    import httpx
+
+    from app.ads.config import AdsCredentials
+    from app.apply import Aplicador, _TransportGuardado
+
+    cerrados = []
+
+    class TransportEspia(httpx.BaseTransport):
+        def handle_request(self, request):
+            return httpx.Response(200, json={})
+
+        def close(self) -> None:
+            cerrados.append("cerrado")
+
+    espia_propio = TransportEspia()
+    guardado_propio = _TransportGuardado(espia_propio, lambda: None, cerrar_base=True)
+    guardado_propio.close()
+    assert cerrados == ["cerrado"]
+
+    espia_externo = TransportEspia()
+    guardado_externo = _TransportGuardado(espia_externo, lambda: None, cerrar_base=False)
+    guardado_externo.close()
+    assert cerrados == ["cerrado"]
+
+    creds = AdsCredentials("cid", "csec", "rtok")
+    aplicador = Aplicador(
+        None,
+        platform="amazon_mx",
+        cycle_id_ejecutor=1,
+        owner="o",
+        job_key="ads_optimizer:amazon_mx",
+        guard_http=lambda: None,
+        credentials=creds,
+        profile_id="123",
+    )
+    cliente = aplicador._cliente()
+    assert cliente is not None
+    aplicador.close()
+    assert aplicador._write_client is None
+    aplicador.close()  # idempotente
 
 
 class _ClienteIlegible(ClienteFalso):

@@ -32,6 +32,7 @@ from app.apply_cuota import CapSaturado
 from app.apply_estados import AccionCambio
 from app.apply_ubicacion import (
     aplica_automaticos,
+    es_identidad_rechazada,
     hay_evaluaciones_a_aplicar,
     hay_pendientes_automaticos,
     reconcilia_automaticos,
@@ -212,6 +213,56 @@ def sella_notas_post_apply(
     return notas
 
 
+def cierra_aplicador(reconciliacion: _Reconciliacion | None) -> None:
+    """Cierra el cliente HTTP del aplicador de la reconciliacion si existe."""
+    if reconciliacion is not None and reconciliacion.aplicador is not None:
+        cerrar = getattr(reconciliacion.aplicador, "close", None)
+        if callable(cerrar):
+            cerrar()
+
+
+def _cierra_instancia(aplicador: Aplicador | None) -> None:
+    if aplicador is not None:
+        cerrar = getattr(aplicador, "close", None)
+        if callable(cerrar):
+            cerrar()
+
+
+def _reconcilia_ubicaciones_aislado(
+    conn: psycopg.Connection,
+    aplicador: Aplicador,
+    platform: str,
+    guard: Callable[[], None],
+    notas: dict,
+) -> bool:
+    """Concilia pendientes automaticas de ubicacion en bloque aislado.
+
+    Devuelve True SOLO ante rechazo de identidad/permisos (401/403/AdsAuthError),
+    que sigue siendo fallo global. Los errores transitorios (5xx/429/timeout)
+    quedan en `notas['ubicaciones_reconcilia_error']` sin anular `aplicador`.
+    """
+    if not hay_pendientes_automaticos(conn, platform):
+        conn.commit()
+        return False
+    try:
+        res_ubic = reconcilia_automaticos(conn, aplicador._cliente(), platform, tick=guard)
+    except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
+        conn.rollback()
+        msg = scrub(str(exc)) or type(exc).__name__
+        if es_identidad_rechazada(exc):
+            notas["apply_error"] = msg
+            return True
+        notas["ubicaciones_reconcilia_error"] = msg
+        return False
+    conn.commit()
+    notas["ubicaciones_reconciliadas"] = {
+        "revisadas": res_ubic.revisadas,
+        "selladas": res_ubic.selladas,
+        "cerradas": res_ubic.cerradas,
+    }
+    return False
+
+
 def _fase_reconciliacion(
     conn: psycopg.Connection,
     *,
@@ -238,11 +289,13 @@ def _fase_reconciliacion(
     cualquier error que no venga de la API, que abortan antes de comprometer
     decisiones en vez de decidir a ciegas."""
     if modo.modo != "live":
-        if not apply_cola.hay_reversas_pause_abiertas(conn, platform):
+        tiene_reversas = apply_cola.hay_reversas_pause_abiertas(conn, platform)
+        tiene_ubicaciones = hay_pendientes_automaticos(conn, platform)
+        if not tiene_reversas and not tiene_ubicaciones:
             conn.commit()
             return _Reconciliacion(aplicador=None, notas={})
+        fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
         try:
-            fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
             aplicador_lectura = fabrica(
                 conn,
                 platform=platform,
@@ -251,30 +304,62 @@ def _fase_reconciliacion(
                 job_key=job_key,
                 tick=guard,
             )
-            rec_rev = apply_cola.reconcilia_reversas_pause(
-                conn, aplicador_lectura, platform, tick=guard
-            )
         except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
             conn.rollback()
-            return _Reconciliacion(
-                aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
+            clave = (
+                "apply_error"
+                if (tiene_reversas or es_identidad_rechazada(exc))
+                else "ubicaciones_reconcilia_error"
             )
-        conn.commit()
-        res_rev = rec_rev.resumen
-        return _Reconciliacion(
-            aplicador=None,
-            notas={
-                "reversas_reconciliadas": {
+            return _Reconciliacion(
+                aplicador=None, notas={clave: scrub(str(exc)) or type(exc).__name__}
+            )
+        notas_no_live: dict = {}
+        reversas_confirmadas = 0
+        reversas_pendientes = 0
+        reversas_por_qid: dict = {}
+        try:
+            if tiene_reversas:
+                try:
+                    rec_rev = apply_cola.reconcilia_reversas_pause(
+                        conn, aplicador_lectura, platform, tick=guard
+                    )
+                except (
+                    AdsClientError,
+                    SinPerfilAplicar,
+                    apply.SinPerfilAjuste,
+                    AdsConfigError,
+                ) as exc:
+                    conn.rollback()
+                    return _Reconciliacion(
+                        aplicador=None,
+                        notas={"apply_error": scrub(str(exc)) or type(exc).__name__},
+                    )
+                conn.commit()
+                res_rev = rec_rev.resumen
+                reversas_confirmadas = res_rev.confirmadas
+                reversas_pendientes = res_rev.pendientes_de_lectura
+                reversas_por_qid = dict(rec_rev.por_queue_id)
+                notas_no_live["reversas_reconciliadas"] = {
                     "confirmadas": res_rev.confirmadas,
                     "fallidas": res_rev.fallidas,
                     "omitidas": res_rev.omitidas,
                     "pendientes_de_lectura": res_rev.pendientes_de_lectura,
                 }
-            },
-            reversas_confirmadas=res_rev.confirmadas,
-            reversas_pendientes_de_lectura=res_rev.pendientes_de_lectura,
-            reversas_por_queue_id=dict(rec_rev.por_queue_id),
+            if tiene_ubicaciones:
+                _reconcilia_ubicaciones_aislado(
+                    conn, aplicador_lectura, platform, guard, notas_no_live
+                )
+        finally:
+            _cierra_instancia(aplicador_lectura)
+        return _Reconciliacion(
+            aplicador=None,
+            notas=notas_no_live,
+            reversas_confirmadas=reversas_confirmadas,
+            reversas_pendientes_de_lectura=reversas_pendientes,
+            reversas_por_queue_id=reversas_por_qid,
         )
+    aplicador: Aplicador | None = None
     try:
         fabrica = aplicador_factory if aplicador_factory is not None else _aplicador_real
         aplicador = fabrica(
@@ -291,19 +376,15 @@ def _fase_reconciliacion(
         reconciliacion = apply_harvest.reconcilia_harvest(conn, aplicador, platform)
         confirmados, fallidos = apply.reconcilia_bids(conn, aplicador, platform)
         rec_rev = apply_cola.reconcilia_reversas_pause(conn, aplicador, platform, tick=guard)
-        res_ubic = None
-        if hay_pendientes_automaticos(conn, platform):
-            res_ubic = reconcilia_automaticos(
-                conn,
-                apply._cliente_ajuste(platform, transport=None),
-                platform,
-                tick=guard,
-            )
     except (AdsClientError, SinPerfilAplicar, apply.SinPerfilAjuste, AdsConfigError) as exc:
         conn.rollback()
+        _cierra_instancia(aplicador)
         return _Reconciliacion(
             aplicador=None, notas={"apply_error": scrub(str(exc)) or type(exc).__name__}
         )
+    except BaseException:
+        _cierra_instancia(aplicador)
+        raise
     conn.commit()
     res_rev = rec_rev.resumen
     notas_rec: dict = {
@@ -313,12 +394,6 @@ def _fase_reconciliacion(
             "fallidas": reconciliacion.pausas_fallidas,
         },
     }
-    if res_ubic is not None:
-        notas_rec["ubicaciones_reconciliadas"] = {
-            "revisadas": res_ubic.revisadas,
-            "selladas": res_ubic.selladas,
-            "cerradas": res_ubic.cerradas,
-        }
     if res_rev.confirmadas or res_rev.fallidas or res_rev.omitidas or res_rev.pendientes_de_lectura:
         notas_rec["reversas_reconciliadas"] = {
             "confirmadas": res_rev.confirmadas,
@@ -326,8 +401,17 @@ def _fase_reconciliacion(
             "omitidas": res_rev.omitidas,
             "pendientes_de_lectura": res_rev.pendientes_de_lectura,
         }
+    try:
+        auth_fallida = _reconcilia_ubicaciones_aislado(conn, aplicador, platform, guard, notas_rec)
+    except BaseException:
+        _cierra_instancia(aplicador)
+        raise
+    aplicador_salida: Aplicador | None = aplicador
+    if auth_fallida:
+        _cierra_instancia(aplicador)
+        aplicador_salida = None
     return _Reconciliacion(
-        aplicador=aplicador,
+        aplicador=aplicador_salida,
         notas=notas_rec,
         alertas=reconciliacion.alertas,
         caps_saturados=reconciliacion.caps_saturados,
@@ -495,7 +579,7 @@ def _fase_apply(
                         res_ubic_a = aplica_automaticos(
                             conn,
                             dsn=dsn_ubic,
-                            cliente=apply._cliente_ajuste(platform, transport=None),
+                            cliente=aplicador._cliente(),
                             platform=platform,
                             cycle_id=origen,
                             settings=settings,
@@ -539,6 +623,8 @@ def _fase_apply(
         notas["apply_error"] = scrub(str(exc)) or type(exc).__name__
         fallo = True
         logger.warning("fase de apply abortada por error: %s", scrub(str(exc)))
+    finally:
+        _cierra_instancia(aplicador)
     return _FaseApply(
         notas=notas,
         fallo=fallo,

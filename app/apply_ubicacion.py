@@ -222,14 +222,17 @@ def reconcilia_automaticos(
         if leida is None or leida.estrategia_puja is None:
             continue
         if (getattr(leida, campo) or 0) != (getattr(destino, campo) or 0):
+            if tick is not None:
+                tick()
             registra_sin_aplicar(conn, evaluacion_id, MOTIVO_ERROR_PUT)
             cerradas += 1
             continue
+        if tick is not None:
+            tick()
         ahora = dt.datetime.now(dt.UTC)
-        with conn.transaction():
+        with tx_durable(conn):
             conn.execute(_SQL_CONFIRMA, (ahora, ajuste_id))
             guarda_config(conn, platform, [mezcla_observacion(antes, leida)], ahora)
-        conn.commit()
         selladas += 1
     return ResumenReconcilia(revisadas=len(filas), selladas=selladas, cerradas=cerradas)
 
@@ -265,10 +268,13 @@ def _motivo_sin_put(exc: Exception) -> str:
     return next(motivo for clase, motivo in _MOTIVO_SIN_PUT if isinstance(exc, clase))
 
 
-def _identidad_rechazada(exc: Exception) -> bool:
+def es_identidad_rechazada(exc: Exception) -> bool:
     return isinstance(exc, AdsAuthError) or (
         getattr(exc, "status", None) in STATUS_IDENTIDAD_RECHAZADA
     )
+
+
+_identidad_rechazada = es_identidad_rechazada
 
 
 def _cuenta_en_espera(conn: psycopg.Connection, platform: str) -> int:
@@ -426,10 +432,10 @@ def aplica_automaticos(
             )
             aplicadas += 1
         except _ERRORES_DE_ENVIO as exc:
+            if es_identidad_rechazada(exc):
+                raise
             if not vigilado.put_iniciado:
                 descarta(eval_id, _motivo_sin_put(exc))
-            if _identidad_rechazada(exc):
-                raise
         finally:
             conexion.close()
 
