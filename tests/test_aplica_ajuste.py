@@ -2169,7 +2169,7 @@ def test_reconcilia_sella_aunque_otro_campo_haya_cambiado(monkeypatch):
     with _db("orbit_aj_b12") as conn:
         camp, _cfg = _siembra(conn)
         remoto = _remoto_b11()
-        base, _vistos = _handler_mezcla(remoto)
+        base, vistos = _handler_mezcla(remoto)
         _creds_fake(monkeypatch)
         monkeypatch.setattr(time, "sleep", lambda _s: None)
         ajuste = CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
@@ -2177,7 +2177,12 @@ def test_reconcilia_sella_aunque_otro_campo_haya_cambiado(monkeypatch):
         cae = {"si": True}
 
         def con_readback_caido(request: httpx.Request) -> httpx.Response:
-            if cae["si"] and request.method == "POST" and request.url.path == "/sp/campaigns/list":
+            if (
+                cae["si"]
+                and request.method == "POST"
+                and request.url.path == "/sp/campaigns/list"
+                and any(r.method == "PUT" for r in vistos)
+            ):
                 return httpx.Response(500, json={"message": "caido"})
             return base(request)
 
@@ -2222,7 +2227,7 @@ def test_reconcilia_con_campo_distinto_no_sella(monkeypatch):
     with _db("orbit_aj_n6") as conn:
         camp, _cfg = _siembra(conn)
         remoto = _remoto_b11()
-        base, _vistos = _handler_mezcla(remoto)
+        base, vistos = _handler_mezcla(remoto)
         _creds_fake(monkeypatch)
         monkeypatch.setattr(time, "sleep", lambda _s: None)
         ajuste = CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=20)
@@ -2230,7 +2235,12 @@ def test_reconcilia_con_campo_distinto_no_sella(monkeypatch):
         cae = {"si": True}
 
         def con_readback_caido(request: httpx.Request) -> httpx.Response:
-            if cae["si"] and request.method == "POST" and request.url.path == "/sp/campaigns/list":
+            if (
+                cae["si"]
+                and request.method == "POST"
+                and request.url.path == "/sp/campaigns/list"
+                and any(r.method == "PUT" for r in vistos)
+            ):
                 return httpx.Response(500, json={"message": "caido"})
             return base(request)
 

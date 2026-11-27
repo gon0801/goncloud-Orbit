@@ -18,6 +18,7 @@ lo recibe ya armado.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -32,16 +33,19 @@ from app.ads.campana_config import (
 )
 from app.ads.client import AdsAuthError, AdsClientError
 from app.apply_ajustes import (
+    _SQL_AJUSTE_POR_HUELLA,
+    _SQL_PLATAFORMA_CAMPANA,
     AjusteEnCurso,
+    AjusteHecho,
     AjusteNoConfirmado,
     CambioExternoDetectado,
     HuellaDesactualizada,
+    _aplica_y_confirma,
     _config_leida,
-    aplica_ajuste_motor,
 )
 from app.apply_cuota import consume_quota
 from app.apply_estados import STATUS_IDENTIDAD_RECHAZADA
-from app.campana_ajustes import AjusteSinCambio, CambiarAjusteUbicacion
+from app.campana_ajustes import AjusteSinCambio, CambiarAjusteUbicacion, planea_ajuste
 from app.db import connect as db_connect
 from app.db import settings_vigentes, tx_durable
 from app.optimizer import goals as g
@@ -202,10 +206,11 @@ def reconcilia_automaticos(
 ) -> ResumenReconcilia:
     """Decide las intenciones automaticas pendientes leyendo Amazon, sin PUT.
 
-    Amazon muestra el destino: se sella. Muestra otro valor legible: la
-    intencion no llego (o el dueno la piso) y se cierra con `error_put`, para
-    que la campana no quede en `ajuste_en_vuelo` para siempre. Lectura
-    ilegible: queda pendiente hasta la siguiente reconciliacion.
+    Amazon muestra el porcentaje destino: se sella (como el readback, compara
+    solo el campo). Muestra otro valor legible: la intencion no llego (o el
+    dueno la piso) y se cierra con `error_put`, para que la campana no quede
+    en `ajuste_en_vuelo` para siempre. Lectura ilegible: queda pendiente hasta
+    la siguiente reconciliacion.
     """
     filas = conn.execute(_SQL_PENDIENTES, (platform,)).fetchall()
     selladas = cerradas = 0
@@ -220,7 +225,7 @@ def reconcilia_automaticos(
         leida = _config_leida(cliente, platform, externa)
         if leida is None or leida.estrategia_puja is None:
             continue
-        if not _coincide(leida, destino, campo):
+        if (getattr(leida, campo) or 0) != (getattr(destino, campo) or 0):
             registra_sin_aplicar(conn, evaluacion_id, MOTIVO_ERROR_PUT)
             cerradas += 1
             continue
@@ -248,14 +253,16 @@ def _sigue_vivo(conn: psycopg.Connection, platform: str, campana: int) -> bool:
     return objetivo is not None and objetivo.enabled and objetivo.mode == "live"
 
 
-def _cambio_en_consola(cliente, platform: str, vigente: ConfigCampana, ubicacion: str) -> bool:
-    """Revalidacion viva ANTES de cobrar cuota: el dueno pudo mover la campana
-    en su consola despues del sync. Una lectura sin estrategia no prueba nada:
-    la guardia dentro del candado repite la comparacion antes del PUT."""
+def _motivo_consola(cliente, platform: str, vigente: ConfigCampana, ubicacion: str) -> str | None:
+    """Revalidacion viva ANTES de cobrar cuota. Sin lectura completa no se
+    manda nada a ciegas; un valor distinto del juzgado es mano del dueno en la
+    consola despues del sync."""
     leida = _config_leida(cliente, platform, vigente.campana_externa)
     if leida is None or leida.estrategia_puja is None:
-        return False
-    return not _coincide(leida, vigente, _CAMPOS_POR_UBICACION[ubicacion])
+        return MOTIVO_ERROR_PUT
+    if not _coincide(leida, vigente, _CAMPOS_POR_UBICACION[ubicacion]):
+        return MOTIVO_CAMBIO_EXTERNO
+    return None
 
 
 def _motivo_sin_put(exc: Exception) -> str:
@@ -270,6 +277,85 @@ def _identidad_rechazada(exc: Exception) -> bool:
 
 def _cuenta_en_espera(conn: psycopg.Connection, platform: str) -> int:
     return conn.execute(_SQL_CUENTA_EN_ESPERA, (platform,)).fetchone()[0]
+
+
+_SQL_INSERTA_AUTOMATICO = """
+INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
+    huella, actor, go_literal, evaluacion_id)
+VALUES (%s, %s, %s, %s, %s, %s, 'orbit_ubicacion', 'AUTO_UBICACION', %s)
+ON CONFLICT (huella) DO NOTHING
+RETURNING id
+"""
+
+
+def aplica_ajuste_motor(
+    conn,
+    cliente,
+    *,
+    campana_id: int,
+    plataforma: str,
+    ajuste,
+    evaluacion_id: int,
+) -> AjusteHecho:
+    """Aplica un ajuste nacido de una evaluacion `live` de ubicaciones.
+
+    Camino compartido con el manual: escribe la intencion ANTES del HTTP y
+    confirma con readback, pero sin exigir el literal humano y con la huella
+    `auto:<evaluacion_id>:<huella del plan>` (permite re-aplicar tras un
+    regreso del dueno sin chocar en UNIQUE(huella)). El rol `app_decide` y la
+    frontera de la migracion 0104 garantizan que solo se ejecute lo que nacio
+    de una evaluacion `live` con veredicto `mover` de la misma campana.
+    """
+    fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (campana_id,)).fetchone()
+    if fila is None or fila[0] != plataforma:
+        raise ValueError(f"campana {campana_id} no es de {plataforma}")
+    antes_id, vigente = config_vigente_con_id(conn, campana_id)
+    if vigente is None:
+        raise HuellaDesactualizada(
+            f"campana {campana_id} sin configuracion vigente: no hay ajuste", None
+        )
+    plan = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=plataforma)
+    huella = f"auto:{evaluacion_id}:{plan.huella()}"
+    existente = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
+    if existente is not None:
+        _eid, confirmada, ecamp, _eclase = existente
+        if ecamp != campana_id:
+            raise ValueError(f"la huella {huella} es de otra campana")
+        if confirmada:
+            return AjusteHecho(_eid, campana_id, plan.clase, True)
+        ajuste_id = _eid
+    else:
+        metida = conn.execute(
+            _SQL_INSERTA_AUTOMATICO,
+            (
+                campana_id,
+                plataforma,
+                plan.clase,
+                antes_id,
+                json.dumps(plan.despues.como_json()),
+                huella,
+                evaluacion_id,
+            ),
+        ).fetchone()
+        if metida is None:
+            ganadora = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
+            if ganadora is not None and ganadora[1]:
+                return AjusteHecho(ganadora[0], campana_id, plan.clase, True)
+            raise AjusteEnCurso(f"huella {huella} en curso en otro intento: reintenta")
+        ajuste_id = metida[0]
+    conn.commit()
+    _aplica_y_confirma(
+        conn,
+        cliente,
+        plataforma,
+        plan.clase,
+        plan.despues,
+        plan.ajuste,
+        campana_id=campana_id,
+        ajuste_id=ajuste_id,
+        previa=plan.antes,
+    )
+    return AjusteHecho(ajuste_id, campana_id, plan.clase, True)
 
 
 def aplica_automaticos(
@@ -323,8 +409,9 @@ def aplica_automaticos(
         conexion = abrir()
         vigilado = _ClienteVigilado(cliente)
         try:
-            if _cambio_en_consola(vigilado, platform, vigente, veredicto.ubicacion):
-                descarta(eval_id, MOTIVO_CAMBIO_EXTERNO)
+            motivo = _motivo_consola(vigilado, platform, vigente, veredicto.ubicacion)
+            if motivo is not None:
+                descarta(eval_id, motivo)
                 continue
             with tx_durable(conn):
                 usada = consume_quota(conn, platform, "ubicacion")

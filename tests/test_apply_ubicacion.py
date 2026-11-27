@@ -19,8 +19,8 @@ from app.ads.campana_config import (
 )
 from app.ads.client import AdsApiError
 from app.ads.write import AdsApiErrorMutacion
-from app.apply_ajustes import aplica_ajuste_campana, aplica_ajuste_motor
-from app.apply_ubicacion import aplica_automaticos, reconcilia_automaticos
+from app.apply_ajustes import aplica_ajuste_campana
+from app.apply_ubicacion import aplica_ajuste_motor, aplica_automaticos, reconcilia_automaticos
 from app.campana_ajustes import CambiarAjusteUbicacion, planea_ajuste
 from app.db import OrbitDbError
 from app.optimizer.caso import EconomiaPlataforma
@@ -823,3 +823,92 @@ def test_pujas_pendientes_aparta_las_ubicaciones_del_ciclo():
         )
         assert (resumen.aplicadas, resumen.sin_aplicar) == (0, ((eval_id, "pujas_pendientes"),))
         assert (cliente.puts, _cuenta(conn, "apply_quota_state")) == (0, 0)
+
+
+def _plan_manual(conn, camp: int, porcentaje: int):
+    return planea_ajuste(
+        config_vigente(conn, camp),
+        CambiarAjusteUbicacion(ubicacion="arriba_de_busqueda", porcentaje=porcentaje),
+        campana_id=camp,
+        plataforma="amazon_mx",
+    )
+
+
+def _manual(monkeypatch, conn, plan, cliente):
+    monkeypatch.setattr(apply, "_cliente_ajuste", lambda _plat, transport=None: cliente)
+    return aplica_ajuste_campana(
+        conn, plan, huella=plan.huella(), confirmacion="APLICAR AJUSTE", actor="dueno"
+    )
+
+
+@_skip_db
+def test_manual_con_cambio_en_consola_no_deja_fila_que_bloquee_ubicaciones(monkeypatch):
+    """Neon #786 r1: aplicar o regresar a mano con la consola cambiada responde
+    409 sin escribir una orden que AUTO-04 veria en vuelo para siempre."""
+    from app.apply_ajustes import CambioExternoDetectado, regresa_ajuste_campana
+
+    with _db() as (conn, _dsn):
+        camp, _config_id = _siembra(conn, top=0)
+        with pytest.raises(CambioExternoDetectado):
+            _manual(
+                monkeypatch,
+                conn,
+                _plan_manual(conn, camp, 20),
+                ClienteFalso(_config(25), _config(25)),
+            )
+        assert _cuenta(conn, "campana_ajuste") == 0
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset()
+
+        hecho = _manual(
+            monkeypatch, conn, _plan_manual(conn, camp, 20), ClienteFalso(_config(0), _config(20))
+        )
+        monkeypatch.setattr(
+            apply,
+            "_cliente_ajuste",
+            lambda _plat, transport=None: ClienteFalso(_config(30), _config(30)),
+        )
+        with pytest.raises(CambioExternoDetectado):
+            regresa_ajuste_campana(conn, ajuste_id=hecho.ajuste_id, actor="dueno")
+        assert _cuenta(conn, "campana_ajuste") == 1, "el regreso rechazado no deja fila hija"
+        assert campanas_con_ajuste_en_vuelo(conn, "amazon_mx") == frozenset()
+
+
+@_skip_db
+def test_reintento_manual_sella_sin_put_si_el_anterior_ya_llego(monkeypatch):
+    """Neon #786 r1: el PUT llego pero el readback fallo; el reintento ve el
+    destino en Amazon y sella la orden pendiente sin un segundo PUT."""
+    with _db() as (conn, _dsn):
+        camp, _config_id = _siembra(conn, top=0)
+        plan = _plan_manual(conn, camp, 20)
+        with pytest.raises(AdsApiError):
+            _manual(
+                monkeypatch,
+                conn,
+                plan,
+                ClienteFalla(_config(0), donde="readback", exc=_error_api(500)),
+            )
+        cliente = ClienteFalso(_config(20), _config(20))
+        hecho = _manual(monkeypatch, conn, plan, cliente)
+        assert (hecho.confirmada, cliente.puts) == (True, 0)
+        assert conn.execute(
+            "SELECT count(*), bool_and(confirmado_el IS NOT NULL) FROM campana_ajuste"
+        ).fetchone() == (1, True)
+
+
+@_skip_db
+def test_lectura_viva_incompleta_descarta_sin_cuota_ni_put():
+    """Neon #786 r1: sin lectura viva completa el ejecutor no manda un PUT a
+    ciegas ni gasta cuota."""
+    with _db() as (conn, dsn):
+        cv = _config_version(conn, _settings())
+        camp, config_id = _siembra(conn, top=0)
+        ciclo = _ciclo(conn)
+        eval_id = _eval(conn, ciclo=ciclo, campana=camp, antes=config_id, cv=cv, de_pct=0, a_pct=15)
+        cliente = _ClienteIlegible(_config(0), _config(15))
+        resumen = _corre(conn, dsn, ciclo, cliente)
+        assert resumen.sin_aplicar == ((eval_id, "error_put"),)
+        assert (
+            cliente.puts,
+            _cuenta(conn, "apply_quota_state"),
+            _cuenta(conn, "campana_ajuste"),
+        ) == (0, 0, 0)

@@ -76,13 +76,6 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (regresa_a) DO NOTHING
 RETURNING id
 """
-_SQL_INSERTA_AUTOMATICO = """
-INSERT INTO campana_ajuste (campana_id, platform, clase, antes_config_id, despues,
-    huella, actor, go_literal, evaluacion_id)
-VALUES (%s, %s, %s, %s, %s, %s, 'orbit_ubicacion', 'AUTO_UBICACION', %s)
-ON CONFLICT (huella) DO NOTHING
-RETURNING id
-"""
 _SQL_CONFIRMA_AJUSTE = """
 UPDATE campana_ajuste SET confirmado_el = %s WHERE id = %s
 """
@@ -354,21 +347,11 @@ def _aplica_y_confirma(
             raise HuellaDesactualizada("el vigente cambio antes de enviar el ajuste", None)
         if isinstance(ajuste, CambiarAjusteUbicacion):
             actual = _config_leida(cliente, plataforma, destino.campana_externa)
-            # Sin estrategia la lectura es incompleta (Amazon no trae la
-            # campana): se conserva el fallback de abajo. Con estrategia, un
-            # valor distinto del juzgado es mano del dueno en la consola.
-            if actual is not None and actual.estrategia_puja is not None:
-                campo = campo_del_ajuste(ajuste)
-                if actual.estrategia_puja != previa.estrategia_puja or (
-                    (getattr(actual, campo) or 0) != (getattr(previa, campo) or 0)
-                ):
-                    raise CambioExternoDetectado(
-                        f"ajuste {ajuste_id}: Amazon tiene {campo}="
-                        f"{getattr(actual, campo)!r} y estrategia "
-                        f"{actual.estrategia_puja!r}; se juzgo "
-                        f"{getattr(previa, campo)!r} / {previa.estrategia_puja!r}",
-                        None,
-                    )
+            if _ya_en_destino(ajuste, actual, previa, destino):
+                # El PUT de un intento anterior ya llego (readback fallido).
+                _sella(conn, plataforma, ajuste_id, previa, actual)
+                return
+            _exige_previa(ajuste, actual, previa)
             strategy = actual.estrategia_puja if actual is not None else None
             if strategy is None:
                 # La lectura no trae dynamicBidding (raro: el vigente si
@@ -394,14 +377,45 @@ def _aplica_y_confirma(
                 f"ajuste {ajuste_id}: Amazon no confirma la config enviada"
                 " (readback distinto); la fila queda sin confirmar"
             )
-        ahora = datetime.datetime.now(datetime.UTC)
-        with conn.transaction():
-            conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
-            guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
-        conn.commit()
+        _sella(conn, plataforma, ajuste_id, previa, leida)
     except BaseException:
         conn.rollback()
         raise
+
+
+def _sella(conn, plataforma, ajuste_id, previa, leida) -> None:
+    """Confirma la orden y guarda lo leido mezclado sobre `previa` (B1)."""
+    ahora = datetime.datetime.now(datetime.UTC)
+    with conn.transaction():
+        conn.execute(_SQL_CONFIRMA_AJUSTE, (ahora, ajuste_id))
+        guarda_config(conn, plataforma, [mezcla_observacion(previa, leida)], ahora)
+    conn.commit()
+
+
+def _ya_en_destino(ajuste, actual, previa, destino) -> bool:
+    return (
+        actual is not None
+        and actual.estrategia_puja == previa.estrategia_puja
+        and coincide_campo(ajuste, actual, destino)
+    )
+
+
+def _exige_previa(ajuste, actual, previa) -> None:
+    """Un valor o una estrategia vivos distintos de lo juzgado son mano del
+    dueno en la consola despues del sync: 409 sin PUT ni fila nueva. Sin
+    estrategia la lectura es incompleta y no prueba nada."""
+    if actual is None or actual.estrategia_puja is None:
+        return
+    campo = campo_del_ajuste(ajuste)
+    if actual.estrategia_puja != previa.estrategia_puja or (
+        (getattr(actual, campo) or 0) != (getattr(previa, campo) or 0)
+    ):
+        raise CambioExternoDetectado(
+            f"Amazon tiene {campo}={getattr(actual, campo)!r} y estrategia"
+            f" {actual.estrategia_puja!r}; se juzgo {getattr(previa, campo)!r} /"
+            f" {previa.estrategia_puja!r}. Recarga tras el siguiente sync.",
+            None,
+        )
 
 
 def _pendientes_hn(conn, huella: str, campana_id: int, clase: str) -> list:
@@ -580,6 +594,9 @@ def aplica_ajuste_campana(
         raise HuellaDesactualizada("el vigente cambio desde la vista previa", fresco)
     cliente = apply._cliente_ajuste(plan.plataforma, transport=transport)
     if ajuste_id is None:
+        if isinstance(plan.ajuste, CambiarAjusteUbicacion):
+            leida = _config_leida(cliente, plan.plataforma, plan.antes.campana_externa)
+            _exige_previa(plan.ajuste, leida, plan.antes)
         metida = conn.execute(
             _SQL_INSERTA_AJUSTE,
             (
@@ -613,76 +630,6 @@ def aplica_ajuste_campana(
         previa=plan.antes,
     )
     return AjusteHecho(ajuste_id, plan.campana_id, plan.clase, True)
-
-
-def aplica_ajuste_motor(
-    conn,
-    cliente,
-    *,
-    campana_id: int,
-    plataforma: str,
-    ajuste,
-    evaluacion_id: int,
-) -> AjusteHecho:
-    """Aplica un ajuste nacido de una evaluacion `live` de ubicaciones.
-
-    Camino compartido con el manual: escribe la intencion ANTES del HTTP y
-    confirma con readback, pero sin exigir el literal humano y con la huella
-    `auto:<evaluacion_id>:<huella del plan>` (permite re-aplicar tras un
-    regreso del dueno sin chocar en UNIQUE(huella)). El rol `app_decide` y la
-    frontera de la migracion 0104 garantizan que solo se ejecute lo que nacio
-    de una evaluacion `live` con veredicto `mover` de la misma campana.
-    """
-    fila = conn.execute(_SQL_PLATAFORMA_CAMPANA, (campana_id,)).fetchone()
-    if fila is None or fila[0] != plataforma:
-        raise ValueError(f"campana {campana_id} no es de {plataforma}")
-    antes_id, vigente = config_vigente_con_id(conn, campana_id)
-    if vigente is None:
-        raise HuellaDesactualizada(
-            f"campana {campana_id} sin configuracion vigente: no hay ajuste", None
-        )
-    plan = planea_ajuste(vigente, ajuste, campana_id=campana_id, plataforma=plataforma)
-    huella = f"auto:{evaluacion_id}:{plan.huella()}"
-    existente = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
-    if existente is not None:
-        _eid, confirmada, ecamp, _eclase = existente
-        if ecamp != campana_id:
-            raise ValueError(f"la huella {huella} es de otra campana")
-        if confirmada:
-            return AjusteHecho(_eid, campana_id, plan.clase, True)
-        ajuste_id = _eid
-    else:
-        metida = conn.execute(
-            _SQL_INSERTA_AUTOMATICO,
-            (
-                campana_id,
-                plataforma,
-                plan.clase,
-                antes_id,
-                json.dumps(plan.despues.como_json()),
-                huella,
-                evaluacion_id,
-            ),
-        ).fetchone()
-        if metida is None:
-            ganadora = conn.execute(_SQL_AJUSTE_POR_HUELLA, (huella,)).fetchone()
-            if ganadora is not None and ganadora[1]:
-                return AjusteHecho(ganadora[0], campana_id, plan.clase, True)
-            raise AjusteEnCurso(f"huella {huella} en curso en otro intento: reintenta")
-        ajuste_id = metida[0]
-    conn.commit()
-    _aplica_y_confirma(
-        conn,
-        cliente,
-        plataforma,
-        plan.clase,
-        plan.despues,
-        plan.ajuste,
-        campana_id=campana_id,
-        ajuste_id=ajuste_id,
-        previa=plan.antes,
-    )
-    return AjusteHecho(ajuste_id, campana_id, plan.clase, True)
 
 
 def reconcilia_ajuste_campana(
@@ -795,6 +742,7 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
         conn.execute(_SQL_DESPUES_POR_ID, (ajuste_id,)).fetchone()[0]
     )
     ajuste_hijo = _ajuste_hacia(clase, antes, despues_padre)
+    cliente = apply._cliente_ajuste(plataforma, transport=transport)
     if hijo is not None and not hijo[1]:
         if _superada(
             conn,
@@ -819,6 +767,9 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
             despues=antes,
             frase=(f"Orbit regresa la campaña {antes.campana_externa} a su configuración de antes"),
         )
+        if isinstance(ajuste_hijo, CambiarAjusteUbicacion):
+            leida = _config_leida(cliente, plataforma, antes.campana_externa)
+            _exige_previa(ajuste_hijo, leida, vigente)
         metido = conn.execute(
             _SQL_INSERTA_REGRESO,
             (
@@ -839,7 +790,6 @@ def regresa_ajuste_campana(conn, *, ajuste_id: int, actor: str, transport=None) 
                 raise AjusteYaRegresado(f"ajuste {ajuste_id} ya tiene su regreso")
             raise AjusteEnCurso(f"regreso de {ajuste_id} en curso en otro intento: reintenta")
         nuevo_id = metido[0]
-    cliente = apply._cliente_ajuste(plataforma, transport=transport)
     conn.commit()
     _aplica_y_confirma(
         conn,
