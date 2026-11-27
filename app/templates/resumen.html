@@ -126,7 +126,7 @@
     <h2>Totales {{ grupo.moneda }}</h2>
     <div class="grupo-metricas">
       {% for clave, etiqueta, tipo in metricas %}
-      <div class="kpi">
+      <div class="kpi kpi-{{ clave }}">
         <span class="kpi-etiqueta">{{ etiqueta }}</span>
         <strong class="kpi-valor">{{ cifra(grupo[clave], tipo) }}</strong>
         {% if tipo == 'dinero' %}<span class="kpi-contexto">{{ grupo.moneda }}</span>{% endif %}
@@ -179,6 +179,7 @@
     {% endfor %}
   </div>
 </section>
+</div>
 
 <aside class="resumen-canales">
 <section class="resumen-seccion" aria-labelledby="sec-canales">
@@ -263,7 +264,6 @@
   </div>
 </section>
 </aside>
-</div>
 
 <section class="resumen-seccion" aria-labelledby="sec-detalle">
   <div class="sec-head">
