@@ -88,12 +88,12 @@
     {
       "name": "fabrica-01",
       "path": "plans/fabrica-01.md",
-      "description": "FABRICA 01 / ORBIT 17 — implementada; sonda real ejecutada 2026-09-09. Falta cierre documental del paso 4 de tarea 11; seguimiento junto a FABRICA 02 D.3 en ROADMAP P02."
+      "description": "FABRICA 01 / ORBIT 17 — CERRADO 2026-11-27 UTC (P02): sonda real ejecutada 2026-09-09 y paso 4 de tarea 11 acreditado (77 decisiones del motor en grupo 1 desde 2026-09-19). Acta en docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md."
     },
     {
       "name": "fabrica-ui-01",
       "path": "plans/fabrica-ui-01.md",
-      "description": "FABRICA UI 01 / ORBIT 17 — interfaz implementada y usada en sonda real 2026-09-09. Cierre operativo conjunto en ROADMAP P02."
+      "description": "FABRICA UI 01 / ORBIT 17 — CERRADO 2026-11-27 UTC (P02): interfaz implementada, usada en sonda real 2026-09-09 y cierre operativo conjunto acreditado en docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md."
     },
     {
       "name": "orbit-ui-01",
@@ -128,7 +128,7 @@
     {
       "name": "fabrica-02",
       "path": "plans/fabrica-02.md",
-      "description": "FABRICA 02 / AUTO-02 — codigo y D.1/D.2/D.4 entregados. D.3 sigue abierto: cero harvests por grupo y ninguno con hermanas al 2026-11-04; falta primer caso natural y ensayo de reversa (P02)."
+      "description": "FABRICA 02 / AUTO-02 — CERRADO 2026-11-27 UTC (P02): codigo, D.1/D.2/D.4 y D.3 completos. Primer harvest natural por grupo verificado (job=12, grupo 3 AGM2M, exacta + 2/2 hermanas + biblioteca + ledger), dry-run de reversa verificado (dueno decidio no archivar termino ganador) y paso 4 de Fabrica 01 anexado. Acta en docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md."
     },
     {
       "name": "jev-ads-01",

@@ -77,7 +77,6 @@ Los P del [ROADMAP](ROADMAP.md) conservan su evidencia fechada. «Falta comproba
 | Seguimiento | Pendiente real / dependencia |
 |---|---|
 | Actas de la base integrada | Migraciones, configuración y cierres específicos de 01/02/ORBIT 07/CLARIDAD/DISEÑOS. Runtime ya coincide; no reejecutar implementaciones. |
-| P02 — FABRICA 01/UI/02 | Un cierre conjunto: paso 4 de tarea 11, primer harvest natural por grupo y ensayo de reversa. No repetir la sonda de creación del 9-sep. Operar tras cerrar 02 en 04 B-C y 03/10 en 05 B. |
 | P03 — ADS PROTECCION C.6 | Completar P2 (cobertura, elegibilidad y maduración); después expediente P3, cinco ciclos propios P4 y live P5 con sus gates. No superponer sombra global cero-applies con encendidos de TEMPORADA. |
 | P05 — reseñas Amazon | La última foto no tiene ingesta exitosa; **03 D-B retira Apify**. Seguir esa retirada, no recargar crédito ni activar el camino viejo. Una fuente nueva para Reputación 02 requiere brief propio. No declarar retirada ejecutada hasta su evidencia. |
 | P06 — ORBIT 02/cloudflared | Externo: inventario de rutas y ventana de rotación. No reabrir migración/apagado ya cerrados. |
@@ -89,7 +88,7 @@ Los P del [ROADMAP](ROADMAP.md) conservan su evidencia fechada. «Falta comproba
 | RESUMEN ADS 04 | Revisión visual productiva no acreditada en su plan; runtime y conciliación son evidencias distintas. P01 ya cerrado. |
 | Pausa por producto / AUTO-03 | Encendido del dueño separado de implementación y de ORBIT 07; conservar el modo documentado hasta evidencia de cambio. |
 
-**P01 y P04 ya están cerrados con evidencia**; no son pendientes. P10, P11 y P12 no son órdenes de implementación: se clasifican abajo. Los bloqueos P06/P13 y el calendario P08 no detienen toda la cola.
+**P01, P02 y P04 ya están cerrados con evidencia**; no son pendientes (P02 cerrado 27-nov-2026 UTC en [docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md](../docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md)). P10, P11 y P12 no son órdenes de implementación: se clasifican abajo. Los bloqueos P06/P13 y el calendario P08 no detienen toda la cola.
 
 ## Futuros sin implementación autorizada
 

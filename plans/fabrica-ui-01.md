@@ -1,6 +1,6 @@
 # FABRICA UI 01 — Implementacion
 
-> **Estado al 4-nov-2026: INTERFAZ IMPLEMENTADA.** La sonda del 9-sep se ejecutó desde el dashboard. El cierre operativo de ORBIT 17 se sigue en [ROADMAP P02](ROADMAP.md#pendientes-de-operación-y-cierre); los checklists originales de esta guía no equivalen a trabajo nuevo pendiente.
+> **Estado al 27-nov-2026: CERRADA (ROADMAP P02 cerrado).** La sonda del 9-sep se ejecutó desde el dashboard y el cierre operativo conjunto de ORBIT 17 quedó acreditado en [cierre-p02-2026-11-27.md](../docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md).
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development.
 > Spec: docs/superpowers/specs/2026-09-06-fabrica-ui-design.md

@@ -1,6 +1,6 @@
 # FABRICA 01 — fábrica de campañas Amazon SP por grupo (Phase F1) — Implementation Plan
 
-> **Estado al 4-nov-2026: IMPLEMENTADA, cierre operativo pendiente (ROADMAP P02).** La sonda real de tarea 11 se ejecutó el 9-sep; no repetirla. Queda anexar el cierre del paso 4 y completar FABRICA 02 D.3 para ORBIT 17. F2 ya está construida en [FABRICA 02](fabrica-02.md).
+> **Estado al 27-nov-2026: CERRADA (ROADMAP P02 cerrado).** La sonda real de tarea 11 se ejecutó el 9-sep; el paso 4 (77 decisiones en grupo 1 desde el 19-sep) y FABRICA 02 D.3 quedaron cerrados en [cierre-p02-2026-11-27.md](../docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md). F2 está cerrada en [FABRICA 02](fabrica-02.md).
 >
 > **v2 tras ronda 1 de cross-review (grok 2026-09-05: 5 ALTA + 9 MEDIA + 6 BAJA — todo
 > incorporado o declarado).** Altas: desarmar desde `fabrica_lote_paso` (cubre lote a
@@ -5806,8 +5806,7 @@ E   AssertionError: assert {'filtroEquiv... ['no-esta']}} == {'campaignIdF... ['
   sugerencia usa la suya; las sin sugerencia usan el promedio simple del rol (acotado
   por piso/techo); rol con cero sugerencias sigue manual. Brief para GLM emitido;
   implementación en PR propio.
-- **Pendiente para cerrar la tarea**: paso 4 (ciclo 2026-09-09 08:41 UTC lista las 5
-  campañas con goal `shadow` como elegibles).
+- **Paso 4 cerrado (2026-11-27 UTC, ROADMAP P02):** lectura `orbit_read` confirmó las 5 campañas del grupo 1 (`ENABLED`, goals `8–12` en `live`) incorporadas al motor con **77 decisiones** registradas entre `2026-09-19` y `2026-11-13` (`category_exact`: 11, `category_phrase`: 29, `category_broad`: 30, `product_targeting`: 7). Evidencia: `docs/evidencia/fabrica-02/D.3/cierre-p02-2026-11-27.md`.
 
 ## Fuera de este plan (F2, spec §7)
 
