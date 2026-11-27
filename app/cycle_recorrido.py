@@ -16,6 +16,7 @@ import psycopg
 from app import (
     apply,
     apply_cola,
+    pausa_economica_io,
     propuestas_campana,
     proteccion_venta,
     temporada_io,
@@ -69,15 +70,24 @@ from app.cycle_temporada import (
 from app.lecturas_caso import LecturasPlataforma, lee_plataforma
 from app.optimizer import cortes, hygiene, productos, temporada, windows
 from app.optimizer import goals as g
+from app.optimizer import pausa_economica as regla_pausa
 from app.optimizer import proteccion as subproteccion
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import BidVigente, EconomiaPlataforma, InsumosRecuperacion
+from app.optimizer.pausa_economica import (
+    MOTIVO_PAUSE_ECONOMICA,
+    POLITICA_PAUSE_ECONOMICA_V2,
+    TOPE_PAUSA_ECONOMICA_CICLO,
+    EntradaPausaEconomica,
+    evalua_pausa_economica,
+)
 from app.optimizer.politica import Mantener, Pausar, decide
 from app.optimizer.ubicacion import (
     decide_ubicacion,
     modo_efectivo,
     modo_ubicacion_desde_settings,
 )
+from app.redaction import scrub
 from app.ubicacion_io import lee_casos
 
 _SQL_CAMPANAS = """
@@ -159,14 +169,18 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
     margen_plataforma: Decimal | None,
     snapshot_margen: dict,
     familias_ciclo: _FamiliasCiclo,
-    pause_economica: bool,
+    modo_economica: str,
     politica: str | None,
+    politica_economica: str | None,
+    economia_live: bool,
     lecturas: LecturasPlataforma | None,
     productos_ciclo: _ProductosCiclo | None = None,
     grupos_pausa_producto: frozenset[int] = frozenset(),
     hojas_bid_en_vuelo: frozenset[int] = frozenset(),
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
     claves_released: frozenset[tuple[int, str, str | None]] = frozenset(),
+    reciente_cache: pausa_economica_io.CacheRecienteEconomica | None = None,
+    pausas_diferidas: list | None = None,
     decisor=decide,
 ) -> None:
     (
@@ -332,8 +346,9 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         entidad_id=entidad_id,
         decided_at=decided_at,
         corte_pause=corte_pause,
-        pause_economica=pause_economica,
+        politica_economica=politica_economica,
         proteccion_cache=proteccion_cache,
+        reciente_cache=reciente_cache,
         mult_baja=mult_live,
         cerca=cerca_live,
     )
@@ -354,8 +369,9 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         frontera_h=frontera_h,
         en_vuelo=efecto_en_vuelo,
         evidencia=evidencia,
-        pause_economica=pause_economica,
+        politica_economica=politica_economica,
         proteccion_cache=proteccion_cache,
+        reciente_cache=reciente_cache,
     )
     caso, caso_sombra = lecturas.casos(
         conn,
@@ -371,83 +387,203 @@ def _procesa_decisora(  # noqa: PLR0915 - recorrido unico de una hoja
         frontera_h=frontera_h,
     )
     veredicto = decisor(caso)
-    _anota_regreso_retenido(
-        contadores,
-        lecturas,
-        caso,
-        veredicto,
-        frontera_h,
-        entidad_id,
-        current_bid,
-        floor=floor,
-        techo=ceiling,
-        pendiente_t=pendiente_t,
-    )
-    if caso_sombra is not None:
-        _compara_temporada(
-            contadores, entidad_id, caso, veredicto, decisor(caso_sombra), caso_sombra
-        )
-    _anota_sombra(
-        productos_ciclo,
-        entidad_id=entidad_id,
-        ad_group_id=ad_group_id,
-        meta_viva=meta_viva,
-        target=target,
-        procedencia=procedencia,
-        actual=veredicto,
-    )
     tick()
-    protegida = _proteccion_activa(
-        platform=platform,
+    _anota_evaluacion_economica(
+        contadores,
         entidad_id=entidad_id,
-        target=target,
-        corte_pause=corte_pause,
+        platform=platform,
+        modo_economica=modo_economica,
+        economia_live=economia_live,
         cortes_hoja=cortes_hoja,
-        costo_piso=costo_piso,
-        pausa=pausa,
-        proteccion_cache=proteccion_cache,
-        contadores=contadores,
+        reciente=caso.pausa.reciente_economica,
+        target=target,
+        exceso_minimo=pausa.exceso_minimo,
         decided_at=decided_at,
     )
-    if isinstance(veredicto, Pausar) and (bloqueada or protegida):
-        contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
-        return
-    if isinstance(veredicto, Mantener):
-        contadores.skips_entidad[veredicto.motivo] += 1
-        return
-    if entidad_id in hojas_bid_en_vuelo and not isinstance(veredicto, Pausar):
-        contadores.skips_entidad[MOTIVO_BID_EN_VUELO] += 1
-        return
-    if (
-        ad_group_id in grupos_pausa_producto
-        and not isinstance(veredicto, Pausar)
-        and current_bid is not None
-        and veredicto.bid_nuevo > current_bid
-    ):
-        contadores.skips_entidad[MOTIVO_PAUSA_PRODUCTO_PENDIENTE] += 1
-        return
-    if isinstance(veredicto, Pausar) and g.en_cooldown(
-        conn, entidad_id, ahora=decided_at, kind="pause"
-    ):
-        contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
-        return
-    pendiente = _estampa_temporada(
-        pendiente_bid(
-            caso,
-            veredicto,
-            modo=modo,
-            goal=goal,
-            decidido_el=decided_at,
+
+    def _emite(caso_e, veredicto_e, sombra_e) -> None:
+        _anota_regreso_retenido(
+            contadores,
+            lecturas,
+            caso_e,
+            veredicto_e,
+            frontera_h,
+            entidad_id,
+            current_bid,
+            floor=floor,
+            techo=ceiling,
+            pendiente_t=pendiente_t,
+        )
+        if sombra_e is not None:
+            _compara_temporada(
+                contadores, entidad_id, caso_e, veredicto_e, decisor(sombra_e), sombra_e
+            )
+        _anota_sombra(
+            productos_ciclo,
+            entidad_id=entidad_id,
+            ad_group_id=ad_group_id,
+            meta_viva=meta_viva,
+            target=target,
             procedencia=procedencia,
-            snapshot=snapshot,
-            corte=corte_pause,
-            evidencia=evidencia,
-            cost_min=costo_piso,
+            actual=veredicto_e,
+        )
+        protegida = _proteccion_activa(
+            platform=platform,
+            entidad_id=entidad_id,
+            target=target,
+            corte_pause=corte_pause,
+            cortes_hoja=cortes_hoja,
+            costo_piso=costo_piso,
+            pausa=pausa,
+            proteccion_cache=proteccion_cache,
+            contadores=contadores,
+            decided_at=decided_at,
+        )
+        if isinstance(veredicto_e, Pausar) and (bloqueada or protegida):
+            contadores.skips_entidad[MOTIVO_VETO_PENDIENTE] += 1
+            return
+        if isinstance(veredicto_e, Mantener):
+            contadores.skips_entidad[veredicto_e.motivo] += 1
+            return
+        if entidad_id in hojas_bid_en_vuelo and not isinstance(veredicto_e, Pausar):
+            contadores.skips_entidad[MOTIVO_BID_EN_VUELO] += 1
+            return
+        if (
+            ad_group_id in grupos_pausa_producto
+            and not isinstance(veredicto_e, Pausar)
+            and current_bid is not None
+            and veredicto_e.bid_nuevo > current_bid
+        ):
+            contadores.skips_entidad[MOTIVO_PAUSA_PRODUCTO_PENDIENTE] += 1
+            return
+        if isinstance(veredicto_e, Pausar) and g.en_cooldown(
+            conn, entidad_id, ahora=decided_at, kind="pause"
+        ):
+            contadores.skips_entidad[MOTIVO_COOLDOWN_7D] += 1
+            return
+        pendiente = _estampa_temporada(
+            pendiente_bid(
+                caso_e,
+                veredicto_e,
+                modo=modo,
+                goal=goal,
+                decidido_el=decided_at,
+                procedencia=procedencia,
+                snapshot=snapshot,
+                corte=corte_pause,
+                evidencia=evidencia,
+                cost_min=costo_piso,
+            ),
+            frontera_h,
+        )
+        pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
+        contadores.decisiones["pause" if isinstance(veredicto_e, Pausar) else "bid"] += 1
+
+    # P03: en `live` las pausas economicas se difieren hasta conocer el total
+    # del mercado; con 6 o mas el cortacircuito las retira y re-juzga la puja.
+    if (
+        economia_live
+        and pausas_diferidas is not None
+        and isinstance(veredicto, Pausar)
+        and veredicto.motivo == MOTIVO_PAUSE_ECONOMICA
+    ):
+        pausas_diferidas.append((caso, veredicto, caso_sombra, _emite))
+        return
+    _emite(caso, veredicto, caso_sombra)
+
+
+def _anota_evaluacion_economica(
+    contadores: _Contadores,
+    *,
+    entidad_id: int,
+    platform: str,
+    modo_economica: str,
+    economia_live: bool,
+    cortes_hoja: windows.AgregadoMetricas | None,
+    reciente,
+    target: Decimal,
+    exceso_minimo: Decimal | None,
+    decided_at: dt.datetime,
+) -> None:
+    """Registra UNA fila por hoja elegible (seccion 3.9 del plan).
+
+    Sin ventana de cortes no hay columnas ciertas: la hoja se cuenta en
+    `sin_cortes` y no se escribe. En `live` la regla la vuelve a correr
+    `_decide_pause` (misma funcion pura, misma entrada congelada)."""
+    if modo_economica == "off":
+        return
+    if cortes_hoja is None:
+        contadores.pausa_economica_sin_cortes += 1
+        return
+    moneda = PLATAFORMAS_MONEDA[platform]
+    entrada = EntradaPausaEconomica(
+        cortes=cortes_hoja,
+        reciente=reciente,
+        moneda=moneda,
+        target_acos_pct=target,
+        exceso_minimo=(
+            exceso_minimo if exceso_minimo is not None else regla_pausa.EXCESO_MINIMO[moneda]
         ),
-        frontera_h,
     )
-    pendientes.append(replace(pendiente, evaluacion_producto=evaluacion_producto))
-    contadores.decisiones["pause" if isinstance(veredicto, Pausar) else "bid"] += 1
+    contadores.pausa_economica_evals.append(
+        pausa_economica_io.EvaluacionPausa(
+            ad_entity_id=entidad_id,
+            platform=platform,
+            modo="live" if economia_live else "shadow",
+            decided_at=decided_at,
+            ventana_desde=cortes_hoja.window_end + dt.timedelta(days=1),
+            ventana_hasta=decided_at.astimezone(dt.UTC).date() - dt.timedelta(days=1),
+            moneda=moneda,
+            target_acos_pct=target,
+            entrada=entrada,
+            veredicto=evalua_pausa_economica(entrada),
+        )
+    )
+
+
+def _rejuzga_pausas_economicas(contadores: _Contadores, pausas_diferidas: list, decisor) -> None:
+    """Cortacircuito `TOPE_PAUSA_ECONOMICA_CICLO`: con mas de 5 pausas
+    economicas en el mercado se retiran todas, se re-juzga la puja con el caso
+    CONGELADO sin politica economica (replay exacto) y se avisa por Telegram.
+
+    Las filas de evaluacion se insertan igual en TX3 (`veredicto='pausar'`,
+    `decision_id NULL`): la auditoria no se pierde."""
+    if len(pausas_diferidas) > TOPE_PAUSA_ECONOMICA_CICLO:
+        contadores.pausa_economica_anomalia_tope = True
+        contadores.skips_entidad["pausa_economica_anomalia_tope"] += len(pausas_diferidas)
+        for caso, _veredicto, sombra, emite in pausas_diferidas:
+            caso_sin = replace(
+                caso, pausa=replace(caso.pausa, politica_economica=None, reciente_economica=None)
+            )
+            sombra_sin = (
+                None
+                if sombra is None
+                else replace(
+                    sombra,
+                    pausa=replace(sombra.pausa, politica_economica=None, reciente_economica=None),
+                )
+            )
+            emite(caso_sin, decisor(caso_sin), sombra_sin)
+        return
+    for caso, veredicto, sombra, emite in pausas_diferidas:
+        emite(caso, veredicto, sombra)
+
+
+def _carga_reciente_cache(
+    conn, platform: str, decided_at: dt.datetime, contadores
+) -> object | None:
+    """Carga el cache reciente en su propio SAVEPOINT (P03, TX2).
+
+    Un error SQL del lector no aborta TX2: se anota en
+    `notes.pausa_economica.error` y se devuelve None. En `live` eso entrega
+    `reciente_economica=None` a la regla pura (cero pausas economicas ese
+    ciclo) y las pujas `live` siguen intactas."""
+    try:
+        with conn.transaction():
+            return pausa_economica_io.lee_cache_reciente(conn, platform, ahora=decided_at)
+    except Exception as exc:
+        contadores.pausa_economica_error = scrub(str(exc)) or type(exc).__name__
+        return None
 
 
 def _recorre_plataforma(
@@ -526,8 +662,13 @@ def _recorre_plataforma(
     hojas_bid_en_vuelo = apply.hojas_con_bid_sin_sello(conn, platform)
     tiene_grupos_fabrica = bool(conn.execute(_SQL_TIENE_GRUPOS_FABRICA).fetchone()[0])
     corte_pause_por_grupo: dict[int, windows.EvidenciaAdGroup | None] = {}
-    pause_economica = g.pause_economica_desde_settings(settings)
     politica = g.politica_bid_desde_settings(settings, platform)
+    modo_economica = regla_pausa.modo_pausa_economica_desde_settings(settings, platform)
+    economia_activa = politica is not None and modo_economica != "off"
+    politica_economica = POLITICA_PAUSE_ECONOMICA_V2 if modo_economica == "live" else None
+    reciente_cache = (
+        _carga_reciente_cache(conn, platform, decided_at, contadores) if economia_activa else None
+    )
     version_economia = g.version_economia_cambio_desde_settings(settings, platform)
     plat_t = None
     rec_r = None
@@ -602,6 +743,7 @@ def _recorre_plataforma(
         snapshot_margen={k: v for k, v in target_ciclo.snapshot.items() if k != "familias"},
         familias_ciclo=familias_ciclo,
     )
+    pausas_diferidas: list = []
     for fila in conn.execute(_SQL_DECISORAS, (platform,)).fetchall():
         contadores.entidades += 1
         _procesa_decisora(
@@ -609,17 +751,30 @@ def _recorre_plataforma(
             fila=fila,
             corte_pause_por_grupo=corte_pause_por_grupo,
             inertes=inertes,
-            pause_economica=pause_economica,
+            modo_economica=modo_economica,
             politica=politica,
+            politica_economica=politica_economica,
+            economia_live=(modo == "live" and modo_economica == "live"),
             lecturas=lecturas,
             productos_ciclo=contadores.productos,
             grupos_pausa_producto=grupos_pausa_producto,
             hojas_bid_en_vuelo=hojas_bid_en_vuelo,
             proteccion_cache=proteccion_cache,
             claves_released=claves_released,
+            reciente_cache=reciente_cache,
+            pausas_diferidas=pausas_diferidas,
             decisor=decisor,
             **comunes,
         )
+    _rejuzga_pausas_economicas(contadores, pausas_diferidas, decisor)
+    if economia_activa:
+        contadores.pausa_economica_resumen = pausa_economica_io.resumen_evals(
+            contadores.pausa_economica_evals,
+            sin_cortes=contadores.pausa_economica_sin_cortes,
+            anomalia_tope=contadores.pausa_economica_anomalia_tope,
+        )
+        if contadores.pausa_economica_error is not None:
+            contadores.pausa_economica_resumen["error"] = contadores.pausa_economica_error
     for fila in conn.execute(_SQL_GRUPOS, (platform,)).fetchall():
         contadores.ad_groups += 1
         _procesa_grupo(

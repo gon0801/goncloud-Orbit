@@ -254,6 +254,7 @@ def decide(caso: CasoHoja) -> Veredicto:
         caso.pausa.politica_economica,
         proteccion=resultado_proteccion,
         exceso_minimo=caso.pausa.exceso_minimo,
+        reciente_economica=caso.pausa.reciente_economica,
     )
     if pausa is not None:
         assert pausa.kind == "pause"

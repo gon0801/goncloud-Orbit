@@ -402,6 +402,13 @@ def digest_ciclo(resumen: dict) -> str:
         skips_entidad = skips.get("entidad")
         if isinstance(skips_entidad, dict) and "entidad_inerte" in skips_entidad:
             lineas.append(f"entidades sin trafico (saltadas): {skips_entidad['entidad_inerte']}")
+        # P03: cortacircuito de la pausa economica (mas de 5 en el mercado).
+        # Regla 3: clave ausente = no se menciona.
+        if isinstance(skips_entidad, dict) and "pausa_economica_anomalia_tope" in skips_entidad:
+            lineas.append(
+                "pausa economica frenada por tope:"
+                f" {skips_entidad['pausa_economica_anomalia_tope']}"
+            )
     # ORBIT 06 2.3 segunda vuelta (D-2.3.7/D-2.3.10/D-2.3.14, spec §9):
     # linea por cambio ACUMULADO >= 1 punto desde el ultimo aviso (o
     # abstencion con motivo) + linea por derivado fuera de banda (valor

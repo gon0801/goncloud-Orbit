@@ -18,7 +18,7 @@ import psycopg
 
 from app import productos_io, proteccion_venta
 from app.cycle_serializacion import _dec_str, _fecha_iso, _Pendiente
-from app.optimizer import bid, cortes, productos, windows
+from app.optimizer import cortes, productos, windows
 from app.optimizer import goals as g
 from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import InsumosPausa, InsumosProteccion
@@ -150,15 +150,20 @@ def _insumos_pausa(
     entidad_id: int,
     decided_at: dt.datetime,
     corte_pause: cortes.UmbralResuelto,
-    pause_economica: bool,
+    politica_economica: str | None,
     proteccion_cache: proteccion_venta.CacheProteccion | None = None,
+    reciente_cache=None,
     mult_baja: Decimal | None = None,
     cerca: dt.date | None = None,
 ) -> tuple[Decimal, windows.AgregadoMetricas | None, InsumosPausa]:
     """Piso de costo, ventana de cortes e insumos de la PAUSE de una hoja.
     TEMPORADA 01 D: `mult_baja` (el multiplicador del dueno en baja) multiplica
     el piso de pausa y el exceso economico; `cerca` levanta el inicio de la
-    ventana de cortes."""
+    ventana de cortes.
+
+    P03: `politica_economica` es `economic_pause_v2` solo en `live` (en
+    `shadow` la regla se evalua aparte para no tocar `decide`); la ventana
+    reciente sale del cache batch cuando existe."""
     costo_piso = cortes.piso_pausa(platform, mult_baja=mult_baja)
     cortes_hoja = windows.ventana_cortes(conn, entidad_id, decided_at, cerca=cerca)
     proteccion: InsumosProteccion | None = None
@@ -168,13 +173,21 @@ def _insumos_pausa(
             ventana_desde=cortes_hoja.window_start if cortes_hoja is not None else None,
             ventana_hasta=cortes_hoja.window_end if cortes_hoja is not None else None,
         )
+    reciente = None
+    if reciente_cache is not None and cortes_hoja is not None:
+        reciente = reciente_cache.lectura(
+            entidad_id,
+            desde=cortes_hoja.window_end + dt.timedelta(days=1),
+            hasta=reciente_cache.evaluado_el - dt.timedelta(days=1),
+        )
     pausa = InsumosPausa(
         cortes=cortes_hoja,
         umbral_clics=corte_pause.umbral,
         gasto_minimo=costo_piso,
         expected_clicks=corte_pause.expected_clicks,
-        politica_economica=bid.POLITICA_PAUSE_ECONOMICA if pause_economica else None,
+        politica_economica=politica_economica,
         proteccion=proteccion,
+        reciente_economica=reciente,
         exceso_minimo=(
             cortes.exceso_minimo(PLATAFORMAS_MONEDA[platform], mult_baja=mult_baja)
             if mult_baja is not None

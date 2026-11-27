@@ -23,6 +23,7 @@ from app import (
     apply_producto,
     apply_revalidacion,
     notifica,
+    pausa_economica_io,
     proteccion_venta,
 )
 from app.ads.client import AdsApiError
@@ -77,6 +78,7 @@ from app.apply_revalidacion import (  # noqa: F401 - re-export estable
     MOTIVO_CAMPANA_NO_ENABLED,
     MOTIVO_ENTIDAD_NO_VIVA,
     MOTIVO_ESPERA_PROTECCION,
+    MOTIVO_ESPERA_RECIENTE,
     MOTIVO_ESPERA_TARGET,
     MOTIVO_GRUPO_NO_ENABLED,
     MOTIVO_MODO_NO_LIVE,
@@ -88,9 +90,9 @@ from app.apply_revalidacion import (  # noqa: F401 - re-export estable
     _alcance_cambio,
     _economia_elegida,
     _familia_respaldo,
-    _flag_pause_economica,
     _gracia_activa,
     _hay_goal,
+    _modo_pausa_economica,
     _pause_propio_verificado,
     _peldano_congelado,
     _producto_fresco,
@@ -106,6 +108,11 @@ from app.optimizer import goals as g
 # Ventana de veto de 48h al encolar (sellado 2).
 VENTANA_VETO = dt.timedelta(hours=48)
 MOTIVO_VETO_PENDIENTE = "veto_pendiente"
+# P03: la espera por ventana reciente tiene tope duro (7 dias desde
+# COALESCE(released_at, encolado_at)): ninguna hoja sangrante queda sin
+# recortes de puja indefinidamente. El dueno de la espera es la cola.
+MOTIVO_PAUSA_ECONOMICA_APAGADA = "pausa_economica_apagada"
+TOPE_ESPERA_RECIENTE_DIAS = 7
 
 # Una clave de efecto bloquea cuando tiene un efecto LIVE no terminal (se
 # aplica o esta en vuelo) o una PRACTICA shadow todavia VIGENTE (vence_el >
@@ -154,7 +161,8 @@ RETURNING id
 """
 
 _SQL_VENCIDAS = """
-SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado
+SELECT id, kind, ad_entity_id, search_term, decision_id, request_payload, estado,
+       COALESCE(released_at, encolado_at) AS esperando_desde
   FROM apply_queue
  WHERE platform = %s::platform AND modo = 'live'
    AND ((estado = 'pending_veto' AND vence_el <= %s) OR estado = 'released')
@@ -190,7 +198,7 @@ UPDATE apply_queue q
          WHERE s.decision_id = q.decision_id
            AND s.motivo NOT IN ('sin_respuesta', 'espera_target')
          ORDER BY s.cycle_id DESC
-         LIMIT 1) = 'espera_proteccion'
+         LIMIT 1) = %s
 RETURNING q.id
 """
 
@@ -240,6 +248,8 @@ class ResultadoLiberacion:
     revalida_sin_respuesta: int = 0
     espera_target: int = 0
     espera_proteccion: int = 0
+    espera_reciente: int = 0
+    esperas_vencidas: int = 0
     alertas: tuple[apply_harvest.AlertaHarvest, ...] = ()
     caps_saturados: tuple[CapSaturado, ...] = ()
     revalidaciones_economicas: tuple[dict, ...] = ()
@@ -448,6 +458,7 @@ def _revalida_pause(
     *,
     evidencia_grupos: dict | None = None,
     temporada_ctx=None,
+    cache_reciente=None,
 ) -> str | None:
     """Wrapper estable sobre `apply_revalidacion.revalida_pause` (respeta parches del modulo)."""
     return apply_revalidacion.revalida_pause(
@@ -460,9 +471,10 @@ def _revalida_pause(
         proteccion_cache,
         evidencia_grupos=evidencia_grupos,
         temporada_ctx=temporada_ctx,
+        cache_reciente=cache_reciente,
         gracia_activa_fn=_gracia_activa,
         pause_propio_fn=_pause_propio_verificado,
-        flag_economica_fn=_flag_pause_economica,
+        modo_economica_fn=_modo_pausa_economica,
         target_vigente_fn=_target_pause_vigente,
         hay_goal_fn=_hay_goal,
     )
@@ -502,6 +514,7 @@ def _revalida(
     evidencia_grupos: dict | None = None,
     temporada_ctx=None,
     temporada_neg=None,
+    cache_reciente=None,
 ) -> str | None:
     motivo = _revalida_ancestros(conn, fila)
     if motivo is not None:
@@ -518,6 +531,7 @@ def _revalida(
             proteccion_cache,
             evidencia_grupos=evidencia_grupos,
             temporada_ctx=temporada_ctx,
+            cache_reciente=cache_reciente,
         )
     if rama == "pause_producto":
         return apply_producto.revalida_pause_producto(conn, aplicador, fila, ahora)
@@ -548,8 +562,29 @@ def _rama(conn: psycopg.Connection, fila: FilaCola) -> str:
 
 
 def descarta_esperas_proteccion(conn: psycopg.Connection, platform: str) -> int:
-    filas = conn.execute(_SQL_DESCARTA_ESPERAS, (MOTIVO_PROTECCION_APAGADA, platform)).fetchall()
+    filas = conn.execute(
+        _SQL_DESCARTA_ESPERAS, (MOTIVO_PROTECCION_APAGADA, platform, MOTIVO_ESPERA_PROTECCION)
+    ).fetchall()
     return len(filas)
+
+
+def descarta_esperas_reciente_economica(conn: psycopg.Connection, platform: str) -> int:
+    """D-H1: al bajar de `live` se descartan, en la MISMA TX, las pausas que
+    esperaban por la ventana reciente (reutiliza el SQL parametrizado)."""
+    filas = conn.execute(
+        _SQL_DESCARTA_ESPERAS,
+        (MOTIVO_PAUSA_ECONOMICA_APAGADA, platform, MOTIVO_ESPERA_RECIENTE),
+    ).fetchall()
+    return len(filas)
+
+
+def _descartes_al_apagar_economica(
+    conn: psycopg.Connection, platform: str, modo_economica: str
+) -> list[str]:
+    """Backstop del barrido: un mercado fuera de `live` no deja esperas atoradas."""
+    if modo_economica == "live":
+        return []
+    return [MOTIVO_PAUSA_ECONOMICA_APAGADA] * descarta_esperas_reciente_economica(conn, platform)
 
 
 def _descartes_al_apagar_proteccion(
@@ -629,7 +664,38 @@ def _aisla_harvest(
         return (0, 1, 0, 0)
 
 
-def libera_vencidos(
+def _carga_cache_reciente(conn, platform: str, ahora: dt.datetime):
+    """SAVEPOINT: un fallo del lector deja las filas economicas en espera y el
+    resto del barrido sigue (las pujas ya escritas no dependen de esto)."""
+    try:
+        with conn.transaction():
+            return pausa_economica_io.lee_cache_reciente(conn, platform, ahora=ahora)
+    except Exception:
+        return None
+
+
+def _espera_reciente_vencida(fila: FilaCola, ahora: dt.datetime) -> bool:
+    """Tope duro de la espera, medido desde COALESCE(released_at, encolado_at)."""
+    if fila.esperando_desde is None or ahora.tzinfo is None:
+        return False
+    return ahora - fila.esperando_desde >= dt.timedelta(days=TOPE_ESPERA_RECIENTE_DIAS)
+
+
+def _anota_espera(conn: psycopg.Connection, fila: FilaCola, motivo: str, ahora: dt.datetime) -> str:
+    """Clasifica la espera y, si vencio, descarta la fila (0 PUT).
+
+    Devuelve 'vencida' (ya descartada), 'target', 'reciente' o 'proteccion'."""
+    if motivo == MOTIVO_ESPERA_RECIENTE:
+        if _espera_reciente_vencida(fila, ahora):
+            conn.execute(_SQL_DESCARTA, (MOTIVO_YA_NO_CALIFICA, fila.id, "released"))
+            return "vencida"
+        return "reciente"
+    if motivo == MOTIVO_ESPERA_TARGET:
+        return "target"
+    return "proteccion"
+
+
+def libera_vencidos(  # noqa: C901, PLR0915 - matriz de desenlaces del barrido P03
     conn: psycopg.Connection,
     platform: str,
     *,
@@ -637,6 +703,7 @@ def libera_vencidos(
     aplicador: Aplicador,
     cycle_id: int | None = None,
     proteccion_activa: bool = False,
+    modo_economica: str = "off",
 ) -> ResultadoLiberacion:
     """Barrido FIFO de filas vencidas y released en modo live.
 
@@ -654,6 +721,7 @@ def libera_vencidos(
     `apply_harvest.revalida_harvest`.
     """
     descartadas = _descartes_al_apagar_proteccion(conn, platform, proteccion_activa)
+    descartadas += _descartes_al_apagar_economica(conn, platform, modo_economica)
     filas = [FilaCola(*f) for f in conn.execute(_SQL_VENCIDAS, (platform, ahora)).fetchall()]
     proteccion_cache = (
         proteccion_venta.lee_cache(conn, platform, ahora) if proteccion_activa else None
@@ -661,6 +729,7 @@ def libera_vencidos(
     evidencia_grupos: dict | None = None
     hoy_utc = ahora.astimezone(dt.UTC).date() if ahora.tzinfo is not None else ahora.date()
     sin_cargar = object()
+    cache_reciente = sin_cargar
     temporada_ctx = sin_cargar
     temporada_neg = sin_cargar
 
@@ -671,7 +740,7 @@ def libera_vencidos(
             )
 
     liberadas = aplicadas = fallidas = sin_quota = carreras = sin_respuesta = 0
-    espera_target = espera_proteccion = 0
+    espera_target = espera_proteccion = espera_reciente = esperas_vencidas = 0
     alertas_harvest: list[apply_harvest.AlertaHarvest] = []
     caps_saturados: list[CapSaturado] = []
     revalidaciones_economicas: list[dict] = []
@@ -692,6 +761,12 @@ def libera_vencidos(
             continue
         if evidencia_grupos is None and fila.kind in ("pause", "negative"):
             evidencia_grupos = windows.ventanas_evidencia_ad_group(conn, platform, ahora)
+        # P03: el cache reciente se carga UNA vez, antes de juzgar la primera
+        # fila `pause` del barrido (no depende del motivo ni del orden).
+        if fila.kind == "pause" and cache_reciente is sin_cargar:
+            cache_reciente = (
+                _carga_cache_reciente(conn, platform, ahora) if modo_economica == "live" else None
+            )
         if fila.kind == "pause" and temporada_ctx is sin_cargar:
             temporada_ctx = apply_revalidacion.temporada_io.lee_contexto_revalidacion(
                 conn, platform, hoy_utc
@@ -713,6 +788,7 @@ def libera_vencidos(
                 evidencia_grupos,
                 None if temporada_ctx is sin_cargar else temporada_ctx,
                 None if temporada_neg is sin_cargar else temporada_neg,
+                None if cache_reciente is sin_cargar else cache_reciente,
             )
         except AdsApiError as exc:
             if transicion_desde_error(EstadoCambio.PENDIENTE, exc).propaga_aborto:
@@ -723,8 +799,15 @@ def libera_vencidos(
         veredicto = veredicto_de_motivo(motivo)
         if veredicto.accion == "esperar":
             assert veredicto.motivo is not None
-            if veredicto.motivo == MOTIVO_ESPERA_TARGET:
+            clase = _anota_espera(conn, fila, veredicto.motivo, ahora)
+            if clase == "vencida":
+                descartadas.append(MOTIVO_YA_NO_CALIFICA)
+                esperas_vencidas += 1
+                continue
+            if clase == "target":
                 espera_target += 1
+            elif clase == "reciente":
+                espera_reciente += 1
             else:
                 espera_proteccion += 1
             _registra(fila, veredicto.motivo)
@@ -771,6 +854,8 @@ def libera_vencidos(
         revalida_sin_respuesta=sin_respuesta,
         espera_target=espera_target,
         espera_proteccion=espera_proteccion,
+        espera_reciente=espera_reciente,
+        esperas_vencidas=esperas_vencidas,
         alertas=tuple(alertas_harvest),
         caps_saturados=tuple(caps_saturados),
         revalidaciones_economicas=tuple(revalidaciones_economicas),

@@ -7,6 +7,7 @@ recibido por parametro o detras de `Aplicador._cliente()`.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -95,6 +96,9 @@ class FilaCola:
     decision_id: int
     request_payload: dict
     estado: str
+    # P03: `COALESCE(released_at, encolado_at)` del barrido; default para no
+    # romper las construcciones existentes (tests y ejecutores viejos).
+    esperando_desde: dt.datetime | None = None
 
 
 @dataclass(frozen=True)

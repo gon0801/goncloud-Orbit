@@ -153,6 +153,7 @@ from app.optimizer.bid import PLATAFORMAS_MONEDA
 from app.optimizer.caso import _a_json as _caso_json
 from app.optimizer.politica import MOTIVO_REGRESO_ESPERA_PRESUPUESTO, decide
 from app.optimizer.replay import reproduce as reproduce
+from app.pausa_economica_io import tx3_pausa_economica
 from app.redaction import install_scrub_filter, scrub
 
 logger = logging.getLogger(__name__)
@@ -781,11 +782,12 @@ def _corre_fases(
                 ids_evaluacion,
                 cuerpo,
             )
-            ids_decisiones = _inserta_decisiones(
+            ids = _inserta_decisiones(
                 conn, cycle_id, config_id, decided_at, pendientes, ids_evaluacion
             )
+            tx3_pausa_economica(conn, cycle_id, config_id, contadores, pendientes, ids, cuerpo)
             if temporada_live:
-                temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids_decisiones)
+                temporada_io.abre_efectos(conn, ep_abierto, pendientes, ids)
             _inserta_targets(conn, cycle_id, decided_at, contadores)
             proteccion_venta.inserta_transiciones(conn, contadores.protecciones)
             if target_ciclo is not None and g.propuestas_campana_desde_settings(settings):

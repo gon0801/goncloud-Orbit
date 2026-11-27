@@ -420,6 +420,26 @@ class InsumosProteccion:
 
 
 @dataclass(frozen=True)
+class LecturaRecienteEconomica:
+    """Ventana reciente `[desde .. hasta]` de una hoja para la pausa economica v2.
+
+    `completa` es un campo EXPLICITO (cobertura de plataforma + veneno de
+    metrica), no la propiedad `AgregadoMetricas.completa`; `evaluado_el` deja
+    que la funcion pura compruebe que la ventana termina en D-1 (regla 3).
+    Montos en `Decimal`; None = desconocido, jamas un cero inventado.
+    """
+
+    desde: dt.date
+    hasta: dt.date
+    evaluado_el: dt.date
+    moneda: str
+    completa: bool
+    cost: Decimal | None
+    ad_revenue: Decimal | None
+    orders: int | None
+
+
+@dataclass(frozen=True)
 class ResultadoProteccion:
     """Salida pura: aplicar la pausa, esperar o abstenerse por dato desconocido.
 
@@ -481,6 +501,9 @@ class InsumosPausa:
     # ORBIT 07 M1: ausente en las filas historicas y en las pausas con bids
     # apagados anteriores; su ausencia conserva la semantica antigua.
     proteccion: InsumosProteccion | None = None
+    # P03: ventana reciente de la pausa economica v2. Ausente = semantica de
+    # hoy (v1) y replay historico intacto; `None` en era v2 = no medible.
+    reciente_economica: LecturaRecienteEconomica | None = None
     # TEMPORADA 01 D: el exceso minimo de la pausa economica ya multiplicado
     # por el mult del dueno (EXCESO_MINIMO x mult en baja). None = EXCESO_
     # MINIMO[moneda] (semantica de hoy, replay intacto); el freeze lo lleva
@@ -540,7 +563,7 @@ class CasoHoja:
 _OPCIONALES_POR_TIPO: dict[type, frozenset[str]] = {
     CasoHoja: frozenset({"revision", "temporada", "historia", "recuperacion", "presupuesto"}),
     Trayectoria: frozenset({"episodio"}),
-    InsumosPausa: frozenset({"proteccion", "exceso_minimo"}),
+    InsumosPausa: frozenset({"proteccion", "reciente_economica", "exceso_minimo"}),
     InsumosProteccion: frozenset({"frena_subidas"}),
     CambioFechado: frozenset({"motivo"}),
 }
