@@ -1155,14 +1155,27 @@ conexion dedicada `autocommit=False` que retiene el candado durante el `PUT`.
 
 El desenlace se decide por observacion, no por el tipo de error:
 
-- Si el `PUT` no llego a intentarse, la evaluacion se cierra en
-  `ubicacion_sin_aplicar` con su motivo.
-- Si el `PUT` empezo y no confirmo, la intencion queda pendiente. Al inicio del
-  siguiente ciclo `reconcilia_automaticos` lee Amazon: muestra el destino, se
-  sella; muestra otro valor legible, se cierra con `error_put`; lectura
-  ilegible, espera.
-- Un rechazo de identidad (401/403) o un fallo de base aborta la fase; la
-  reconciliacion converge desde cualquier punto de caida.
+- Si el `PUT` no llego a intentarse por un motivo distinto de rechazo de
+  identidad (cambio en consola, lectura incompleta, cuota, tope o error remoto
+  no-auth), la evaluacion se cierra en `ubicacion_sin_aplicar` con su motivo.
+- Un rechazo de identidad (401/403/`AdsAuthError`) o un fallo de base aborta la
+  fase **antes** de escribir en `ubicacion_sin_aplicar`: la evaluacion #1 y las
+  siguientes quedan pendientes para que el ejecutor de recuperacion del mismo
+  dia las retome en orden (si el rechazo llego tras insertar `campana_ajuste` en
+  la segunda lectura o durante el `PUT`/readback, la fila pendiente queda para
+  reconciliacion y las siguientes para recuperacion).
+- Si el `PUT` empezo y no confirmo, la intencion queda pendiente.
+  `reconcilia_automaticos` lee Amazon (sin `PUT`) al inicio del siguiente ciclo
+  y tambien en `shadow`/`off` o en el horario siguiente del mismo dia
+  (`ciclo_id=None`): muestra el destino, se sella revalidando el claim antes de
+  confirmar; muestra otro valor legible, se cierra con `error_put`; lectura
+  ilegible, espera. En `_fase_reconciliacion`, los errores transitorios de
+  lectura de ubicaciones (5xx/429/timeout) quedan aislados en
+  `notes.apply.ubicaciones_reconcilia_error` sin cancelar pujas, cortes ni
+  reactivaciones, mientras 401/403/`AdsAuthError` conserva el fallo global
+  (`aplicador=None` + `apply_error`).
+- Tanto la reconciliacion como `aplica_automaticos` reutilizan el cliente HTTP
+  unico de `Aplicador` (con `guard_http` pre-HTTP y cierre explicito al salir).
 
 `ubicacion_io.sql_orden_viva` es el unico predicado de orden viva: una
 intencion automatica cerrada en `ubicacion_sin_aplicar` no bloquea guardas
