@@ -53,11 +53,10 @@ Ningún plan pendiente en la cola autorizada: **ARREGLOS 04 → TEMPORADA 01 →
 
 ## Futuros sin implementación autorizada
 
-Esta tabla no es una cola de ejecución ni autorización. BIDS 02 ya entregó herramientas manuales de AUTO-04 a AUTO-06; faltan contratos y planes del automatismo. AUTO-03 ya fue entregado en DECISIONES PRODUCTO 01 y continuado en ORBIT 07.
+Esta tabla no es una cola de ejecución ni autorización. BIDS 02 ya entregó herramientas manuales de AUTO-05 y AUTO-06; faltan contratos y planes del automatismo. AUTO-03 ya fue entregado en DECISIONES PRODUCTO 01 y continuado en ORBIT 07. AUTO-04 (ubicaciones automáticas) está implementado en práctica: [plan](../docs/superpowers/plans/2026-11-26-auto-04-ubicaciones.md), PR #785, #786 y el PR de pantalla; el paso a `live` exige la compuerta de la sección 9 de su [spec](../docs/superpowers/specs/2026-11-26-auto-04-ubicaciones-design.md).
 
 | ID / futuro plan | Qué falta construir | Preparación y dependencias |
 |---|---|---|
-| AUTO-04 — placements automáticos | Ajustes autónomos por ubicación, límites y reversa. | BIDS 02 ya tiene datos, pantalla y ajustes del dueño. Falta plan del automatismo y confirmar fuente/API al diseñarlo. |
 | AUTO-05 — presupuestos automáticos | Redistribución entre campañas/grupos, ritmo de gasto e intradía; posible AMS/Stream. | Ajuste manual existente. Falta política, autoridad única de escritura, límites por moneda y reversa. Cuotas de operaciones no son presupuestos publicitarios. |
 | AUTO-06 — reactivación y limpieza | Decidir qué reactivar/limpiar automáticamente. | BIDS 01/02 aportan herramientas manuales, retiro/reposición y regreso de keywords dañadas. Falta evaluación y plan; no automatizar el archivo irreversible por defecto. |
 | meli-ads-01 — campañas MeLi | Propuestas de campañas, sin escritura publicitaria. | Sin plan formal. Restricción de escritura a nivel cuenta como contrato; revalidarla al planificar. La ingesta MeLi del Resumen no implementa gestión de campañas. |

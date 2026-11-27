@@ -720,6 +720,28 @@ shadow, sello del ledger, sellos de quota, GRANTs por columna) tienen sus
 tests dedicados en `tests/test_schema.py` (estáticos) y
 `tests/test_apply_schema.py` (integración).
 
+### Ubicaciones automaticas (AUTO-04, 0104)
+
+**`ubicacion_evaluacion`** — Append-only. Una fila por `(cycle_id, campana_id)`
+con el `CasoCampana` congelado en `entrada`, el modo (`shadow` o `live`), la
+politica (`ubicacion_v1`) y el veredicto (`mantener` o `mover` con
+`ubicacion`, `de_pct` y `a_pct`). Los CHECK fijan la coherencia del veredicto.
+*Como se audita*: `python -m tools.auto04_verifica replay` repite la politica
+sobre `entrada` y debe dar cero discrepancias.
+
+**`ubicacion_sin_aplicar`** — Append-only. Por que una evaluacion `live` con
+`mover` no llego a Amazon (cuota, tope, cambio en consola, config o modo,
+pujas pendientes, `error_put`). Tambien cierra la intencion que Amazon no
+reflejo al reconciliar; `ubicacion_io.sql_orden_viva` es el predicado que la
+excluye de las guardas.
+
+**`campana_ajuste.evaluacion_id` (0104)** — Liga el ajuste ejecutado con su
+evaluacion (UNIQUE parcial). El trigger `campana_ajuste_0104_frontera_roles`
+solo deja a `app_decide` insertar filas `AUTO_UBICACION` de una evaluacion
+`live` con `mover` de la misma campana; `app_admin` inserta sin evaluacion.
+`apply_cap_de_config` mapea `ads_optimizer:<platform>:ubicacion` a
+`ads_apply_cap_<platform>_ubicacion` (sin clave, cuota en cero).
+
 ## Vistas y funciones (lo que la app consume; nadie lee tablas crudas)
 
 Regímenes de lectura, explícitos (reemplazan al "todo lee lo maduro"):

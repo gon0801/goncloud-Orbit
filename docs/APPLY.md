@@ -508,8 +508,8 @@ cap (el fail-closed de 4.2 se queda).
     `cap: null` (no `sin_clave`, que mentiría: la clave SI existe) y las
     formas sanas siguen legibles (ADV-1, adversaria).
 - **Superficie**: `GET /api/dashboard/salud` expone por plataforma la clave
-  `quota`: `{kind: {used, cap, fuente}}` para las cuatro formas
-  (`bid/pause/negative/harvest`; lista `KINDS_QUOTA` en `app/apply.py`,
+  `quota`: `{kind: {used, cap, fuente}}` para las cinco formas
+  (`bid/pause/negative/harvest/ubicacion`; lista `KINDS_QUOTA` en `app/apply_cuota.py`,
   espejo del CASE del trigger). DECISIÓN DECLARADA: vive en `/salud` (y no
   en `/api/ads-optimizer/status`) porque es la fuente que la pantalla
   `/salud` ya consume y donde 0002/notifica declaran la visibilidad
@@ -1136,6 +1136,43 @@ Regresiones: `tests/test_arreglos05_h_tope_ciclo.py`,
 `tests/test_arreglos05_h_estados.py` y `tests/test_arreglos05_h_migracion.py`
 (`comprobar.sh N h`). Modelo por camino y foto de producción en
 `docs/evidencia/arreglos-05/H/`.
+
+### 9.4 Ajustes automaticos por ubicacion (AUTO-04)
+
+El motor de ubicaciones evalua cada ciclo los tres multiplicadores de puja por
+campana y guarda el veredicto en `ubicacion_evaluacion` (append-only, migracion
+0104). En `shadow` nunca toca `campana_ajuste` ni `v_cambio_bid`; la frontera
+`campana_ajuste_0104_frontera_roles` lo garantiza en la base.
+
+En `live`, `app/apply_ubicacion.py` corre en TX4 despues de que las pujas del
+ciclo de origen cerraron. Si quedaron pujas pendientes, las evaluaciones se
+apartan con `pujas_pendientes`. Para cada movimiento verifica en este orden:
+modo y goal frescos, configuracion juzgada vigente, tope de campanas en espera
+de 7 dias, lectura viva de Amazon (un cambio en consola descarta sin gastar
+cuota) y cuota `ads_apply_cap_<platform>_ubicacion` (sin clave falla cerrada).
+Despues escribe la intencion pre-HTTP con `evaluacion_id` y aplica sobre una
+conexion dedicada `autocommit=False` que retiene el candado durante el `PUT`.
+
+El desenlace se decide por observacion, no por el tipo de error:
+
+- Si el `PUT` no llego a intentarse, la evaluacion se cierra en
+  `ubicacion_sin_aplicar` con su motivo.
+- Si el `PUT` empezo y no confirmo, la intencion queda pendiente. Al inicio del
+  siguiente ciclo `reconcilia_automaticos` lee Amazon: muestra el destino, se
+  sella; muestra otro valor legible, se cierra con `error_put`; lectura
+  ilegible, espera.
+- Un rechazo de identidad (401/403) o un fallo de base aborta la fase; la
+  reconciliacion converge desde cualquier punto de caida.
+
+`ubicacion_io.sql_orden_viva` es el unico predicado de orden viva: una
+intencion automatica cerrada en `ubicacion_sin_aplicar` no bloquea guardas
+manuales, `ajuste_en_vuelo` ni la reconciliacion. La reversa es el boton
+**Regresar** de **Donde poner el dinero**, como cualquier ajuste confirmado.
+
+El encendido a `live` exige la compuerta de la spec (seccion 9): ajuste manual
+y regreso reales en MX y US, 14 dias de practica con
+`python -m tools.auto04_verifica replay` en cero discrepancias y los caps
+sembrados con aprobacion de David.
 
 ## 10. Superficies: auth de escritura, veto, Telegram, goals (sellados 18-20, 26)
 
