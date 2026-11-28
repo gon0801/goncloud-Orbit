@@ -79,7 +79,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `nav a[aria-current="page"]`, padre agrupado `[aria-current="true"]` | destino y seccion activos; href y aria-current deben pertenecer al mismo `<a>` |
 | `html[data-tema]`, `button#btn-tema`, `span.leyenda-zona` | tema y zona horaria |
 | `.accion-primaria[href="/campanas/nuevas"]` | accion Crear campanas, no una seccion del nav |
-| `canvas#tendencia-amazon_us`, `table#serie-amazon_us`, `script#datos-resumen` | Resumen |
+| `canvas#tendencia-amazon_us`, `button[data-tab-canal]`, `button[data-cifra]`, `table.tabla-canales`, `table#serie-amazon_us`, `script#datos-resumen` | Resumen |
 | `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | Campanas |
 | `form.decisiones-filtros`, `section.decisiones-dia`, `details.decisiones-grupo`, `nav.paginador` | Decisiones |
 | `section.salud-plataformas`, `article.salud-tarjeta`, `.salud-ciclos-barras`, `script#datos-skips-amazon_us` | Salud |
