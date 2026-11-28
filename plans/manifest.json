@@ -103,7 +103,7 @@
     {
       "name": "catalogo-campanas-01",
       "path": "plans/catalogo-campanas-01.md",
-      "description": "ORBIT 19 — nucleo CERRADO 2026-09-08; conciliacion 0.3, cobertura solo-actividad y Featured Offer conservan seguimiento P09. Sonda de creacion posterior ya realizada en FABRICA 01."
+      "description": "ORBIT 19 — CERRADO completo 2026-11-28 UTC (nucleo 2026-09-08 y P09 2026-11-28). Conciliacion 0.3 demostrada y madura 30/30 exacta MX/US; cobertura solo-actividad 252/342 MX y 96/176 US (30d); Oferta destacada (spapi_pricing) y stock FBA vendible fresco (spapi_inventario details=true) desplegados en 41958d1e (PR #804) y verificados en vivo. Acta en docs/evidencia/orbit-19/cierre-p09-2026-11-27.md."
     },
     {
       "name": "reputacion-01",
