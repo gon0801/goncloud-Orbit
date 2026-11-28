@@ -13,9 +13,9 @@
     "ast_empty": true
   },
   ".cursor/skills/verify-orbit/helpers/orbit-verify": {
-    "mtime": 1795831196.8362544,
-    "seen": 1795831667.0447192,
-    "ast_hash": "11ee27354c974f3f8b22a4d8e3f4e958",
+    "mtime": 1795832609.6120484,
+    "seen": 1795832836.641373,
+    "ast_hash": "e23c4701727fd0ac858c669df17aaaae",
     "semantic_hash": ""
   },
   ".cursor/start.sh": {
@@ -913,9 +913,9 @@
     "semantic_hash": ""
   },
   "app/static/js/dashboard.js": {
-    "mtime": 1795831033.7960875,
-    "seen": 1795831667.048181,
-    "ast_hash": "dd3816f0e0d59d3af35e951487b05840",
+    "mtime": 1795832650.8050663,
+    "seen": 1795832836.644863,
+    "ast_hash": "f4a202b80dd54267b15b44e4f68c603e",
     "semantic_hash": ""
   },
   "app/static/js/dinero.js": {
@@ -3704,9 +3704,9 @@
     "semantic_hash": ""
   },
   "tests/test_verify_orbit.py": {
-    "mtime": 1795830124.8725853,
-    "seen": 1795830599.9662888,
-    "ast_hash": "b486848cea193e40507cf3336cc60936",
+    "mtime": 1795832618.5608728,
+    "seen": 1795832836.661559,
+    "ast_hash": "c4171747255b5f8af5060bd1e0cde6a0",
     "semantic_hash": ""
   },
   "tests/test_vtacos_grano.py": {
@@ -5877,9 +5877,9 @@
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/resumen.md": {
-    "mtime": 1795831624.0824773,
-    "seen": 1795831667.066113,
-    "ast_hash": "7283bfc813a7be60e29a54cf8744bfb3",
+    "mtime": 1795832683.7594995,
+    "seen": 1795832836.6623769,
+    "ast_hash": "219700c0ab7b73d6d377a922383cda54",
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/salud.md": {
@@ -18639,9 +18639,9 @@
     "semantic_hash": ""
   },
   "tests/test_ui_resumen_a2.py": {
-    "mtime": 1795831535.305081,
-    "seen": 1795831667.0652428,
-    "ast_hash": "434c281820708fc3363b50c37733d824",
+    "mtime": 1795832717.4093122,
+    "seen": 1795832836.6615272,
+    "ast_hash": "77ffa356194f7dc6d43c6b8309d6f485",
     "semantic_hash": ""
   },
   "tests/test_ui_texto_movil.py": {
