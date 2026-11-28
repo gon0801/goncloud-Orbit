@@ -590,12 +590,16 @@ const llena = {plataforma: "amazon_mx",
       {etiqueta: "dentro_del_objetivo", muestra: 10, purchases30d: "100",
         cost: "250", sales30d: "1000", acos_pct: "25", cpc: "3.06666666666666666666"},
       {}, {estado: "positivo", cantidad: {fba: 12}, fuente: ["fba"],
-        freshness: {fba: "2026-09-05T00:00:00+00:00"}}),
+        freshness: {fba: "2026-09-05T00:00:00+00:00"},
+        oferta_destacada: {estado: "propia", fuente: "spapi_pricing",
+          freshness: "2026-11-27T05:02:44+00:00"}}),
     publica({listing_id: 12, asin: "B0BBBBBBBB", seller_sku: "SKU-AMAZON-B"},
       {etiqueta: "gasto_sin_ventas", muestra: 3, cost: "10", sales30d: "0",
         purchases30d: "0", acos_pct: null},
       {}, {estado: "cero", cantidad: {fba: 0}, fuente: ["fba"],
-        freshness: {fba: "2026-09-05T00:00:00+00:00"}}),
+        freshness: {fba: "2026-09-05T00:00:00+00:00"},
+        oferta_destacada: {estado: "ajena", fuente: "spapi_pricing",
+          freshness: "2026-11-27T05:02:44+00:00"}}),
     publica({listing_id: 13, asin: "B0CCCCCCCC", seller_sku: "SKU-AMAZON-C"},
       {etiqueta: "sin_datos", maduro: false, muestra: 0, cost: null, clicks: null,
         sales30d: null, purchases30d: null, acos_pct: null, cpc: null, cvr_pct: null},
@@ -606,7 +610,9 @@ const llena = {plataforma: "amazon_mx",
         cost: "40", sales30d: "100", acos_pct: "40"},
       {margen_neto_pct: null, muestra_limitada: true, dias_con_venta: 12,
         muestra_venta: "500", muestra_margen_neto_pct: "-5"},
-      {estado: "desconocido", cantidad: null, fuente: null, freshness: null}),
+      {estado: "desconocido", cantidad: null, fuente: null, freshness: null,
+        oferta_destacada: {estado: "sin_ofertas", fuente: "spapi_pricing",
+          freshness: "2026-11-27T05:02:44+00:00"}}),
   ]};
 const respuestas = [
   {ok: false, status: 503, json: async () => (
@@ -663,6 +669,9 @@ for (const _f of ["fabrica_vistas.js", "fabrica_lotes.js", "fabrica.js"]) {
   assert.match(tabla, /Limitada\s+12 días con venta, margen -5\.00 %/);
   assert.match(tabla, /Margen negativo\./);
   assert.match(tabla, /Stock en 0\s+FBA 0/);
+  assert.match(tabla, /Oferta destacada: propia/);
+  assert.match(tabla, /Oferta destacada: otro vendedor/);
+  assert.match(tabla, /Oferta destacada: sin ofertas/);
   assert.match(tabla, /Desconocido\s+Oferta destacada: sin verificar/);
   assert.match(tabla, /Con stock\s+FBA 12/);
   assert.match(text(datos), /Objetivo ACoS del grupo en preparación\s*25\.00 %/);

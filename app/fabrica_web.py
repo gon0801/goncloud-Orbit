@@ -25,7 +25,7 @@ from app.ads.client import AdsApiError, AdsClient
 from app.ads.config import AdsConfigError, AdsCredentials
 from app.api_common import _dos_dec
 from app.db import OrbitDbError, connect
-from app.disponibilidad import estados_disponibilidad_por_sku
+from app.disponibilidad import estados_disponibilidad_por_sku, ofertas_destacadas_por_asin
 from app.estimacion_proyeccion import adjuntar_estimaciones
 from app.optimizer.goals import TEXTO_FALTA_CONFIRMAR_PRESUPUESTO_ALTO
 from app.redaction import scrub
@@ -479,11 +479,17 @@ def evaluacion(
         disponibilidades = estados_disponibilidad_por_sku(
             conn, plataforma, [sku for _, _, _, sku in listings if sku]
         )
+        ofertas = ofertas_destacadas_por_asin(
+            conn, plataforma, [asin for _, _, asin, _ in listings if asin]
+        )
     except psycopg.Error:
         raise error(503, "No se pudo consultar la evaluación del catálogo.") from None
     evaluaciones = []
     for listing_id, product_id, asin, seller_sku in listings:
-        disponibilidad = disponibilidades.get(seller_sku) if seller_sku else None
+        base_disp = disponibilidades.get(seller_sku) if seller_sku else None
+        disponibilidad = dict(base_disp) if base_disp is not None else {"estado": "desconocido"}
+        if asin and asin in ofertas:
+            disponibilidad["oferta_destacada"] = ofertas[asin]
         evaluaciones.append(
             ec.evaluar_listing(
                 listing_id=listing_id,
@@ -496,9 +502,7 @@ def evaluacion(
                 economia=economia.get(
                     listing_id, economia_observada.EconomiaProducto.vacio(plataforma, product_id)
                 ),
-                disponibilidad=disponibilidad
-                if disponibilidad is not None
-                else {"estado": "desconocido"},
+                disponibilidad=disponibilidad,
                 objetivos_grupos=(objetivo,)
                 if objetivo is not None
                 else objetivos.get(listing_id, ()),

@@ -63,6 +63,7 @@ VOCABULARIOS_DUENOS = (
             disp.ESTADO_SIN_VERIFICAR,
         ),
     ),
+    ("estado_oferta_destacada", disp.ESTADOS_OFERTA_DESTACADA),
     (
         "objetivo_puja",
         (*fabrica_plan.EXPRESION_BID_POR_ROL.values(), *fabrica_plan.EXPRESIONES_AUTO),

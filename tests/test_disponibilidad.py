@@ -481,3 +481,182 @@ def test_estados_disponibilidad_por_sku_coincide_con_unitario_y_respeta_reciente
         assert lote["SS-C"]["estado"] == ESTADO_DESCONOCIDO
         assert lote["SS-C"]["cantidad"] == {"fba": None}
         assert lote["SS-VACIO"]["estado"] == ESTADO_DESCONOCIDO
+
+
+# ---------------------------------------------------------------------------
+# ORBIT 19 / P09: Oferta destacada (SP-API pricing) y stock FBA fresco SP-API
+# ---------------------------------------------------------------------------
+
+
+def test_oferta_destacada_desde_observacion_todos_los_estados():
+    from app.disponibilidad import (
+        OFERTA_AJENA,
+        OFERTA_PROPIA,
+        OFERTA_SIN_GANADOR,
+        OFERTA_SIN_OFERTAS,
+        oferta_destacada_desde_observacion,
+    )
+
+    obs_ts = dt.datetime(2026, 11, 27, 5, 2, 44, tzinfo=UTC)
+    assert oferta_destacada_desde_observacion(None) == {
+        "estado": ESTADO_SIN_VERIFICAR,
+        "fuente": None,
+        "freshness": None,
+    }
+    assert oferta_destacada_desde_observacion((True, 1, obs_ts)) == {
+        "estado": OFERTA_PROPIA,
+        "fuente": "spapi_pricing",
+        "freshness": obs_ts.isoformat(),
+    }
+    assert oferta_destacada_desde_observacion((False, 2, obs_ts)) == {
+        "estado": OFERTA_AJENA,
+        "fuente": "spapi_pricing",
+        "freshness": obs_ts.isoformat(),
+    }
+    assert oferta_destacada_desde_observacion((None, 0, obs_ts)) == {
+        "estado": OFERTA_SIN_OFERTAS,
+        "fuente": "spapi_pricing",
+        "freshness": obs_ts.isoformat(),
+    }
+    assert oferta_destacada_desde_observacion((None, 2, obs_ts)) == {
+        "estado": OFERTA_SIN_GANADOR,
+        "fuente": "spapi_pricing",
+        "freshness": obs_ts.isoformat(),
+    }
+
+
+def test_combina_fba_spapi_fresco_supera_bridge_y_conserva_fbm():
+    from app.disponibilidad import combina_observaciones_stock
+
+    viejo = dt.datetime(2026, 9, 7, 17, 39, 33, tzinfo=UTC)
+    fresco = dt.datetime(2026, 11, 27, 5, 2, 9, tzinfo=UTC)
+    # Bridge viejo FBA=0 + FBM=3, SP-API fresco FBA=12 -> FBA toma 12 (fresco) y FBM sigue en 3.
+    combinadas = combina_observaciones_stock(
+        [("fba", 0, viejo), ("fbm", 3, viejo)],
+        spapi_fba=(12, fresco),
+    )
+    res = estado_desde_observaciones(combinadas)
+    assert res["estado"] == ESTADO_POSITIVO
+    assert res["cantidad"] == {"fba": 12, "fbm": 3}
+    assert res["freshness"]["fba"] == fresco.isoformat()
+    assert res["freshness"]["fbm"] == viejo.isoformat()
+
+    # Si SP-API es mas viejo que bridge, bridge gana en FBA.
+    mas_viejo = dt.datetime(2026, 9, 1, 5, 0, 0, tzinfo=UTC)
+    combinadas_v = combina_observaciones_stock(
+        [("fba", 5, viejo)],
+        spapi_fba=(0, mas_viejo),
+    )
+    res_v = estado_desde_observaciones(combinadas_v)
+    assert res_v["cantidad"] == {"fba": 5}
+    assert res_v["freshness"]["fba"] == viejo.isoformat()
+
+
+def test_ofertas_destacadas_por_asin_y_stock_spapi_con_conn_simulada():
+    from app.disponibilidad import (
+        OFERTA_AJENA,
+        OFERTA_PROPIA,
+        OFERTA_SIN_OFERTAS,
+        ofertas_destacadas_por_asin,
+    )
+
+    obs_ts = dt.datetime(2026, 11, 27, 5, 2, 44, tzinfo=UTC)
+
+    class _Cur:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def fetchall(self):
+            return self._rows
+
+        def fetchone(self):
+            return self._rows[0] if self._rows else None
+
+    class _Conn:
+        def __init__(self, responses):
+            self._responses = list(responses)
+
+        def execute(self, _sql, _params=None):
+            return _Cur(self._responses.pop(0))
+
+    conn = _Conn(
+        [
+            [("spapi_price_observation",)],
+            [
+                ("B0OWN", True, 1, obs_ts),
+                ("B0OTHER", False, 3, obs_ts),
+                ("B0NONE", None, 0, obs_ts),
+            ],
+        ]
+    )
+    res = ofertas_destacadas_por_asin(conn, "amazon_mx", ["B0OWN", "B0OTHER", "B0NONE", "B0MISS"])
+    assert res["B0OWN"]["estado"] == OFERTA_PROPIA
+    assert res["B0OTHER"]["estado"] == OFERTA_AJENA
+    assert res["B0NONE"]["estado"] == OFERTA_SIN_OFERTAS
+    assert res["B0MISS"]["estado"] == ESTADO_SIN_VERIFICAR
+    assert res["B0OWN"]["freshness"] == obs_ts.isoformat()
+
+
+@_skip_db
+def test_postgres_spapi_oferta_destacada_y_fba_fresco():
+    """Integracion real sobre 0001 + 0022 + 0032 + 0035: oferta destacada y FBA fresco."""
+    from app.disponibilidad import (
+        OFERTA_AJENA,
+        OFERTA_PROPIA,
+        OFERTA_SIN_OFERTAS,
+        ofertas_destacadas_por_asin,
+    )
+
+    with db_disponibilidad("orbit_p09") as conn:
+        for mig in ("0032_spapi_pricing.sql", "0035_spapi_listings_inventario.sql"):
+            conn.execute((ROOT / "migrations" / mig).read_text(encoding="utf-8"))
+        _sembrar_catalogo(conn, "P-1", "amazon_mx", "B0OWN11111", "SKU-OWN")
+        _sembrar_catalogo(conn, "P-2", "amazon_mx", "B0OTH22222", "SKU-OTH")
+        _sembrar_catalogo(conn, "P-3", "amazon_mx", "B0NOO33333", "SKU-NOO")
+        # Bridge viejo FBA=0 + FBM=2
+        conn.execute(
+            "INSERT INTO disponibilidad_observation"
+            " (platform, seller_sku, metric_date, fuente, quantity, fetched_at, observed_at)"
+            " VALUES"
+            " ('amazon_mx', 'SKU-OWN', '2026-09-07', 'fba', 0,"
+            "  '2026-09-07 17:00:00+00', '2026-09-07 17:39:00+00'),"
+            " ('amazon_mx', 'SKU-OWN', '2026-09-07', 'fbm', 2,"
+            "  '2026-09-07 17:00:00+00', '2026-09-07 17:39:00+00')"
+        )
+        # SP-API fresco FBA=9 supera al bridge viejo sin tocar FBM
+        conn.execute(
+            "INSERT INTO spapi_inventario_observation"
+            " (seller_sku, asin, platform, metric_date, observed_at, total_quantity, api_version)"
+            " VALUES"
+            " ('SKU-OWN', 'B0OWN11111', 'amazon_mx', '2026-11-27',"
+            "  '2026-11-27 05:02:00+00', 9, 'v1')"
+        )
+        # SP-API pricing (dos observaciones: gana la mas reciente)
+        conn.execute(
+            "INSERT INTO spapi_price_observation"
+            " (asin, platform, metric_date, observed_at, buy_box_is_own, offers_count)"
+            " VALUES"
+            " ('B0OWN11111', 'amazon_mx', '2026-11-26', '2026-11-26 05:00:00+00', false, 2),"
+            " ('B0OWN11111', 'amazon_mx', '2026-11-27', '2026-11-27 05:02:00+00', true, 1),"
+            " ('B0OTH22222', 'amazon_mx', '2026-11-27', '2026-11-27 05:02:00+00', false, 3),"
+            " ('B0NOO33333', 'amazon_mx', '2026-11-27', '2026-11-27 05:02:00+00', NULL, 0)"
+        )
+
+        stock = estados_disponibilidad_por_sku(conn, "amazon_mx", ["SKU-OWN"])
+        assert stock["SKU-OWN"]["estado"] == ESTADO_POSITIVO
+        assert stock["SKU-OWN"]["cantidad"] == {"fba": 9, "fbm": 2}
+        assert stock["SKU-OWN"]["freshness"]["fba"].startswith("2026-11-27T05:02:00")
+
+        ofertas = ofertas_destacadas_por_asin(
+            conn, "amazon_mx", ["B0OWN11111", "B0OTH22222", "B0NOO33333", "B0SIN44444"]
+        )
+        assert ofertas["B0OWN11111"]["estado"] == OFERTA_PROPIA
+        assert ofertas["B0OTH22222"]["estado"] == OFERTA_AJENA
+        assert ofertas["B0NOO33333"]["estado"] == OFERTA_SIN_OFERTAS
+        assert ofertas["B0SIN44444"]["estado"] == ESTADO_SIN_VERIFICAR
+        assert (
+            estado_disponibilidad(conn, "amazon_mx", "SKU-OWN", aspecto=ASPECTO_FEATURED_OFFER)[
+                "estado"
+            ]
+            == OFERTA_PROPIA
+        )
