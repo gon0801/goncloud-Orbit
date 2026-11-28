@@ -1,5 +1,9 @@
+import os
 import re
+import shutil
+import subprocess
 
+import pytest
 from test_ui import _ctx_resumen_con_payload
 
 from app import ui
@@ -230,6 +234,54 @@ def test_eje_de_la_grafica_no_rota_y_salta_etiquetas():
     assert "maxRotation: 0" in js
     assert "minRotation: 0" in js
     assert "autoSkip: true" in js
+
+
+def test_eje_de_la_grafica_nunca_repite_etiquetas_por_redondeo():
+    """Sin datos, con ROAS chico y con ventas grandes, cada marca del eje es
+    distinta al formatearse (antes Chart.js daba 0.1, 0.2... y se leian 1,1)."""
+    node = shutil.which("node")
+    if not node:
+        if "CI" in os.environ:
+            pytest.fail("Node es obligatorio en CI para verificar los scripts JS")
+        pytest.skip("Node no disponible")
+    guion = r"""
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const src = fs.readFileSync(process.argv[1], "utf8");
+const bloque = src.slice(src.indexOf("function formatoDeEje"), src.indexOf("function tooltipCon"));
+const numero = s => (s === null || s === undefined || s === "") ? null : Number(s);
+const Orbit = { numero: (valor, decimales) => Number(valor).toFixed(decimales || 0) };
+eval(bloque);
+function etiquetas(valores, entero, clave) {
+  const eje = pasoDeEje(valores, entero);
+  const formato = formatoDeEje(clave, eje.decimales) || (v => String(v));
+  const salida = [];
+  for (let i = 0; i < 12; i++) salida.push(formato(i * eje.paso));
+  return salida;
+}
+const casos = [
+  ["sin datos", [null, null], false, "ad_revenue"],
+  ["clics chicos", [1, 0, 1], true, "clicks"],
+  ["clics grandes", [8287], true, "clicks"],
+  ["roas 0 a 6", [0, 1.4, 2.8, 4.2, 6], false, "roas"],
+  ["roas 0 a 0.8", [0, 0.2, 0.8], false, "roas"],
+  ["ventas chicas", [0.04], false, "ad_revenue"],
+  ["ventas grandes", [162961.91], false, "ad_revenue"],
+  ["acos", [15.87], false, "acos"],
+];
+for (const [nombre, valores, entero, clave] of casos) {
+  const marcas = etiquetas(valores, entero, clave);
+  assert.equal(new Set(marcas).size, marcas.length, nombre + ": " + marcas.join(" | "));
+}
+"""
+    resultado = subprocess.run(
+        [node, "-e", guion, str(ui._TEMPLATES_DIR.parent / "static" / "js" / "dashboard.js")],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
 
 
 def test_barras_usan_el_lila_claro_en_cualquier_tamano():
