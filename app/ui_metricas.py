@@ -212,6 +212,10 @@ def _delta_mini(
     return "flat", "sin comparación"
 
 
+def _dias_texto(cantidad: int) -> str:
+    return "día" if cantidad == 1 else "días"
+
+
 def _frase_tarjeta(
     *,
     bloque: Mapping,
@@ -254,7 +258,7 @@ def _frase_tarjeta(
             dias_sv = _dias_gasto_sin_venta(series)
             gasto_sv = sum((_dec(d.get("cost")) or Decimal(0) for d in dias_sv), Decimal(0))
             extra = (
-                f" Hubo {len(dias_sv)} días con gasto y cero ventas "
+                f" Hubo {len(dias_sv)} {_dias_texto(len(dias_sv))} con gasto y cero ventas "
                 f"({_fmt_dinero(gasto_sv)} {moneda})."
                 if dias_sv
                 else ""
@@ -356,6 +360,8 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
         series=series,
     )
     linea_svg, area_svg = _spark_paths(series)
+    dias_sv = _dias_gasto_sin_venta(series)
+    gasto_sv = sum((_dec(d.get("cost")) or Decimal(0) for d in dias_sv), Decimal(0))
     return {
         "nombre": nombre,
         "etiqueta": etiqueta_de(nombre, "plataforma"),
@@ -378,6 +384,8 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
         "spark_linea": linea_svg,
         "spark_area": area_svg,
         "frase": frase,
+        "dias_gasto_sin_venta": len(dias_sv) if series else None,
+        "gasto_sin_venta_texto": _fmt_dinero(gasto_sv) if dias_sv else None,
     }
 
 
@@ -612,4 +620,5 @@ def vista_resumen(contrato: Mapping, metas_override: Mapping | None = None) -> d
         "tarjetas": tarjetas,
         "que_revisar": _que_revisar(canales),
         "comparison_ventana": primer_comp,
+        "hay_meta_acos": any(_dec(metas.get(nombre)) is not None for nombre in canales),
     }
