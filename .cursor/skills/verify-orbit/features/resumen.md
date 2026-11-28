@@ -54,4 +54,4 @@ Preconditions:
 - Chart.js vive en `/static/vendor/chart.umd.min.js`. La CSP `default-src 'self'` bloquea CDN.
 - La gráfica no mezcla MXN y USD: hay un canvas por canal.
 - ACoS y ROAS viajan por fila (también en `ma7`): el JS los usa directamente y solo deriva de `cost` y `ad_revenue` si faltan; un divisor en cero da hueco, no cero.
-- A 390 px solo los contenedores con scroll propio (`.tabla-scroll`, `.cifras-tiles`, `.seg` y `.header-acciones`) se desplazan en horizontal; el body no.
+- A 390 px solo los contenedores con scroll propio (`.tabla-scroll`, `.cifras-tiles` y `.seg`) se desplazan en horizontal; el encabezado ya no desborda y el body no.

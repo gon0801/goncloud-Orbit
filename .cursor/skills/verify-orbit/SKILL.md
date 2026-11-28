@@ -77,7 +77,7 @@ Harness: **curl** (mismo transporte que `docs/DEPLOY.md` y que TestClient). Sele
 | `button#nav-mas-toggle[aria-controls="nav-mas"]`, `nav#nav-mas` | menu Mas en movil; Escape cierra y devuelve foco |
 | `details.texto-extensible`, `.texto-extensible-contenido`, `summary` | texto secundario limitado a tres lineas en movil, expansion nativa sin JavaScript |
 | `nav a[aria-current="page"]`, padre agrupado `[aria-current="true"]` | destino y seccion activos; href y aria-current deben pertenecer al mismo `<a>` |
-| `html[data-tema]`, `button#btn-tema` | tema; el encabezado solo lleva la accion principal y el boton de tema |
+| `html[data-tema]`, `button#btn-tema` | tema; el encabezado lleva la accion de la pantalla (o el paginador en Decisiones) y el boton de tema |
 | `.accion-primaria[href="/campanas/nuevas"]` | accion Crear campanas, no una seccion del nav |
 | `canvas#tendencia-amazon_us`, `button[data-tab-canal]`, `button[data-cifra]`, `table.tabla-canales`, `table#serie-amazon_us`, `script#datos-resumen` | Resumen |
 | `form.filtros[action="/campanas"]`, `th[aria-sort]`, `a[href^="/campanas?ordenar="]` | Campanas |
