@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import date, timedelta
 
 import pytest
 from test_ui import _ctx_resumen_con_payload
@@ -334,16 +335,17 @@ def _lista_canales(html: str) -> str:
     return encontrado.group(0)
 
 
-def _canal_con_dias_sin_venta(dias: int, gasto_por_dia: str) -> dict:
+def _canal_con_dias_sin_venta(dias: int, gasto_por_dia: str, *, inmaduros: int = 0) -> dict:
     canal = _canal("MXN", acos=None, orders=0)
+    inicio = date(2026, 10, 18)
     canal["series"] = [
         {
-            "fecha": f"2026-10-{28 + i:02d}",
+            "fecha": (inicio + timedelta(days=i)).isoformat(),
             "cost": gasto_por_dia,
             "ad_revenue": "0.0000",
             "clicks": 5,
             "orders": 0,
-            "inmaduro": False,
+            "inmaduro": i >= dias,
             "ma7": {
                 "cost": gasto_por_dia,
                 "ad_revenue": "0.0000",
@@ -351,7 +353,7 @@ def _canal_con_dias_sin_venta(dias: int, gasto_por_dia: str) -> dict:
                 "orders": 0,
             },
         }
-        for i in range(dias)
+        for i in range(dias + inmaduros)
     ]
     canal["totals"].update({"ad_revenue": "0.0000", "acos": None, "roas": None})
     canal["comparison"]["totals"].update({"ad_revenue": "0.0000", "acos": None, "roas": None})
@@ -359,10 +361,12 @@ def _canal_con_dias_sin_venta(dias: int, gasto_por_dia: str) -> dict:
     return canal
 
 
-def _ctx_una_serie_sin_venta(dias: int, gasto_por_dia: str) -> dict:
+def _ctx_una_serie_sin_venta(dias: int, gasto_por_dia: str, *, inmaduros: int = 0) -> dict:
     contexto = _ctx_resumen_con_payload()
     contexto["contrato"]["metas_acos"] = {}
-    contexto["contrato"]["canales"] = {"amazon_mx": _canal_con_dias_sin_venta(dias, gasto_por_dia)}
+    contexto["contrato"]["canales"] = {
+        "amazon_mx": _canal_con_dias_sin_venta(dias, gasto_por_dia, inmaduros=inmaduros)
+    }
     return contexto
 
 
@@ -390,6 +394,28 @@ def test_frase_y_renglon_de_gasto_sin_venta_concuerdan_en_singular_y_plural():
     html_cuatro = ui.templates.env.get_template("resumen.html").render(**cuatro)
     assert "Hubo 4 días con gasto y cero ventas ($2,945.07 MXN)" in html_cuatro
     assert "4 días con gasto y sin ventas ($2,945.07 MXN)" in _lista_canales(html_cuatro)
+
+
+def test_dias_inmaduros_no_cuentan_como_dias_con_gasto_sin_venta():
+    contexto = _ctx_una_serie_sin_venta(6, "40.6850", inmaduros=5)
+    html = ui.templates.env.get_template("resumen.html").render(**contexto)
+    assert (
+        "6 días con gasto y sin ventas ($244.11 MXN), sin contar los días recientes"
+        in _lista_canales(html)
+    )
+    assert (
+        "Hubo 6 días con gasto y cero ventas ($244.11 MXN), sin contar los días recientes." in html
+    )
+    assert "11 días con gasto" not in html
+
+
+def test_solo_dias_inmaduros_con_gasto_sin_venta_no_dejan_renglon_ni_frase():
+    contexto = _ctx_una_serie_sin_venta(0, "40.6850", inmaduros=5)
+    html = ui.templates.env.get_template("resumen.html").render(**contexto)
+    lista = _lista_canales(html)
+    assert "canal-aviso" not in lista
+    assert "con gasto y sin ventas" not in lista
+    assert "Hubo" not in html
 
 
 def test_sin_dias_con_gasto_sin_venta_no_hay_renglon():
