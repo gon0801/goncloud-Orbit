@@ -1,6 +1,6 @@
 # ADS PROTECCION 01 — datos frescos y cortes que frenan gasto anormal
 
-> **Estado al 4-nov-2026: A.4/A.4r/B.4 completados; P03 conserva C.6.** Siete días de vigilancia, 12 recuperaciones y PAUSE causal conciliada con Amazon; checker corregido y verificado, entrega en PR #523. C.6 sigue apagada y tiene [preparación actualizada](#preparacion-vigente-de-c6--4-nov-2026) frente a BIDS 02. [Evidencia](../docs/evidencia/quick-wins-2026-11-04/README.md). Las secciones antiguas conservan su fecha e historia.
+> **Estado al 27-nov-2026: CERRADO (A.4/A.4r/B.4 y C.6/P03 completados).** `ads_propuestas_campana` quedó descartado/apagado por decisión del dueño; la pausa económica se corrigió a `economic_pause_v2` por mercado con guarda de ventana reciente, tabla append-only `0105` y cortacircuito de 5/ciclo (PR `#800`, PR `#801` `56671091`), desplegada y encendida en `live` en `amazon_mx` y `amazon_us` (`config_version 69/70`). Seguimiento P2 en `#802`. [Acta de cierre P03](../docs/evidencia/ads-proteccion-01/cierre-p03-2026-11-27.md). Las secciones antiguas conservan su fecha e historia.
 
 > **Proposito.** Cerrar los cuatro huecos observados al pausar A1U/AU2 Exact:
 > ingesta principal tardia, PAUSE bloqueada por cooldown de bids, falta de

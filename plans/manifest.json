@@ -38,12 +38,12 @@
     {
       "name": "ads-proteccion-01",
       "path": "plans/ads-proteccion-01.md",
-      "description": "ADS PROTECCION 01 — codigo entregado; A.4/A.4r/B.4 cerrados. C.6/P03 conserva P2 incompleto (cobertura, maduracion y elegibilidad); economica apagada en la ultima foto documentada. P3/P4/P5 separados; no inferir encendido por runtime. Ver ORDEN-IMPLEMENTACION."
+      "description": "ADS PROTECCION 01 — CERRADO 2026-11-27 UTC (A.4/A.4r/B.4 y C.6/P03). ads_propuestas_campana descartado/apagado; economic_pause_v2 por mercado desplegado en 56671091 (PR #800/#801, migracion 0105) y encendido en live MX/US (config_version 69/70). P2 menores en #802. Acta en docs/evidencia/ads-proteccion-01/cierre-p03-2026-11-27.md."
     },
     {
       "name": "ads-proteccion-01-fase-d",
       "path": "plans/ads-proteccion-01-fase-d.md",
-      "description": "ADS PROTECCION 01 Fase D — D.2, D.1b y C.2a completadas. El seguimiento del plan padre vive en ROADMAP P03."
+      "description": "ADS PROTECCION 01 Fase D — CERRADO (D.2, D.1b, C.2a y plan padre P03 completados 2026-11-27 UTC)."
     },
     {
       "name": "cortes-01",
