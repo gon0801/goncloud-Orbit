@@ -217,7 +217,25 @@ def test_cifras_grandes_no_se_parten_y_caben_en_su_recuadro():
     assert "white-space: nowrap" in valor.group(1)
     assert "font-size: clamp(18px, 1.5vw, 22px)" in valor.group(1)
     assert ".cifra-tile-val { font-size: 18px; }" in css
+    assert ".cifra-tile-val.larga { font-size: 15px; }" in css
     assert "flex: 0 0 150px" in css
+    assert "scroll-snap-type: x mandatory" in css
+    assert "margin: 12px -14px 12px" in css
+    assert ".cifra-tile-meta {" in css and "white-space: normal" in css
+
+
+def test_selector_de_canal_en_celular_usa_dos_renglones_sin_scroll():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "resumen.css").read_text(encoding="utf-8")
+    grupo = re.search(r"\.resumen-filter-bar \.filter-group-canal \.seg\s*\{([^}]+)\}", css)
+    assert grupo is not None
+    assert "display: grid" in grupo.group(1)
+    assert "repeat(2, minmax(0, 1fr))" in grupo.group(1)
+    assert "overflow: visible" in grupo.group(1)
+    tres = re.search(r"\.filter-group-canal \.seg\[data-opciones=\"3\"\]\s*\{([^}]+)\}", css)
+    assert tres is not None and "repeat(3, minmax(0, 1fr))" in tres.group(1)
+    assert 'class="filter-group filter-group-canal"' in (
+        ui.templates.env.get_template("resumen.html").render(**_ctx_con_canales())
+    )
 
 
 def test_tabla_canales_no_parte_cifras_ni_variaciones():
@@ -308,3 +326,105 @@ def test_pendientes_compactos_en_celular_con_objetivos_de_44():
     assert "margin: -6px 0 -8px" in summary.group(1)
     assert enlace is not None and "min-height: 44px" in enlace.group(1)
     assert "margin-top: -8px" in css
+
+
+def _lista_canales(html: str) -> str:
+    encontrado = re.search(r'<ul class="canales-lista".*?</ul>', html, re.S)
+    assert encontrado is not None
+    return encontrado.group(0)
+
+
+def _canal_con_dias_sin_venta(dias: int, gasto_por_dia: str) -> dict:
+    canal = _canal("MXN", acos=None, orders=0)
+    canal["series"] = [
+        {
+            "fecha": f"2026-10-{28 + i:02d}",
+            "cost": gasto_por_dia,
+            "ad_revenue": "0.0000",
+            "clicks": 5,
+            "orders": 0,
+            "inmaduro": False,
+            "ma7": {
+                "cost": gasto_por_dia,
+                "ad_revenue": "0.0000",
+                "clicks": 5,
+                "orders": 0,
+            },
+        }
+        for i in range(dias)
+    ]
+    canal["totals"].update({"ad_revenue": "0.0000", "acos": None, "roas": None})
+    canal["comparison"]["totals"].update({"ad_revenue": "0.0000", "acos": None, "roas": None})
+    canal["comparison"]["variacion"].update({"ad_revenue_pct": "-3.40", "acos_pp": "2.20"})
+    return canal
+
+
+def _ctx_una_serie_sin_venta(dias: int, gasto_por_dia: str) -> dict:
+    contexto = _ctx_resumen_con_payload()
+    contexto["contrato"]["metas_acos"] = {}
+    contexto["contrato"]["canales"] = {"amazon_mx": _canal_con_dias_sin_venta(dias, gasto_por_dia)}
+    return contexto
+
+
+def test_lista_de_celular_trae_tres_columnas_y_no_repite_frase_ni_roas():
+    contexto = _ctx_con_canales()
+    html = ui.templates.env.get_template("resumen.html").render(**contexto)
+    lista = _lista_canales(html)
+    assert lista.count('class="canal-cifras"') == len(contexto["contrato"]["canales"])
+    assert lista.count('class="canal-cifra"') == 3 * len(contexto["contrato"]["canales"])
+    for etiqueta in ("Ventas", "Gasto", "ACoS"):
+        assert f'<span class="canal-cifra-lab">{etiqueta}</span>' in lista
+    assert "ROAS" not in lista
+    assert "Las ventas subieron +33.33%" not in lista
+    assert "meta sin configurar" not in lista.lower()
+
+
+def test_frase_y_renglon_de_gasto_sin_venta_concuerdan_en_singular_y_plural():
+    uno = _ctx_una_serie_sin_venta(1, "690.3300")
+    html_uno = ui.templates.env.get_template("resumen.html").render(**uno)
+    assert "Hubo 1 día con gasto y cero ventas ($690.33 MXN)" in html_uno
+    assert "Hubo 1 días" not in html_uno
+    assert "1 día con gasto y sin ventas ($690.33 MXN)" in _lista_canales(html_uno)
+
+    cuatro = _ctx_una_serie_sin_venta(4, "736.2675")
+    html_cuatro = ui.templates.env.get_template("resumen.html").render(**cuatro)
+    assert "Hubo 4 días con gasto y cero ventas ($2,945.07 MXN)" in html_cuatro
+    assert "4 días con gasto y sin ventas ($2,945.07 MXN)" in _lista_canales(html_cuatro)
+
+
+def test_sin_dias_con_gasto_sin_venta_no_hay_renglon():
+    html = ui.templates.env.get_template("resumen.html").render(**_ctx_con_canales())
+    lista = _lista_canales(html)
+    assert "canal-aviso" not in lista
+    assert "con gasto y sin ventas" not in lista
+
+
+def test_un_solo_aviso_cuando_ningun_canal_tiene_meta():
+    contexto = _ctx_con_canales()
+    contexto["contrato"]["metas_acos"] = {}
+    html = ui.templates.env.get_template("resumen.html").render(**contexto)
+    assert html.count("Ningún canal tiene meta de ACoS.") == 1
+    assert 'href="/settings">Configurar metas</a>' in html
+    lista = _lista_canales(html)
+    assert "Sin meta" not in lista
+
+
+def test_canal_sin_meta_lo_dice_cuando_otros_si_tienen():
+    contexto = _ctx_con_canales()
+    html = ui.templates.env.get_template("resumen.html").render(**contexto)
+    lista = _lista_canales(html)
+    assert "Ningún canal tiene meta de ACoS." not in html
+    tramo_meli = lista[lista.index('data-canal-lista="meli"') :]
+    assert '<span class="canal-meta">Sin meta</span>' in tramo_meli
+    assert '<span class="canal-meta">Meta 25.00 %</span>' in lista
+
+
+def test_notas_de_canales_van_plegadas_con_comparacion_y_madurez():
+    contexto = _ctx_con_canales()
+    html = ui.templates.env.get_template("resumen.html").render(**contexto)
+    inicio = html.index('<details class="canales-notas">')
+    fin = html.index("</details>", inicio)
+    notas = html[inicio:fin]
+    assert "<summary>Cómo se calculan estas cifras</summary>" in notas
+    assert 'class="ch-comparacion mutado"' in notas
+    assert notas.count('class="ch-madurez mutado"') == len(contexto["contrato"]["canales"])
