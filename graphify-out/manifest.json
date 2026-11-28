@@ -913,9 +913,9 @@
     "semantic_hash": ""
   },
   "app/static/js/dashboard.js": {
-    "mtime": 1795835822.9090788,
-    "seen": 1795836213.75523,
-    "ast_hash": "f4a202b80dd54267b15b44e4f68c603e",
+    "mtime": 1795836437.2212067,
+    "seen": 1795836751.165754,
+    "ast_hash": "54feeaea14b199362f815b3849aad48a",
     "semantic_hash": ""
   },
   "app/static/js/dinero.js": {
@@ -18639,9 +18639,9 @@
     "semantic_hash": ""
   },
   "tests/test_ui_resumen_a2.py": {
-    "mtime": 1795835823.2475739,
-    "seen": 1795836213.755763,
-    "ast_hash": "77ffa356194f7dc6d43c6b8309d6f485",
+    "mtime": 1795836658.3861816,
+    "seen": 1795836751.182744,
+    "ast_hash": "0b234960b0a05979b0f972702aa1f11e",
     "semantic_hash": ""
   },
   "tests/test_ui_texto_movil.py": {
