@@ -71,6 +71,7 @@ Dominio = Literal[
     "estado_paso",
     "etiqueta_ads",
     "estado_disponibilidad",
+    "estado_oferta_destacada",
     "estado_estimacion",
     "motivo_estimacion",
     "exclusion_estimacion",
@@ -757,6 +758,14 @@ ESTADO_DISPONIBILIDAD: dict[str, str] = {
     "sin_verificar": "Sin verificar",
 }
 
+ESTADO_OFERTA_DESTACADA: dict[str, str] = {
+    "propia": "propia",
+    "ajena": "otro vendedor",
+    "sin_ofertas": "sin ofertas",
+    "sin_ganador": "sin ganador",
+    "sin_verificar": "sin verificar",
+}
+
 # Estado de la contribucion estimada (estimacion_venta.calcula).
 ESTADO_ESTIMACION: dict[str, str] = {
     "disponible": "Disponible",
@@ -992,6 +1001,7 @@ ETIQUETAS: dict[Dominio, dict[str, str]] = {
     "estado_paso": ESTADO_PASO,
     "etiqueta_ads": ETIQUETA_ADS,
     "estado_disponibilidad": ESTADO_DISPONIBILIDAD,
+    "estado_oferta_destacada": ESTADO_OFERTA_DESTACADA,
     "estado_estimacion": ESTADO_ESTIMACION,
     "motivo_estimacion": MOTIVO_ESTIMACION,
     "exclusion_estimacion": EXCLUSION_ESTIMACION,

@@ -10,12 +10,12 @@ Guardas de paginacion hermanas de orders (token repetido, pagina vacia
 con token, tope de paginas): un aviso sella el run ok=false conservando
 lo escrito (patron A.2b `paginacion_incompleta:<aviso>`).
 
-total_quantity es el dato de la tabla: ausente o ilegitimo = fila no
-escrita (skip "sin_cantidad"). fulfillable_quantity solo viene con
-details=true (no lo pedimos): NULL en la practica.
-
-Un numero, una fuente (D2): el bridge sigue mandando en stock de
-`listing`; esto es solo inventario observado. Ninguna escritura a Amazon.
+total_quantity es el dato minimo de la tabla: ausente o ilegitimo = fila no
+escrita (skip "sin_cantidad"). Desde ORBIT 19 P09 se solicita `details=true`
+para persistir `fulfillable_quantity` (unidades FBA vendibles; NULL si Amazon
+no lo devuelve). `app/disponibilidad.py` consume unicamente
+`fulfillable_quantity` no nulo, jamas `total_quantity`. Ninguna escritura a
+Amazon.
 """
 
 from __future__ import annotations
@@ -239,6 +239,7 @@ def ejecutar_ingesta(
             "granularityType": "Marketplace",
             "granularityId": marketplace_id,
             "marketplaceIds": marketplace_id,
+            "details": "true",
         }
         crudas, info = recorrer_summaries(client, params, max_paginas=max_paginas, medidor=medidor)
         paginas = info["paginas"]

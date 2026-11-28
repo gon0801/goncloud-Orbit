@@ -76,7 +76,9 @@ ALLOWLIST_TAMANO_TECHO: dict[str, int] = {
     # `ubicacion` que muestra Salud (una linea).
     # P03: ocho etiquetas de la pausa economica v2 (cinco motivos, espera,
     # cortacircuito y descarte), una linea cada una: +8 exacto sobre 1059.
-    "app/etiquetas.py": 1067,
+    # P09 (ORBIT 19): vocabulario estado_oferta_destacada (5 estados + registro
+    # + DOMINIOS_JS): +10 exacto sobre 1067.
+    "app/etiquetas.py": 1077,
     # ARREGLOS 05 A: techo congelado del orquestador unico del ciclo.
     "app/cycle.py": 1148,
 }

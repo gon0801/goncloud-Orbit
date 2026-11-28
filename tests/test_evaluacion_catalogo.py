@@ -830,6 +830,11 @@ def test_evaluacion_as_of_no_desplaza_ventana_ads(monkeypatch):
         "estados_disponibilidad_por_sku",
         lambda _conn, _plat, skus: {sku: {"estado": "desconocido"} for sku in skus},
     )
+    monkeypatch.setattr(
+        fw,
+        "ofertas_destacadas_por_asin",
+        lambda _conn, _plat, asins: {a: {"estado": "sin_verificar"} for a in asins},
+    )
 
     def fake_adjuntar(_conn, listing_ids, *, as_of):
         as_of_estimacion.append(as_of)
@@ -888,6 +893,18 @@ def test_evaluacion_us_muestra_ads_en_usd_aunque_economia_venga_mxn(monkeypatch)
         "estados_disponibilidad_por_sku",
         lambda _conn, _plat, skus: {sku: {"estado": "desconocido"} for sku in skus},
     )
+    monkeypatch.setattr(
+        fw,
+        "ofertas_destacadas_por_asin",
+        lambda _conn, _plat, asins: {
+            a: {
+                "estado": "propia",
+                "fuente": "spapi_pricing",
+                "freshness": "2026-11-27T05:02:44+00:00",
+            }
+            for a in asins
+        },
+    )
     from app.estimacion_proyeccion import proyeccion_s5
 
     monkeypatch.setattr(
@@ -899,6 +916,8 @@ def test_evaluacion_us_muestra_ads_en_usd_aunque_economia_venga_mxn(monkeypatch)
     (publicacion,) = res["publicaciones"]
     assert publicacion["economia"]["moneda"] == "MXN"
     assert publicacion["ads"]["moneda"] == "USD"
+    assert publicacion["disponibilidad"]["oferta_destacada"]["estado"] == "propia"
+    assert publicacion["disponibilidad"]["oferta_destacada"]["fuente"] == "spapi_pricing"
 
 
 def test_modulo_es_puro_en_runtime():

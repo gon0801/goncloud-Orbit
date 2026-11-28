@@ -63,6 +63,19 @@ ESTADO_POSITIVO = "positivo"
 ESTADO_DESCONOCIDO = "desconocido"
 ESTADO_SIN_VERIFICAR = "sin_verificar"
 
+# Estados de Oferta destacada (Buy Box) desde spapi_price_observation (P09).
+OFERTA_PROPIA = "propia"
+OFERTA_AJENA = "ajena"
+OFERTA_SIN_OFERTAS = "sin_ofertas"
+OFERTA_SIN_GANADOR = "sin_ganador"
+ESTADOS_OFERTA_DESTACADA: tuple[str, ...] = (
+    OFERTA_PROPIA,
+    OFERTA_AJENA,
+    OFERTA_SIN_OFERTAS,
+    OFERTA_SIN_GANADOR,
+    ESTADO_SIN_VERIFICAR,
+)
+
 ASPECTO_STOCK = "stock"
 ASPECTO_FEATURED_OFFER = "featured_offer"
 
@@ -405,6 +418,116 @@ def estado_desde_observaciones(
     }
 
 
+def oferta_destacada_desde_observacion(
+    observacion: tuple[bool | None, int | None, dt.datetime] | None,
+) -> dict:
+    """Etiqueta pura de Oferta destacada (Buy Box) desde `spapi_price_observation`.
+
+    Contrato P09: distingue propia, otro vendedor (ajena), sin ofertas activas
+    (`offers_count == 0`), sin ganador (`buy_box_is_own IS NULL` con ofertas) y
+    sin verificar (sin observacion SP-API). Jamas inventa ganador ni trata NULL
+    como propio o ajeno.
+    """
+    if observacion is None:
+        return {
+            "estado": ESTADO_SIN_VERIFICAR,
+            "fuente": None,
+            "freshness": None,
+        }
+    buy_box_is_own, offers_count, observed_at = observacion
+    if buy_box_is_own is True:
+        estado = OFERTA_PROPIA
+    elif buy_box_is_own is False:
+        estado = OFERTA_AJENA
+    elif offers_count == 0:
+        estado = OFERTA_SIN_OFERTAS
+    else:
+        estado = OFERTA_SIN_GANADOR
+    return {
+        "estado": estado,
+        "fuente": "spapi_pricing",
+        "freshness": observed_at.isoformat(),
+    }
+
+
+def combina_observaciones_stock(
+    observaciones: list[tuple[str, int | None, dt.datetime]],
+    *,
+    spapi_fba: tuple[int | None, dt.datetime] | None,
+) -> list[tuple[str, int | None, dt.datetime]]:
+    """Fusiona observaciones de `disponibilidad_observation` con FBA fresco de SP-API.
+
+    FBA y FBM jamas se suman. Para `fba` gana la observacion mas reciente por
+    timestamp (`spapi_inventario_observation.observed_at` vs `fetched_at` del
+    bridge); `fbm` se conserva tal cual.
+    """
+    if spapi_fba is None:
+        return list(observaciones)
+    spapi_qty, spapi_ts = spapi_fba
+    resultado: list[tuple[str, int | None, dt.datetime]] = []
+    vio_fba = False
+    for fuente, qty, ts in observaciones:
+        if fuente == "fba":
+            vio_fba = True
+            if spapi_ts >= ts:
+                resultado.append(("fba", spapi_qty, spapi_ts))
+            else:
+                resultado.append((fuente, qty, ts))
+        else:
+            resultado.append((fuente, qty, ts))
+    if not vio_fba:
+        resultado.append(("fba", spapi_qty, spapi_ts))
+    return resultado
+
+
+def _tabla_existe(conn: psycopg.Connection, tabla: str) -> bool:
+    fila = conn.execute("SELECT to_regclass(%s)", (f"public.{tabla}",)).fetchone()
+    return bool(fila and fila[0] is not None)
+
+
+def _spapi_fba_por_sku(
+    conn: psycopg.Connection, platform: str, skus: list[str]
+) -> dict[str, tuple[int | None, dt.datetime]]:
+    """Ultima observacion FBA vendible (`fulfillable_quantity`) en `spapi_inventario_observation`.
+
+    Jamas usa `total_quantity` (incluye inventario en camino, reservado o no
+    vendible). Filas con `fulfillable_quantity IS NULL` se ignoran para
+    conservar la observacion previa del bridge sin inventar stock.
+    """
+    if not skus or not _tabla_existe(conn, "spapi_inventario_observation"):
+        return {}
+    filas = conn.execute(
+        "SELECT DISTINCT ON (seller_sku) seller_sku, fulfillable_quantity, observed_at"
+        " FROM spapi_inventario_observation"
+        " WHERE platform = %s AND seller_sku = ANY(%s) AND fulfillable_quantity IS NOT NULL"
+        " ORDER BY seller_sku, observed_at DESC",
+        (platform, skus),
+    ).fetchall()
+    return {sku: (qty, obs) for sku, qty, obs in filas}
+
+
+def ofertas_destacadas_por_asin(
+    conn: psycopg.Connection,
+    platform: str,
+    asins: list[str] | set[str],
+) -> dict[str, dict]:
+    """Oferta destacada (Buy Box) de varios ASIN en 1 consulta a `spapi_price_observation`."""
+    unicos = sorted({asin for asin in asins if asin})
+    if not unicos:
+        return {}
+    if not _tabla_existe(conn, "spapi_price_observation"):
+        return {asin: oferta_destacada_desde_observacion(None) for asin in unicos}
+    filas = conn.execute(
+        "SELECT DISTINCT ON (asin) asin, buy_box_is_own, offers_count, observed_at"
+        " FROM spapi_price_observation"
+        " WHERE platform = %s AND asin = ANY(%s)"
+        " ORDER BY asin, observed_at DESC",
+        (platform, unicos),
+    ).fetchall()
+    por_asin = {asin: (propia, ofertas, obs) for asin, propia, ofertas, obs in filas}
+    return {asin: oferta_destacada_desde_observacion(por_asin.get(asin)) for asin in unicos}
+
+
 def estado_disponibilidad(
     conn: psycopg.Connection,
     platform: str,
@@ -413,11 +536,24 @@ def estado_disponibilidad(
 ) -> dict:
     """Etiqueta de disponibilidad de un (platform, seller_sku).
 
-    aspecto='stock': ultima observacion append-only por fuente (DISTINCT ON
-    por observed_at). aspecto='featured_offer': 'sin_verificar' constante
-    (ampliacion abierta, no integracion declarada).
+    aspecto='stock': ultima observacion append-only por fuente (fusionando FBA
+    fresco de `spapi_inventario_observation` si existe y es mas reciente).
+    aspecto='featured_offer': consulta `spapi_price_observation` por el ASIN
+    del listing si la tabla existe y tiene fila; si no, 'sin_verificar'.
     """
     if aspecto == ASPECTO_FEATURED_OFFER:
+        if _tabla_existe(conn, "spapi_price_observation"):
+            fila = conn.execute(
+                "SELECT p.buy_box_is_own, p.offers_count, p.observed_at"
+                " FROM listing l"
+                " JOIN spapi_price_observation p"
+                "   ON p.platform = l.platform AND p.asin = l.external_id"
+                " WHERE l.platform = %s AND l.seller_sku = %s"
+                " ORDER BY p.observed_at DESC LIMIT 1",
+                (platform, seller_sku),
+            ).fetchone()
+            if fila is not None:
+                return oferta_destacada_desde_observacion((fila[0], fila[1], fila[2]))
         return dict(_FEATURED_OFFER_SIN_VERIFICAR)
     if aspecto != ASPECTO_STOCK:
         raise DisponibilidadError(f"aspecto invalido: {aspecto!r}")
@@ -428,8 +564,12 @@ def estado_disponibilidad(
         " ORDER BY fuente, observed_at DESC, fetched_at DESC",
         (platform, seller_sku),
     ).fetchall()
+    spapi_fba = _spapi_fba_por_sku(conn, platform, [seller_sku]).get(seller_sku)
     return estado_desde_observaciones(
-        [(fuente, quantity, fetched_at) for fuente, quantity, fetched_at in filas]
+        combina_observaciones_stock(
+            [(fuente, quantity, fetched_at) for fuente, quantity, fetched_at in filas],
+            spapi_fba=spapi_fba,
+        )
     )
 
 
@@ -438,7 +578,7 @@ def estados_disponibilidad_por_sku(
     platform: str,
     seller_skus: list[str] | set[str],
 ) -> dict[str, dict]:
-    """Disponibilidad de stock de varios SKUs en 1 sola consulta (evita N+1)."""
+    """Disponibilidad de stock de varios SKUs en lote (bridge + FBA fresco SP-API)."""
     skus = sorted({sku for sku in seller_skus if sku})
     if not skus:
         return {}
@@ -452,4 +592,10 @@ def estados_disponibilidad_por_sku(
     por_sku: dict[str, list[tuple[str, int | None, dt.datetime]]] = {}
     for seller_sku, fuente, quantity, fetched_at in filas:
         por_sku.setdefault(seller_sku, []).append((fuente, quantity, fetched_at))
-    return {sku: estado_desde_observaciones(por_sku.get(sku, [])) for sku in skus}
+    spapi_por_sku = _spapi_fba_por_sku(conn, platform, skus)
+    return {
+        sku: estado_desde_observaciones(
+            combina_observaciones_stock(por_sku.get(sku, []), spapi_fba=spapi_por_sku.get(sku))
+        )
+        for sku in skus
+    }

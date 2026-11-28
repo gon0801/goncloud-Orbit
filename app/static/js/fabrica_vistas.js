@@ -301,8 +301,17 @@ function textoMuestraMargen(econ) {
   return econ.dias_con_venta + " días con venta";
 }
 
+function textoOfertaDestacada(disp) {
+  const oferta = disp && disp.oferta_destacada;
+  if (!oferta || !oferta.estado) return "Oferta destacada: sin verificar";
+  const etiqueta = Orbit.etiqueta(oferta.estado, "estado_oferta_destacada");
+  return oferta.freshness
+    ? "Oferta destacada: " + etiqueta + " (desde " + fechaHora(oferta.freshness) + ")"
+    : "Oferta destacada: " + etiqueta;
+}
+
 function textoDisponibilidad(disp) {
-  const featured = "Oferta destacada: sin verificar";
+  const featured = textoOfertaDestacada(disp);
   if (!disp || !disp.estado) return "Sin dato. " + featured;
   const base = Orbit.etiqueta(disp.estado, "estado_disponibilidad");
   const porFuente = disp.cantidad && typeof disp.cantidad === "object"
