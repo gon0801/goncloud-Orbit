@@ -4,7 +4,7 @@ Envíos muestra los pedidos de los últimos 30 días de Amazon MX, Amazon US y M
 
 ## Sub-features
 
-- `envios-nav` abre `/envios` desde la subnavegación de Catálogo (después de Reputación) y marca `aria-current="page"` en el enlace exacto; el padre Catálogo lleva `aria-current="true"`. El header dice `Amazon MX · Amazon US · Mercado Libre` (`span.alcance`) y el subtítulo `Pedidos de los últimos 30 días y dónde va cada envío · solo consulta`.
+- `envios-nav` abre `/envios` desde la subnavegación de Catálogo (después de Reputación) y marca `aria-current="page"` en el enlace exacto; el padre Catálogo lleva `aria-current="true"`. El header solo trae `button#btn-tema`, sin leyenda de zona, watermark ni chip de alcance, y el subtítulo `Pedidos de los últimos 30 días y dónde va cada envío · solo consulta`.
 - `envios-resumen` `section.catalogo-resumen.superficie` contiene lecturas, atrasos y vencimiento antes de vistas y filtros.
 - `envios-contador` `span#envios-contador` en el sidebar y `[data-rol="envios"]` en la barra móvil: `shell.js` los llena desde `GET /api/envios/contador`. Solo aparecen cuando hay envíos que requieren atención; en cero o con error quedan ocultos.
 - `envios-lecturas` `p#envios-lecturas`: la última lectura correcta por mercado (`Amazon MX: 24 nov, 22:00` o `sin lectura correcta`) con el chip `Atrasada` si pasó más de 8 h o nunca hubo.

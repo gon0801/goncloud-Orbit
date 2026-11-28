@@ -124,7 +124,6 @@ def porcentaje_ui(valor: str | None) -> str | None:
 
 templates.env.filters.update(formato.FILTROS)
 templates.env.filters["etiqueta"] = etiqueta
-templates.env.globals["leyenda_zona"] = formato.LEYENDA_ZONA
 # El registro viaja una vez por pagina (base.html) para Orbit.etiqueta; se
 # serializa al arrancar porque no cambia en vida del proceso.
 templates.env.globals["registro_etiquetas"] = htmlsafe_json_dumps(registro_navegador())

@@ -30,17 +30,38 @@ function formatoDeClave(clave) {
   return function (valor) { return Orbit.numero(valor); };
 }
 
-function formatoDeEje(clave) {
+function formatoDeEje(clave, decimales) {
+  var dec = decimales || 0;
   if (clave === "acos") {
-    return function (valor) { return Orbit.numero(valor, 0) + " %"; };
+    return function (valor) { return Orbit.numero(valor, dec) + " %"; };
   }
   if (clave === "roas") {
-    return function (valor) { return Orbit.numero(valor, 1) + "×"; };
+    return function (valor) { return Orbit.numero(valor, dec) + "×"; };
   }
   if (clave === "cost" || clave === "ad_revenue") {
-    return function (valor) { return Orbit.numero(valor); };
+    return function (valor) { return Orbit.numero(valor, dec); };
   }
   return undefined;
+}
+
+// Paso del eje con marcas distintas al formatearse: enteros para clics y
+// ordenes; dinero, ACoS y ROAS con los decimales que pida el rango. Sin datos
+// el eje queda simple (0 y 1), nunca con fracciones repetidas.
+function pasoDeEje(valores, entero) {
+  var maximo = 0;
+  (valores || []).forEach(function (valor) {
+    var n = numero(valor);
+    if (n !== null && isFinite(n) && n > maximo) maximo = n;
+  });
+  if (!(maximo > 0)) return { paso: 1, decimales: 0 };
+  var objetivo = maximo / 5;
+  var potencia = Math.pow(10, Math.floor(Math.log10(objetivo)));
+  var normalizado = objetivo / potencia;
+  var factor = normalizado <= 1 ? 1 : normalizado <= 2 ? 2 : normalizado <= 5 ? 5 : 10;
+  var paso = factor * potencia;
+  if (entero) paso = Math.max(1, Math.round(paso));
+  var decimales = Math.max(0, Math.ceil(-Math.log10(paso) - 1e-9));
+  return { paso: paso, decimales: decimales };
 }
 
 function tooltipCon(formatos) {
@@ -174,6 +195,11 @@ function dibujarCanal(nombre, clave) {
   var etiqueta = ETIQUETAS[clave] || ETIQUETAS.ad_revenue;
   var colorBarra = colorCss("--resumen-ventas-dia", "#b9b5ff");
   var colorLinea = colorCss("--resumen-ventas-ma7", "#3d35d6");
+  var entero = clave === "clicks" || clave === "orders";
+  var eje = pasoDeEje(
+    serieCifra(bloque, clave, false).concat(serieCifra(bloque, clave, true)),
+    entero
+  );
 
   return reemplazar(canvas, {
     type: "bar",
@@ -258,7 +284,12 @@ function dibujarCanal(nombre, clave) {
         },
         y: {
           beginAtZero: true,
-          ticks: { color: tinta.mutado, callback: formatoDeEje(clave) },
+          ticks: {
+            color: tinta.mutado,
+            stepSize: eje.paso,
+            precision: eje.decimales,
+            callback: formatoDeEje(clave, eje.decimales)
+          },
           grid: { color: tinta.borde }
         }
       }

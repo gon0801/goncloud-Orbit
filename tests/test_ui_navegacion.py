@@ -47,6 +47,23 @@ def test_crear_campana_es_accion_y_configuracion_es_destino():
     assert 'aria-current="page"' in settings
 
 
+def test_encabezado_sin_rectangulos_de_contexto():
+    """El header deja solo la accion principal y el boton de tema; los
+    contadores del menu se siguen pintando desde shell.js."""
+    for pantalla in ("resumen", "campanas", "envios"):
+        html = _base(pantalla)
+        assert 'class="leyenda-zona"' not in html
+        assert 'id="watermark-resumen"' not in html
+        assert 'class="alcance"' not in html
+        assert "Horas del centro de México" not in html
+        assert "Cifras hasta" not in html
+        assert 'id="propuestas-contador"' in html
+        assert 'id="reputacion-contador"' in html
+        assert 'id="envios-contador"' in html
+        assert 'id="ciclo-resumen"' in html
+        assert 'id="btn-tema"' in html
+
+
 def test_fabrica_marca_campanas_en_el_sidebar_no_solo_en_movil():
     html = _base("fabrica")
     sidebar = re.search(r'<nav id="nav-secciones"[^>]*>(.*?)</nav>', html, re.DOTALL)
@@ -119,7 +136,7 @@ async function probar(conBadges) {
   boton.hijos.push(etiqueta);
   const nodos = {"nav-mas-toggle": boton, "nav-mas": menu};
   if (conBadges) {
-    for (const id of ["propuestas-contador", "ciclo-resumen", "watermark-resumen"]) {
+    for (const id of ["propuestas-contador", "ciclo-resumen"]) {
       nodos[id] = new Nodo(id);
     }
   }

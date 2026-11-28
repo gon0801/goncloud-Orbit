@@ -14,7 +14,6 @@ from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 ZONA_PANTALLA = ZoneInfo("America/Mexico_City")
-LEYENDA_ZONA = "Horas del centro de México"
 _MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 _RAYA = "—"
 
