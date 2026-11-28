@@ -254,7 +254,7 @@
           </div>
         </div>
         {% if t.dias_gasto_sin_venta %}
-        <p class="canal-aviso">{{ t.dias_gasto_sin_venta }} {{ 'día' if t.dias_gasto_sin_venta == 1 else 'días' }} con gasto y sin ventas ({{ t.gasto_sin_venta_texto }} {{ bloque.moneda }})</p>
+        <p class="canal-aviso">{{ t.dias_gasto_sin_venta }} {{ 'día' if t.dias_gasto_sin_venta == 1 else 'días' }} con gasto y sin ventas ({{ t.gasto_sin_venta_texto }} {{ bloque.moneda }}){% if t.dias_gasto_sin_venta_recientes %}, sin contar los días recientes{% endif %}</p>
         {% endif %}
       </li>
       {% else %}

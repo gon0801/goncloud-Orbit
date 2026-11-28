@@ -112,6 +112,17 @@ def _dias_gasto_sin_venta(series: list[dict]) -> list[dict]:
     return salida
 
 
+def _dias_gasto_sin_venta_cerrados(series: list[dict]) -> tuple[list[dict], int]:
+    """Dias con gasto y cero ventas que ya no pueden recibir ventas atribuidas.
+
+    Devuelve los dias cerrados y cuantos se dejaron fuera por estar inmaduros.
+    Un dia inmaduro aun puede recibir ventas, asi que no cuenta como "sin ventas".
+    """
+    todos = _dias_gasto_sin_venta(series)
+    cerrados = [fila for fila in todos if fila.get("inmaduro") is not True]
+    return cerrados, len(todos) - len(cerrados)
+
+
 def _totales_filas(filas: list[dict], dias_rango: int) -> dict:
     agregado = agrega_filas(filas)
     alineado = agregado.dinero_alineado
@@ -255,11 +266,12 @@ def _frase_tarjeta(
                 "respecto al periodo anterior."
             )
         if rev_pct < 0:
-            dias_sv = _dias_gasto_sin_venta(series)
+            dias_sv, recientes = _dias_gasto_sin_venta_cerrados(series)
             gasto_sv = sum((_dec(d.get("cost")) or Decimal(0) for d in dias_sv), Decimal(0))
+            coletilla = ", sin contar los días recientes" if recientes else ""
             extra = (
                 f" Hubo {len(dias_sv)} {_dias_texto(len(dias_sv))} con gasto y cero ventas "
-                f"({_fmt_dinero(gasto_sv)} {moneda})."
+                f"({_fmt_dinero(gasto_sv)} {moneda}){coletilla}."
                 if dias_sv
                 else ""
             )
@@ -360,7 +372,7 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
         series=series,
     )
     linea_svg, area_svg = _spark_paths(series)
-    dias_sv = _dias_gasto_sin_venta(series)
+    dias_sv, recientes_sv = _dias_gasto_sin_venta_cerrados(series)
     gasto_sv = sum((_dec(d.get("cost")) or Decimal(0) for d in dias_sv), Decimal(0))
     return {
         "nombre": nombre,
@@ -385,6 +397,7 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
         "spark_area": area_svg,
         "frase": frase,
         "dias_gasto_sin_venta": len(dias_sv) if series else None,
+        "dias_gasto_sin_venta_recientes": recientes_sv,
         "gasto_sin_venta_texto": _fmt_dinero(gasto_sv) if dias_sv else None,
     }
 
