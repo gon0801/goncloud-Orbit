@@ -38,7 +38,7 @@
 {% set valor_txt = cifra(bloque.totals[clave], tipo) %}
 <button type="button" class="cifra-tile{% if clave == 'ad_revenue' %} sel{% endif %}" aria-pressed="{{ 'true' if clave == 'ad_revenue' else 'false' }}" data-cifra="{{ clave }}" data-cifra-canal="{{ nombre }}">
   <span class="cifra-tile-lab">{{ etiqueta }}</span>
-  <span class="cifra-tile-val{% if valor_txt | length > 11 %} larga{% endif %}">{{ valor_txt }}</span>
+  <span class="cifra-tile-val{% if valor_txt | length > 12 %} larga{% endif %}">{{ valor_txt }}</span>
   {% if delta_texto %}<span class="v-delta {{ delta_clase }}">{{ delta_texto }}</span>{% endif %}
   {% if clave == 'acos' %}
   <span class="cifra-tile-meta">{% if t.meta_acos %}Meta {{ t.meta_acos | pct }}{% else %}Meta sin configurar{% endif %}</span>
@@ -49,9 +49,9 @@
 <h2>Resumen de publicidad</h2>
 
 <div class="resumen-filter-bar" role="region" aria-label="Filtros del resumen">
-  <div class="filter-group">
+  <div class="filter-group filter-group-canal">
     <span class="filter-label">Canal</span>
-    <div class="seg" role="group" aria-label="Selector de canal">
+    <div class="seg" role="group" aria-label="Selector de canal" data-opciones="{{ filtro.canales | length + 1 }}">
       <a class="seg-btn{% if not filtro.canal %} active{% endif %}" href="{{ url_filtro('', filtro.periodo) }}">Todos</a>
       {% for c in filtro.canales %}
       <a class="seg-btn{% if filtro.canal == c %} active{% endif %}" href="{{ url_filtro(c, filtro.periodo) }}">{{ c | etiqueta('plataforma') }}</a>

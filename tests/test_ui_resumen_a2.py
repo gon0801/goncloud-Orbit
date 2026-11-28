@@ -218,7 +218,24 @@ def test_cifras_grandes_no_se_parten_y_caben_en_su_recuadro():
     assert "font-size: clamp(18px, 1.5vw, 22px)" in valor.group(1)
     assert ".cifra-tile-val { font-size: 18px; }" in css
     assert ".cifra-tile-val.larga { font-size: 15px; }" in css
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in css
+    assert "flex: 0 0 150px" in css
+    assert "scroll-snap-type: x mandatory" in css
+    assert "margin: 12px -14px 12px" in css
+    assert ".cifra-tile-meta {" in css and "white-space: normal" in css
+
+
+def test_selector_de_canal_en_celular_usa_dos_renglones_sin_scroll():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "resumen.css").read_text(encoding="utf-8")
+    grupo = re.search(r"\.resumen-filter-bar \.filter-group-canal \.seg\s*\{([^}]+)\}", css)
+    assert grupo is not None
+    assert "display: grid" in grupo.group(1)
+    assert "repeat(2, minmax(0, 1fr))" in grupo.group(1)
+    assert "overflow: visible" in grupo.group(1)
+    tres = re.search(r"\.filter-group-canal \.seg\[data-opciones=\"3\"\]\s*\{([^}]+)\}", css)
+    assert tres is not None and "repeat(3, minmax(0, 1fr))" in tres.group(1)
+    assert 'class="filter-group filter-group-canal"' in (
+        ui.templates.env.get_template("resumen.html").render(**_ctx_con_canales())
+    )
 
 
 def test_tabla_canales_no_parte_cifras_ni_variaciones():
