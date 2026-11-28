@@ -623,13 +623,27 @@ def test_postgres_spapi_oferta_destacada_y_fba_fresco():
             " ('amazon_mx', 'SKU-OWN', '2026-09-07', 'fbm', 2,"
             "  '2026-09-07 17:00:00+00', '2026-09-07 17:39:00+00')"
         )
-        # SP-API fresco FBA=9 supera al bridge viejo sin tocar FBM
+        # SP-API fresco FBA vendible (fulfillable=9) supera al bridge viejo sin tocar FBM;
+        # SKU-OTH tiene total=50 pero fulfillable=0 (en camino/reservado) -> Stock en 0;
+        # SKU-NOO tiene total=50 pero fulfillable=NULL -> conserva bridge FBA=0, jamas 50.
+        conn.execute(
+            "INSERT INTO disponibilidad_observation"
+            " (platform, seller_sku, metric_date, fuente, quantity, fetched_at, observed_at)"
+            " VALUES"
+            " ('amazon_mx', 'SKU-NOO', '2026-09-07', 'fba', 0,"
+            "  '2026-09-07 17:00:00+00', '2026-09-07 17:39:00+00')"
+        )
         conn.execute(
             "INSERT INTO spapi_inventario_observation"
-            " (seller_sku, asin, platform, metric_date, observed_at, total_quantity, api_version)"
+            " (seller_sku, asin, platform, metric_date, observed_at,"
+            "  total_quantity, fulfillable_quantity, api_version)"
             " VALUES"
             " ('SKU-OWN', 'B0OWN11111', 'amazon_mx', '2026-11-27',"
-            "  '2026-11-27 05:02:00+00', 9, 'v1')"
+            "  '2026-11-27 05:02:00+00', 15, 9, 'v1'),"
+            " ('SKU-OTH', 'B0OTH22222', 'amazon_mx', '2026-11-27',"
+            "  '2026-11-27 05:02:00+00', 50, 0, 'v1'),"
+            " ('SKU-NOO', 'B0NOO33333', 'amazon_mx', '2026-11-27',"
+            "  '2026-11-27 05:02:00+00', 50, NULL, 'v1')"
         )
         # SP-API pricing (dos observaciones: gana la mas reciente)
         conn.execute(
@@ -642,10 +656,15 @@ def test_postgres_spapi_oferta_destacada_y_fba_fresco():
             " ('B0NOO33333', 'amazon_mx', '2026-11-27', '2026-11-27 05:02:00+00', NULL, 0)"
         )
 
-        stock = estados_disponibilidad_por_sku(conn, "amazon_mx", ["SKU-OWN"])
+        stock = estados_disponibilidad_por_sku(conn, "amazon_mx", ["SKU-OWN", "SKU-OTH", "SKU-NOO"])
         assert stock["SKU-OWN"]["estado"] == ESTADO_POSITIVO
         assert stock["SKU-OWN"]["cantidad"] == {"fba": 9, "fbm": 2}
         assert stock["SKU-OWN"]["freshness"]["fba"].startswith("2026-11-27T05:02:00")
+        assert stock["SKU-OTH"]["estado"] == ESTADO_CERO
+        assert stock["SKU-OTH"]["cantidad"] == {"fba": 0}
+        assert stock["SKU-NOO"]["estado"] == ESTADO_CERO
+        assert stock["SKU-NOO"]["cantidad"] == {"fba": 0}
+        assert stock["SKU-NOO"]["freshness"]["fba"].startswith("2026-09-07T17:00:00")
 
         ofertas = ofertas_destacadas_por_asin(
             conn, "amazon_mx", ["B0OWN11111", "B0OTH22222", "B0NOO33333", "B0SIN44444"]

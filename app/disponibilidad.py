@@ -488,13 +488,18 @@ def _tabla_existe(conn: psycopg.Connection, tabla: str) -> bool:
 def _spapi_fba_por_sku(
     conn: psycopg.Connection, platform: str, skus: list[str]
 ) -> dict[str, tuple[int | None, dt.datetime]]:
-    """Ultima observacion FBA (`total_quantity`) en `spapi_inventario_observation`."""
+    """Ultima observacion FBA vendible (`fulfillable_quantity`) en `spapi_inventario_observation`.
+
+    Jamas usa `total_quantity` (incluye inventario en camino, reservado o no
+    vendible). Filas con `fulfillable_quantity IS NULL` se ignoran para
+    conservar la observacion previa del bridge sin inventar stock.
+    """
     if not skus or not _tabla_existe(conn, "spapi_inventario_observation"):
         return {}
     filas = conn.execute(
-        "SELECT DISTINCT ON (seller_sku) seller_sku, total_quantity, observed_at"
+        "SELECT DISTINCT ON (seller_sku) seller_sku, fulfillable_quantity, observed_at"
         " FROM spapi_inventario_observation"
-        " WHERE platform = %s AND seller_sku = ANY(%s)"
+        " WHERE platform = %s AND seller_sku = ANY(%s) AND fulfillable_quantity IS NOT NULL"
         " ORDER BY seller_sku, observed_at DESC",
         (platform, skus),
     ).fetchall()
