@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 
 from app.dashboard_resumen import acos_texto, agrega_filas, roas_texto, variacion
 from app.etiquetas import etiqueta as etiqueta_de
+from app.formato import fecha_corta as _fecha_corta
 
 
 def _dec(valor) -> Decimal | None:
@@ -34,6 +35,10 @@ def _fmt_entero(valor: int | Decimal | None) -> str:
     if valor is None:
         return "—"
     return f"{round(Decimal(str(valor))):,}"
+
+
+def _fmt_pct(valor: Decimal) -> str:
+    return f"{valor:.2f} %"
 
 
 def _total(filas: list[dict], campo: str) -> Decimal | None:
@@ -189,15 +194,22 @@ def _estado_tarjeta(
 
 
 def _delta_mini(
-    delta: Decimal | None, previo_txt: str | None, sufijo: str, *, neutro: bool = False
+    delta: Decimal | None,
+    previo_txt: str | None,
+    sufijo: str,
+    *,
+    neutro: bool = False,
+    motivo: str | None = None,
 ) -> tuple[str, str]:
     if delta is not None:
         clase = "flat" if neutro else ("up" if delta > 0 else "down" if delta < 0 else "flat")
         pref = "▲ +" if delta > 0 else "▼ " if delta < 0 else ""
-        return clase, f"{pref}{delta}{sufijo} vs ant."
+        return clase, f"{pref}{delta}{sufijo}"
     if previo_txt is not None:
         return "flat", f"antes {previo_txt}*"
-    return "flat", "sin comparacion"
+    if motivo:
+        return "flat", etiqueta_de(motivo, "motivo_variacion")
+    return "flat", "sin comparación"
 
 
 def _frase_tarjeta(
@@ -218,44 +230,47 @@ def _frase_tarjeta(
     if meta is not None:
         if acos is not None and acos <= meta:
             return (
-                f"ACoS en {acos}% cumple la meta configurada ({meta}%), "
+                f"ACoS en {_fmt_pct(acos)} cumple la meta configurada ({_fmt_pct(meta)}), "
                 f"con {_fmt_dinero(rev)} {moneda} en ventas atribuidas."
             )
         if acos is not None:
             return (
-                f"ACoS en {acos}% supera la meta configurada ({meta}%) "
+                f"ACoS en {_fmt_pct(acos)} supera la meta configurada ({_fmt_pct(meta)}) "
                 f"por +{(acos - meta).quantize(Decimal('0.01'))} pp."
             )
         if (bloque.get("totals") or {}).get("sin_ventas"):
-            return f"Sin ventas atribuidas frente a la meta de {meta}%."
-        return f"Faltan datos de algunos días: no se puede comparar el ACoS con la meta de {meta}%."
+            return f"Sin ventas atribuidas frente a la meta de {_fmt_pct(meta)}."
+        return (
+            f"Faltan datos de algunos días: no se puede comparar el ACoS "
+            f"con la meta de {_fmt_pct(meta)}."
+        )
     if rev_pct is not None and acos_pp is not None:
         if rev_pct > 0 and acos_pp < 0:
             return (
-                f"Las ventas subieron +{rev_pct}% y el ACoS bajo {acos_pp} pp "
+                f"Las ventas subieron +{rev_pct}% y el ACoS bajó {acos_pp} pp "
                 "respecto al periodo anterior."
             )
         if rev_pct < 0:
             dias_sv = _dias_gasto_sin_venta(series)
             gasto_sv = sum((_dec(d.get("cost")) or Decimal(0) for d in dias_sv), Decimal(0))
             extra = (
-                f" Hubo {len(dias_sv)} dias con gasto y cero ventas "
+                f" Hubo {len(dias_sv)} días con gasto y cero ventas "
                 f"({_fmt_dinero(gasto_sv)} {moneda})."
                 if dias_sv
                 else ""
             )
             signo = "+" if acos_pp > 0 else ""
             return (
-                f"Las ventas bajaron {rev_pct}% y el ACoS cambio "
+                f"Las ventas bajaron {rev_pct}% y el ACoS cambió "
                 f"{signo}{acos_pp} pp vs el periodo anterior.{extra}"
             )
         return (
-            f"Las ventas subieron +{rev_pct}%, pero el ACoS subio "
+            f"Las ventas subieron +{rev_pct}%, pero el ACoS subió "
             f"+{acos_pp} pp respecto al periodo anterior."
         )
     return (
         f"Cobertura del periodo: {cov.get('dias_con_dato', 0)}/{bloque.get('dias', 0)} "
-        "dias con dato."
+        "días con dato."
     )
 
 
@@ -274,8 +289,10 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
     meta = _dec(meta_str)
     rev_pct = _dec(var.get("ad_revenue_pct"))
     cost_pct = _dec(var.get("cost_pct"))
+    clicks_pct = _dec(var.get("clicks_pct"))
     acos_pp = _dec(var.get("acos_pp"))
     roas_delta = _dec(var.get("roas_delta"))
+    motivos = var.get("motivo_por_metrica") or {}
 
     estado_texto, estado_clase, color_spark = _estado_tarjeta(
         cost,
@@ -289,7 +306,11 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
     )
 
     if acos_pp is None:
-        acos_delta_clase, acos_delta_texto = "delta-neutral", "sin comparacion"
+        motivo_acos = motivos.get("acos_pp")
+        acos_delta_clase = "delta-neutral"
+        acos_delta_texto = (
+            etiqueta_de(motivo_acos, "motivo_variacion") if motivo_acos else "sin comparación"
+        )
     elif acos_pp > 0:
         acos_delta_clase, acos_delta_texto = "delta-up-bad", f"▲ +{acos_pp} pp"
     elif acos_pp < 0:
@@ -299,19 +320,31 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
 
     prev_rev = _dec(prev_totals.get("ad_revenue"))
     v_clase, v_texto = _delta_mini(
-        rev_pct, _fmt_dinero(prev_rev) if prev_rev is not None else None, "%"
+        rev_pct,
+        _fmt_dinero(prev_rev) if prev_rev is not None else None,
+        "%",
+        motivo=motivos.get("ad_revenue_pct"),
     )
     prev_cost = _dec(prev_totals.get("cost"))
-    _, g_texto = _delta_mini(
+    g_clase, g_texto = _delta_mini(
         cost_pct,
         _fmt_dinero(prev_cost) if prev_cost is not None else None,
         "%",
         neutro=True,
+        motivo=motivos.get("cost_pct"),
+    )
+    c_clase, c_texto = _delta_mini(
+        clicks_pct, None, "%", neutro=True, motivo=motivos.get("clicks_pct")
     )
     prev_roas = prev_totals.get("roas")
     r_clase, r_texto = _delta_mini(
-        roas_delta, f"{prev_roas}×" if prev_roas is not None else None, "×"
+        roas_delta,
+        f"{prev_roas}×" if prev_roas is not None else None,
+        "×",
+        motivo=motivos.get("roas_delta"),
     )
+    orders = totals.get("orders")
+    orders_delta_texto = None if orders is None else "sin comparación"
     frase = _frase_tarjeta(
         bloque=bloque,
         cost=cost,
@@ -335,9 +368,13 @@ def _tarjeta_canal(nombre: str, bloque: Mapping, meta_str: str | None) -> dict:
         "acos_delta_texto": acos_delta_texto,
         "ventas_delta_clase": v_clase,
         "ventas_delta_texto": v_texto,
+        "gasto_delta_clase": g_clase,
         "gasto_delta_texto": g_texto,
+        "clicks_delta_clase": c_clase,
+        "clicks_delta_texto": c_texto,
         "roas_delta_clase": r_clase,
         "roas_delta_texto": r_texto,
+        "orders_delta_texto": orders_delta_texto,
         "spark_linea": linea_svg,
         "spark_area": area_svg,
         "frase": frase,
@@ -363,7 +400,7 @@ def _item_gasto_sin_venta(
         else Decimal(0)
     )
     evidencia = (
-        f"{len(dias_sv)} de {bloque.get('dias', len(series))} dias tuvieron gasto "
+        f"{len(dias_sv)} de {bloque.get('dias', len(series))} días tuvieron gasto "
         f"y $0.00 en ventas atribuidas ({_fmt_dinero(gasto_sv)} {moneda}, "
         f"{pct_sv}% del gasto del periodo)."
     )
@@ -375,8 +412,8 @@ def _item_gasto_sin_venta(
             else ""
         )
         evidencia += (
-            f" La conversion clic -> orden fue {conv}% "
-            f"({_fmt_entero(tot.get('orders'))} ordenes / "
+            f" La conversión clic → orden fue {conv}% "
+            f"({_fmt_entero(tot.get('orders'))} órdenes / "
             f"{_fmt_entero(tot.get('clicks'))} clics){contraste}."
         )
     caveat = None
@@ -385,14 +422,15 @@ def _item_gasto_sin_venta(
         vent = mad.get("ventana_inmaduros") or {}
         if n_inm > 0 and vent.get("desde") and vent.get("hasta"):
             caveat = (
-                f"Ojo: {n_inm} de esos {len(dias_sv)} dias caen en la ventana "
-                f"inmadura ({vent['desde']} a {vent['hasta']}); Amazon puede "
-                "atribuir ventas hasta 7 dias despues del clic."
+                f"Ojo: {n_inm} de esos {len(dias_sv)} días caen en la ventana "
+                f"inmadura ({_fecha_corta(vent['desde'])} a "
+                f"{_fecha_corta(vent['hasta'])}); Amazon puede "
+                "atribuir ventas hasta 7 días después del clic."
             )
     enlaces = (
         [
             ("Ver gasto sin venta →", f"/gasto-sin-venta?plataforma={nombre}"),
-            ("Busquedas que gastan sin vender →", f"/busquedas-sin-venta?plataforma={nombre}"),
+            ("Búsquedas que gastan sin vender →", f"/busquedas-sin-venta?plataforma={nombre}"),
         ]
         if nombre in ("amazon_mx", "amazon_us")
         else [("Ver campañas →", "/campanas")]
@@ -414,26 +452,29 @@ def _item_caida_ma7(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | None
     etiqueta = etiqueta_de(nombre, "plataforma")
     mad = bloque.get("maduracion") or {}
     evidencia = (
-        f"La media de 7 dias de gasto paso de {_fmt_dinero(picos['pico_cost'])}/dia "
-        f"({picos['fecha_pico_cost']}) a {_fmt_dinero(picos['ult_cost'])}/dia "
-        f"({picos['fecha_ult_cost']}), {picos['caida_pct']}%."
+        f"La media de 7 días de gasto pasó de {_fmt_dinero(picos['pico_cost'])}/día "
+        f"({_fecha_corta(picos['fecha_pico_cost'])}) a {_fmt_dinero(picos['ult_cost'])}/día "
+        f"({_fecha_corta(picos['fecha_ult_cost'])}), {picos['caida_pct']}%."
     )
     if picos["pico_rev"] is not None and picos["ult_rev"] is not None:
         evidencia += (
             f" Las ventas atribuidas medias bajaron de "
-            f"{_fmt_dinero(picos['pico_rev'])}/dia ({picos['fecha_pico_rev']}) "
-            f"a {_fmt_dinero(picos['ult_rev'])}/dia."
+            f"{_fmt_dinero(picos['pico_rev'])}/día ({_fecha_corta(picos['fecha_pico_rev'])}) "
+            f"a {_fmt_dinero(picos['ult_rev'])}/día."
         )
     caveat = None
     if nombre == "meli":
-        caveat = "El ultimo dia puede ajustarse entre 24 y 48 horas despues del cierre."
+        caveat = "El último día puede ajustarse entre 24 y 48 horas después del cierre."
     elif mad.get("aplica"):
         vent = mad.get("ventana_inmaduros") or {}
         if vent.get("desde") and vent.get("hasta"):
-            caveat = f"Cifras inmaduras del {vent['desde']} al {vent['hasta']}."
+            caveat = (
+                f"Cifras inmaduras del {_fecha_corta(vent['desde'])} "
+                f"al {_fecha_corta(vent['hasta'])}."
+            )
     return abs(picos["caida_pct"]), {
         "canal": nombre,
-        "titulo": f"Caida de gasto en {etiqueta}",
+        "titulo": f"Caída de gasto en {etiqueta}",
         "evidencia": evidencia,
         "caveat": caveat,
         "enlaces": [("Ver campañas →", "/campanas")],
@@ -472,8 +513,10 @@ def _item_ultima_semana(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | 
         verbo = "subiendo" if (a_pp or Decimal(0)) >= 0 else "bajando"
         acos_txt = f", {verbo} el ACoS de {prev7['acos']}% a {ult7['acos']}%{pp_txt}"
     evidencia = (
-        f"En los ultimos 7 dias ({series[-7]['fecha']} a {series[-1]['fecha']}) vs "
-        f"los 7 previos ({series[-14]['fecha']} a {series[-8]['fecha']}), las "
+        f"En los últimos 7 días ({_fecha_corta(series[-7]['fecha'])} a "
+        f"{_fecha_corta(series[-1]['fecha'])}) vs "
+        f"los 7 previos ({_fecha_corta(series[-14]['fecha'])} a "
+        f"{_fecha_corta(series[-8]['fecha'])}), las "
         f"ventas fueron {_fmt_dinero(r_ult)} vs {_fmt_dinero(r_prev)} {moneda}"
         f"{r_txt} y el gasto {_fmt_dinero(c_ult)} vs {_fmt_dinero(c_prev)} "
         f"{moneda}{c_txt}{acos_txt}."
@@ -483,13 +526,13 @@ def _item_ultima_semana(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | 
         vent = mad.get("ventana_inmaduros") or {}
         if vent.get("desde") and vent.get("hasta"):
             caveat = (
-                f"La ultima semana coincide con la ventana inmadura "
-                f"({vent['desde']} a {vent['hasta']}); conviene esperar cierre "
-                "antes de tocar pujas grandes."
+                f"La última semana coincide con la ventana inmadura "
+                f"({_fecha_corta(vent['desde'])} a {_fecha_corta(vent['hasta'])}); "
+                "conviene esperar cierre antes de tocar pujas grandes."
             )
     return c_ult, {
         "canal": nombre,
-        "titulo": f"{etiqueta}, ultima semana",
+        "titulo": f"{etiqueta}, última semana",
         "evidencia": evidencia,
         "caveat": caveat,
         "enlaces": [("Ver decisiones recientes →", "/decisiones")],

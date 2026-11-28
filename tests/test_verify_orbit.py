@@ -186,10 +186,18 @@ def test_drive_resumen_valida_navegacion_a2_y_css_propio(dashboard, monkeypatch)
         "menu_movil_mas",
         "accion_crear_campanas",
         "pendientes_revision",
-        "monedas_principales",
+        "sin_totales_grandes",
+        "tabla_canales",
+        "cifras_tiles",
         "sin_footer_antiguo",
         "css_390",
         "css_foco",
+        "seed_cost_us",
+        "seed_revenue_us",
+        "missing_us_is_none",
+        "mx_all_cost_none",
+        "series_us_shape",
+        "series_mx_shape",
     ):
         assert prueba["checks"][check] is True
     assert "nav_inertes" not in prueba["checks"]

@@ -94,6 +94,30 @@ def fecha_dia(valor) -> str:
     return f"{momento.day} {_MESES[momento.month - 1]}"
 
 
+def fecha_corta(valor) -> str:
+    """Dia corto de una fecha o instante: «2026-11-19» -> «19 nov».
+
+    Un instante cuenta en su dia del centro de Mexico. None queda raya y lo
+    que no parsea se deja igual, como el resto de filtros de formato.
+    """
+    if valor is None:
+        return _RAYA
+    momento = momento_local(valor)
+    if momento is None:
+        if isinstance(valor, dt.datetime):
+            momento = valor
+        elif isinstance(valor, dt.date):
+            momento = dt.datetime(valor.year, valor.month, valor.day)
+        else:
+            try:
+                momento = dt.datetime.fromisoformat(str(valor))
+            except ValueError:
+                return str(valor)
+        if momento.tzinfo is not None:
+            momento = momento.astimezone(dt.UTC).replace(tzinfo=None)
+    return f"{momento.day} {_MESES[momento.month - 1]}"
+
+
 def hora(valor) -> str:
     """Hora visible de un instante: «2026-11-08T17:58:03+00:00» -> «11:58»."""
     if valor is None:
@@ -110,5 +134,6 @@ FILTROS = {
     "numero": numero,
     "fecha_hora": fecha_hora,
     "fecha_dia": fecha_dia,
+    "fecha_corta": fecha_corta,
     "hora": hora,
 }

@@ -135,9 +135,6 @@ templates.env.filters["vista_resumen"] = vista_resumen
 templates.env.filters["vista_decisiones"] = vista_decisiones
 
 
-_MESES_CORTO = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
-
-
 def _parse_fecha(valor):
     """ISO (fecha u hora, con o sin zona) o date/datetime a datetime UTC ingenuo."""
     if valor is None:
@@ -159,10 +156,7 @@ def _parse_fecha(valor):
 def fecha_corta(valor) -> str:
     """6 sep. Un instante cuenta en su dia del centro de Mexico. None o
     inparseable = dato visible, no excepcion. Las horas van por `fecha_hora`."""
-    momento = formato.momento_local(valor) or _parse_fecha(valor)
-    if momento is None:
-        return "—" if valor is None else str(valor)
-    return f"{momento.day} {_MESES_CORTO[momento.month - 1]}"
+    return formato.fecha_corta(valor)
 
 
 def hace(valor, ahora=None) -> str:

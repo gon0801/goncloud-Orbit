@@ -1553,7 +1553,10 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     (evidence / "01-resumen.html").write_bytes(html)
     texto = html.decode("utf-8", errors="replace")
     tabla_canal = _tramo(texto, "<h2>Tabla por canal</h2>")
-    meli_bloque = _tramo(texto, "<h2>Mercado Libre")
+    meli_fila = _tramo(texto, 'data-canal-fila="meli"', "</tr>")
+    meli_nota = _tramo(texto, "Maduración Mercado Libre:", "</p>")
+    cifras = ("ad_revenue", "cost", "acos", "roas", "clicks", "orders")
+    canales = texto.count("data-tab-canal=")
 
     checks: dict[str, bool] = {
         "http_200": st_html == 200,
@@ -1580,29 +1583,37 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         "datos_resumen": 'id="datos-resumen"' in texto,
         "tabla_canal": "Tabla por canal" in texto,
         "pendientes_revision": "Pendientes de revisión" in texto,
-        "monedas_principales": 'class="resumen-monedas-principales"' in texto,
+        "sin_totales_grandes": 'class="resumen-monedas-principales"' not in texto,
         "canales": "Canales" in texto,
-        "grid_a2": (
-            'class="resumen-principal"' in texto
-            and '<aside class="resumen-canales">' in texto
+        "tabla_canales": (
+            'class="tabla-canales"' in texto
+            and canales > 0
+            and texto.count("data-canal-fila=") == canales
+        ),
+        "estado_canales": 'class="status-pill' in texto,
+        "cifras_tiles": (
+            'class="cifras-tiles"' in texto
+            and canales > 0
+            and texto.count("data-cifra=") == 6 * canales
+            and all(f'data-cifra="{clave}"' in texto for clave in cifras)
         ),
         "orden_a2": (
             'class="resumen-pendientes superficie"' in texto
-            and 'class="resumen-monedas-principales"' in texto
             and 'class="chart-card"' in texto
-            and texto.index("resumen-pendientes") < texto.index("resumen-monedas-principales")
-            and texto.index("resumen-monedas-principales") < texto.index("chart-card")
+            and 'class="canales-card"' in texto
+            and texto.index("resumen-pendientes") < texto.index("chart-card")
+            and texto.index("chart-card") < texto.index("canales-card")
         ),
         "sin_footer_antiguo": 'class="footer-links"' not in texto,
-        "meta_acos": "Meta ACoS:" in texto,
+        "meta_acos": "Meta ACoS" in texto,
         "totales_por_moneda": "Totales por moneda" in texto,
         "detalle_plegado": 'class="detail-box"' in texto,
         "comparacion": "Periodo anterior" in texto,
         "tarjeta_misma_edad": "en las ventas que todavía llegan" in texto,
         "tendencia_us": 'id="tendencia-amazon_us"' in texto,
         "serie_textual_us": 'id="serie-amazon_us"' in texto,
-        "media_7": "media de 7 dias" in texto,
-        "meli": bool(meli_bloque) and "MXN" in meli_bloque,
+        "media_7": "media 7 días" in texto,
+        "meli": bool(meli_fila) and "MXN" in meli_fila,
         "alcance_meli": all(
             f"<td>{canal}</td>" in tabla_canal
             for canal in ("Amazon MX", "Amazon US", "Mercado Libre")
@@ -1633,6 +1644,9 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
         r.get("fecha") != seed_metric_date and r.get("cost") is None and r.get("ad_revenue") is None
         for r in series_us
     )
+    checks["series_us_shape"] = bool(series_us) and all(
+        "cost" in r and "ad_revenue" in r for r in series_us
+    )
 
     st_mx, _, raw_mx = _http(
         f"{base}/api/dashboard/resumen?canal=amazon_mx",
@@ -1649,10 +1663,13 @@ def cmd_drive_resumen(args: argparse.Namespace) -> None:
     checks["mx_all_cost_none"] = bool(series_mx) and all(
         r.get("cost") is None and r.get("ad_revenue") is None for r in series_mx
     )
+    checks["series_mx_shape"] = bool(series_mx) and all(
+        "cost" in r and "ad_revenue" in r for r in series_mx
+    )
 
-    checks["meli_sin_ventana_amazon"] = bool(meli_bloque) and "Cifras inmaduras" not in meli_bloque
-    checks["meli_motivo_sin_madurez"] = "no dice cuándo maduran" in meli_bloque
-    checks["amazon_tiene_ventana"] = "Cifras inmaduras" in texto
+    checks["meli_sin_ventana_amazon"] = bool(meli_fila) and "cifras inmaduras" not in meli_fila
+    checks["meli_motivo_sin_madurez"] = "no dice cuándo maduran" in meli_nota
+    checks["amazon_tiene_ventana"] = "cifras inmaduras" in texto
 
     st7, html7 = _get_html(base, "/?canal=meli&periodo=7")
     (evidence / "05-canal-periodo.html").write_bytes(html7)

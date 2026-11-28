@@ -5,18 +5,42 @@
 
 var graficas = [];
 
+var ETIQUETAS = {
+  ad_revenue: "Ventas atribuidas",
+  cost: "Gasto",
+  acos: "ACoS",
+  roas: "ROAS",
+  clicks: "Clics",
+  orders: "Órdenes atribuidas"
+};
+
 function numero(s) {
   if (s === null || s === undefined || s === "") return null;
   return Number(s);
 }
 
 // La cifra del tooltip con el formato comun (formato.js), igual que la tabla:
-// dinero con 2 decimales, ACoS como porcentaje y conteos con miles. Los datos
-// que dibujan la linea no cambian.
+// dinero con 2 decimales, ACoS como porcentaje y conteos con miles.
 function formatoDeClave(clave) {
   if (clave === "cost" || clave === "ad_revenue") return Orbit.dinero;
   if (clave === "acos") return Orbit.pct;
+  if (clave === "roas") {
+    return function (valor) { return Orbit.numero(valor, 2) + "×"; };
+  }
   return function (valor) { return Orbit.numero(valor); };
+}
+
+function formatoDeEje(clave) {
+  if (clave === "acos") {
+    return function (valor) { return Orbit.numero(valor, 0) + " %"; };
+  }
+  if (clave === "roas") {
+    return function (valor) { return Orbit.numero(valor, 1) + "×"; };
+  }
+  if (clave === "cost" || clave === "ad_revenue") {
+    return function (valor) { return Orbit.numero(valor); };
+  }
+  return undefined;
 }
 
 function tooltipCon(formatos) {
@@ -34,13 +58,13 @@ function colorCss(nombre, respaldo) {
 
 function pintura() {
   return {
-    texto: colorCss("--color-texto", "#1a1a1a"),
-    mutado: colorCss("--color-mutado", "#5c574f"),
-    borde: colorCss("--color-borde", "#c8c2b6"),
+    texto: colorCss("--color-texto", "#1a1b25"),
+    mutado: colorCss("--color-mutado", "#5b5d70"),
+    borde: colorCss("--color-borde", "#e6e5f0"),
     series: [
-      colorCss("--color-acento", "#9c3d12"),
-      colorCss("--color-ok", "#2d6a3a"),
-      colorCss("--color-alerta", "#a11f1f")
+      colorCss("--color-acento", "#635bff"),
+      colorCss("--color-ok", "#15a368"),
+      colorCss("--color-alerta", "#e5484d")
     ]
   };
 }
@@ -91,96 +115,186 @@ function reemplazar(canvas, config) {
   var chart = new Chart(canvas, config);
   vestir(chart, pintura());
   graficas.push(chart);
+  return chart;
 }
 
-function serieCanal(bloque, clave, campo) {
+// ACoS y ROAS vienen por fila en el contrato (`fila.acos`, `fila.roas`) y en
+// su `ma7`. Si faltan, se derivan de las mismas cifras de esa fila (cost y
+// ad_revenue). Un divisor en cero o un hueco siguen siendo null, nunca cero.
+function valorDeFila(fila, clave) {
+  if (!fila) return null;
+  if (clave === "acos" || clave === "roas") {
+    var directo = numero(fila[clave]);
+    if (directo !== null) return directo;
+  }
+  if (clave === "acos") {
+    var cost = numero(fila.cost);
+    var ventas = numero(fila.ad_revenue);
+    if (cost === null || ventas === null || ventas === 0) return null;
+    return (cost / ventas) * 100;
+  }
+  if (clave === "roas") {
+    var costo = numero(fila.cost);
+    var ingreso = numero(fila.ad_revenue);
+    if (costo === null || ingreso === null || costo === 0) return null;
+    return ingreso / costo;
+  }
+  return numero(fila[clave]);
+}
+
+function serieCifra(bloque, clave, media7) {
   return (bloque.series || []).map(function (fila) {
-    var origen = campo === "ma7" ? (fila.ma7 || {}) : fila;
-    return numero(origen[clave]);
+    return valorDeFila(media7 ? (fila.ma7 || {}) : fila, clave);
   });
+}
+
+function actualizarLeyenda(clave) {
+  var etiqueta = ETIQUETAS[clave] || ETIQUETAS.ad_revenue;
+  var ma7 = document.querySelector("[data-leyenda-ma7]");
+  var dia = document.querySelector("[data-leyenda-dia]");
+  if (ma7) ma7.textContent = etiqueta + " media 7 días";
+  if (dia) dia.textContent = etiqueta + " día";
+}
+
+function dibujarCanal(nombre, clave) {
+  var contrato = datosDe("datos-resumen");
+  if (!contrato || !contrato.canales) return null;
+  var bloque = contrato.canales[nombre];
+  var canvas = document.getElementById("tendencia-" + nombre);
+  if (!canvas || !bloque) return null;
+
+  var fechas = [];
+  var inmaduros = [];
+  (bloque.series || []).forEach(function (fila) {
+    fechas.push(fila.fecha);
+    inmaduros.push(fila.inmaduro === true);
+  });
+  var tinta = pintura();
+  var formato = formatoDeClave(clave);
+  var etiqueta = ETIQUETAS[clave] || ETIQUETAS.ad_revenue;
+  var colorBarra = colorCss("--resumen-ventas-dia", "#b9b5ff");
+  var colorLinea = colorCss("--resumen-ventas-ma7", "#3d35d6");
+
+  return reemplazar(canvas, {
+    type: "bar",
+    data: {
+      labels: fechas,
+      datasets: [
+        {
+          type: "bar",
+          label: etiqueta + " del día " + bloque.moneda,
+          data: serieCifra(bloque, clave, false),
+          backgroundColor: colorBarra,
+          borderColor: colorBarra,
+          borderWidth: 0,
+          borderRadius: 2,
+          barPercentage: 0.62,
+          categoryPercentage: 0.9,
+          spanGaps: false,
+          order: 2,
+          colorToken: "--resumen-ventas-dia",
+          colorRespaldo: "#b9b5ff"
+        },
+        {
+          type: "line",
+          label: "Media 7 días " + bloque.moneda,
+          data: serieCifra(bloque, clave, true),
+          borderColor: colorLinea,
+          backgroundColor: colorLinea,
+          borderWidth: 2.4,
+          pointRadius: 0,
+          spanGaps: false,
+          fill: false,
+          tension: 0.25,
+          order: 1,
+          colorToken: "--resumen-ventas-ma7",
+          colorRespaldo: "#3d35d6"
+        }
+      ]
+    },
+    plugins: [{
+      id: "franjaInmaduraResumen",
+      beforeDraw: function (grafica) {
+        var inicio = inmaduros.indexOf(true);
+        if (inicio < 0 || !grafica.chartArea) return;
+        var x = grafica.scales.x.getPixelForValue(inicio);
+        var area = grafica.chartArea;
+        var ctx = grafica.ctx;
+        ctx.save();
+        ctx.fillStyle = colorCss("--o-ink3", "#6e7085");
+        ctx.globalAlpha = 0.09;
+        ctx.fillRect(x, area.top, area.right - x, area.bottom - area.top);
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = colorCss("--color-mutado", "#5b5d70");
+        ctx.font = "600 10px -apple-system, BlinkMacSystemFont, sans-serif";
+        ctx.textAlign = "right";
+        ctx.fillText("cifras inmaduras", area.right - 6, area.top + 14);
+        ctx.restore();
+      }
+    }],
+    options: {
+      locale: "es-MX",
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: true, callbacks: tooltipCon([formato, formato]) }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: tinta.mutado,
+            maxTicksLimit: 8,
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: true,
+            callback: function (valor, indice) {
+              var fecha = fechas[indice];
+              return fecha ? Orbit.fechaCorta(fecha) : valor;
+            }
+          },
+          grid: { color: tinta.borde }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: tinta.mutado, callback: formatoDeEje(clave) },
+          grid: { color: tinta.borde }
+        }
+      }
+    }
+  });
+}
+
+function claveElegida(panel) {
+  var boton = panel ? panel.querySelector("button[data-cifra].sel") : null;
+  return boton ? boton.getAttribute("data-cifra") : "ad_revenue";
 }
 
 function graficarResumen() {
   var contrato = datosDe("datos-resumen");
   if (!contrato || !contrato.canales) return;
   Object.keys(contrato.canales).forEach(function (nombre) {
-    var bloque = contrato.canales[nombre];
-    var canvas = document.getElementById("tendencia-" + nombre);
-    if (!canvas || !bloque) return;
-    var fechas = [];
-    var inmaduros = [];
-    (bloque.series || []).forEach(function (fila) {
-      fechas.push(fila.fecha);
-      inmaduros.push(fila.inmaduro === true);
-    });
-    var tinta = pintura();
-    var pares = [
-      ["ad_revenue", "Ventas media 7", "ma7", "--resumen-ventas-ma7", "#1D4ED8"],
-      ["ad_revenue", "Ventas del dia", "dia", "--resumen-ventas-dia", "#93C5FD"],
-      ["cost", "Gasto media 7", "ma7", "--resumen-gasto-ma7", "#C2410C"],
-      ["cost", "Gasto del dia", "dia", "--resumen-gasto-dia", "#FDBA74"]
-    ];
-    reemplazar(canvas, {
-      type: "line",
-      data: {
-        labels: fechas,
-        datasets: pares.map(function (par) {
-          return {
-            label: par[1] + " " + bloque.moneda,
-            data: serieCanal(bloque, par[0], par[2]),
-            borderWidth: par[2] === "ma7" ? 2.5 : 1.2,
-            pointRadius: par[2] === "ma7" ? 1.5 : 0,
-            spanGaps: false,
-            fill: false,
-            colorToken: par[3],
-            colorRespaldo: par[4],
-            segment: par[2] === "dia" ? {
-              borderDash: function (ctx) {
-                return inmaduros[ctx.p1DataIndex] ? [4, 3] : [3, 2];
-              }
-            } : undefined
-          };
-        })
-      },
-      plugins: [{
-        id: "franjaInmaduraResumen",
-        beforeDraw: function (grafica) {
-          var inicio = inmaduros.indexOf(true);
-          if (inicio < 0 || !grafica.chartArea) return;
-          var x = grafica.scales.x.getPixelForValue(inicio);
-          var area = grafica.chartArea;
-          var ctx = grafica.ctx;
-          ctx.save();
-          ctx.fillStyle = colorCss("--o-ink3", "#64748B");
-          ctx.globalAlpha = 0.09;
-          ctx.fillRect(x, area.top, area.right - x, area.bottom - area.top);
-          ctx.globalAlpha = 0.75;
-          ctx.fillStyle = colorCss("--color-mutado", "#64748B");
-          ctx.font = "600 10px -apple-system, BlinkMacSystemFont, sans-serif";
-          ctx.textAlign = "right";
-          ctx.fillText("cifras inmaduras", area.right - 6, area.top + 14);
-          ctx.restore();
-        }
-      }],
-      options: {
-        locale: "es-MX",
-        animation: false,
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: false,
-            position: "top",
-            align: "end",
-            labels: { color: tinta.texto, usePointStyle: true, pointStyle: "line", boxWidth: 18 }
-          },
-          tooltip: { enabled: true, callbacks: tooltipCon(pares.map(function (par) { return formatoDeClave(par[0]); })) }
-        },
-        scales: {
-          x: { ticks: { color: tinta.mutado, maxTicksLimit: 8 }, grid: { color: tinta.borde } },
-          y: { beginAtZero: true, ticks: { color: tinta.mutado }, grid: { color: tinta.borde } }
-        }
-      }
+    dibujarCanal(nombre, "ad_revenue");
+  });
+  actualizarLeyenda("ad_revenue");
+}
+
+function activarCifras() {
+  var botones = document.querySelectorAll("button[data-cifra]");
+  botones.forEach(function (boton) {
+    boton.addEventListener("click", function () {
+      var panel = boton.closest("[data-panel-canal]");
+      if (!panel) return;
+      var nombre = panel.getAttribute("data-panel-canal");
+      panel.querySelectorAll("button[data-cifra]").forEach(function (b) {
+        var activo = b === boton;
+        b.classList.toggle("sel", activo);
+        b.setAttribute("aria-pressed", activo ? "true" : "false");
+      });
+      var clave = boton.getAttribute("data-cifra");
+      actualizarLeyenda(clave);
+      dibujarCanal(nombre, clave);
     });
   });
 }
@@ -199,11 +313,11 @@ function activarPestanasResumen() {
       document.querySelectorAll("[data-panel-canal]").forEach(function (panel) {
         var mostrar = panel.getAttribute("data-panel-canal") === elegido;
         panel.hidden = !mostrar;
-        if (mostrar && typeof Chart !== "undefined" && typeof Chart.getChart === "function") {
-          var canvas = panel.querySelector("canvas");
-          var grafica = canvas ? Chart.getChart(canvas) : null;
-          if (grafica) grafica.resize();
-        }
+        if (!mostrar) return;
+        var clave = claveElegida(panel);
+        actualizarLeyenda(clave);
+        var grafica = dibujarCanal(elegido, clave);
+        if (grafica) grafica.resize();
       });
     });
   });
@@ -211,6 +325,7 @@ function activarPestanasResumen() {
 
 document.addEventListener("DOMContentLoaded", function () {
   graficarResumen();
+  activarCifras();
   activarPestanasResumen();
   observarTema();
 });

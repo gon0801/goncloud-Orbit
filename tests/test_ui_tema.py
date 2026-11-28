@@ -89,19 +89,19 @@ def test_css_tokens_noche_y_celdas_envuelven():
 
 def test_css_a2_define_tokens_y_componentes_compartidos():
     css = (_RAIZ / "static" / "css" / "dashboard.css").read_text(encoding="utf-8")
-    assert "--o-bg: #f6f7fb" in css
-    assert "--o-ac: #6673e8" in css
-    assert "--o-ac2: #7c68e9" in css
-    assert "--o-radio: 18px" in css
-    assert "--o-sombra: 0 8px 30px rgba(44, 49, 83, .055)" in css
+    assert "--o-bg: #f6f6fb" in css
+    assert "--o-ac: #635bff" in css
+    assert "--o-ac2: #635bff" in css
+    assert "--o-radio: 10px" in css
+    assert "--o-sombra: 0 1px 2px rgba(26, 27, 37, .06)" in css
     assert ".accion-primaria" in css
     assert ".grupo-metricas" in css
     assert ".superficie" in css
     assert ".seccion-encabezado" in css
     dia, noche = css.split('html[data-tema="noche"]', 1)
-    assert "--o-bg: #f6f7fb" in dia
-    assert "--o-bg: #171820" in noche
-    assert "--o-card: #20222c" in noche
+    assert "--o-bg: #f6f6fb" in dia
+    assert "--o-bg: #0f0f16" in noche
+    assert "--o-card: #191923" in noche
     assert "--o-ac: #a8afff" in noche
 
 
