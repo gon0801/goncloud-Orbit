@@ -118,11 +118,15 @@ function reemplazar(canvas, config) {
   return chart;
 }
 
-// ACoS y ROAS no viajan como serie diaria en el contrato: se derivan de las
-// mismas cifras de cada fila (cost y ad_revenue). Un divisor en cero o un
-// hueco siguen siendo null, nunca cero.
+// ACoS y ROAS vienen por fila en el contrato (`fila.acos`, `fila.roas`) y en
+// su `ma7`. Si faltan, se derivan de las mismas cifras de esa fila (cost y
+// ad_revenue). Un divisor en cero o un hueco siguen siendo null, nunca cero.
 function valorDeFila(fila, clave) {
   if (!fila) return null;
+  if (clave === "acos" || clave === "roas") {
+    var directo = numero(fila[clave]);
+    if (directo !== null) return directo;
+  }
   if (clave === "acos") {
     var cost = numero(fila.cost);
     var ventas = numero(fila.ad_revenue);

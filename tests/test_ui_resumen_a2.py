@@ -239,10 +239,20 @@ def test_barras_usan_el_lila_claro_en_cualquier_tamano():
     assert "borderColor: colorLinea" in js
 
 
-def test_pendientes_compactos_en_celular_con_objetivos_de_32():
+def test_grafica_usa_acos_y_roas_del_contrato_cuando_vienen():
+    js = (ui._TEMPLATES_DIR.parent / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+    assert "var directo = numero(fila[clave]);" in js
+    assert "if (directo !== null) return directo;" in js
+    assert "Si faltan" in js
+
+
+def test_pendientes_compactos_en_celular_con_objetivos_de_44():
     css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
         encoding="utf-8"
     )
-    assert ".resumen-pendientes .action-desc summary { min-height: 32px; padding: 0; }" in css
-    assert ".resumen-pendientes .action-link" in css
-    assert "min-height: 32px" in css
+    summary = re.search(r"\.resumen-pendientes \.action-desc summary\s*\{([^}]+)\}", css)
+    enlace = re.search(r"\.resumen-pendientes \.action-link\s*\{([^}]+)\}", css)
+    assert summary is not None and "min-height: 44px" in summary.group(1)
+    assert "margin: -6px 0 -8px" in summary.group(1)
+    assert enlace is not None and "min-height: 44px" in enlace.group(1)
+    assert "margin-top: -8px" in css
