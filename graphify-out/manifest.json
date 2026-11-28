@@ -13,9 +13,9 @@
     "ast_empty": true
   },
   ".cursor/skills/verify-orbit/helpers/orbit-verify": {
-    "mtime": 1795830152.715651,
-    "seen": 1795830599.965604,
-    "ast_hash": "b4426a967afb8850f50d2237aa3fad34",
+    "mtime": 1795831196.8362544,
+    "seen": 1795831667.0447192,
+    "ast_hash": "11ee27354c974f3f8b22a4d8e3f4e958",
     "semantic_hash": ""
   },
   ".cursor/start.sh": {
@@ -913,9 +913,9 @@
     "semantic_hash": ""
   },
   "app/static/js/dashboard.js": {
-    "mtime": 1795830238.4674137,
-    "seen": 1795830599.96575,
-    "ast_hash": "c279bbe32b79e34628e37eb85c0e9935",
+    "mtime": 1795831033.7960875,
+    "seen": 1795831667.048181,
+    "ast_hash": "dd3816f0e0d59d3af35e951487b05840",
     "semantic_hash": ""
   },
   "app/static/js/dinero.js": {
@@ -973,15 +973,15 @@
     "semantic_hash": "0296476c4f4c705fea37900a17d51d0d"
   },
   "app/ui.py": {
-    "mtime": 1795827013.7849789,
-    "seen": 1795830599.9657578,
-    "ast_hash": "7d318aec5f10909e6115cad67bd9041b",
+    "mtime": 1795831056.227171,
+    "seen": 1795831667.048411,
+    "ast_hash": "10f36e1d3c4539b2237ec7b62e8fbc1e",
     "semantic_hash": ""
   },
   "app/ui_metricas.py": {
-    "mtime": 1795830094.245655,
-    "seen": 1795830599.96576,
-    "ast_hash": "19d33bf4794a1442b17d78722d552ce6",
+    "mtime": 1795831078.1419084,
+    "seen": 1795831667.0484512,
+    "ast_hash": "9ca76e4885ccf063d7dec8315afc142f",
     "semantic_hash": ""
   },
   "docker-compose.yml": {
@@ -3680,9 +3680,9 @@
     "semantic_hash": ""
   },
   "tests/test_ui_metricas.py": {
-    "mtime": 1795827014.1874619,
-    "seen": 1795830599.966285,
-    "ast_hash": "6dbc18174eb6643711f6031da767d2d5",
+    "mtime": 1795831099.8521116,
+    "seen": 1795831667.065193,
+    "ast_hash": "1180217972ac6703a896b223126cd6db",
     "semantic_hash": ""
   },
   "tests/test_ui_productos.py": {
@@ -5877,9 +5877,9 @@
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/resumen.md": {
-    "mtime": 1795830442.9994617,
-    "seen": 1795830599.96632,
-    "ast_hash": "4272ce2334fb0378bea7c7d913a69162",
+    "mtime": 1795831624.0824773,
+    "seen": 1795831667.066113,
+    "ast_hash": "7283bfc813a7be60e29a54cf8744bfb3",
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/salud.md": {
@@ -14955,9 +14955,9 @@
     "semantic_hash": ""
   },
   "app/formato.py": {
-    "mtime": 1795827013.7634928,
-    "seen": 1795830599.965684,
-    "ast_hash": "cfdb7b3112da71e6e2f37c66b7654a27",
+    "mtime": 1795831045.9786642,
+    "seen": 1795831667.046449,
+    "ast_hash": "d80663208f1306be003e5cf76122872a",
     "semantic_hash": ""
   },
   "app/optimizer/centavos.py": {
@@ -18639,9 +18639,9 @@
     "semantic_hash": ""
   },
   "tests/test_ui_resumen_a2.py": {
-    "mtime": 1795830096.5273602,
-    "seen": 1795830599.9662871,
-    "ast_hash": "da4ae1269130e989a0e6ccfaaf47de4b",
+    "mtime": 1795831535.305081,
+    "seen": 1795831667.0652428,
+    "ast_hash": "434c281820708fc3363b50c37733d824",
     "semantic_hash": ""
   },
   "tests/test_ui_texto_movil.py": {
