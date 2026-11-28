@@ -407,6 +407,7 @@ body[data-pantalla="productos-sin-clics"] td ul { margin: 0; padding-left: 16px;
   .action-title { font-size: 14px; }
   .action-caveat { order: 1; font-size: 12.5px; margin: 0; }
   .action-body .action-desc { order: 2; margin: 0; font-size: 12.5px; }
+  .resumen-pendientes .action-desc summary { min-height: 32px; padding: 0; }
   .action-links { grid-column: 1 / -1; margin-top: 0; }
   .resumen-pendientes .action-links { grid-column: 2; }
   .resumen-pendientes .action-link {

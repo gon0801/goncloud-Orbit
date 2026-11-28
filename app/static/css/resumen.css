@@ -182,19 +182,22 @@ details.custom-range[open] > summary {
 .leg-swatch.serie-dia { background: var(--resumen-ventas-dia); height: 8px; border-radius: 2px; }
 
 .cifras-tiles {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: flex;
   border: 1px solid var(--o-borde);
   border-radius: 14px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   margin: 14px 0 18px;
+  scrollbar-width: none;
 }
+.cifras-tiles::-webkit-scrollbar { display: none; }
 .cifra-tile {
   display: flex;
+  flex: 1 1 0;
   flex-direction: column;
   gap: 4px;
-  padding: 14px 16px;
-  min-width: 0;
+  min-width: 158px;
+  padding: 14px 10px;
   border: 0;
   border-right: 1px solid var(--o-borde);
   border-radius: 0;
@@ -217,12 +220,13 @@ details.custom-range[open] > summary {
   font-weight: 600;
 }
 .cifra-tile-val {
-  font-size: 24px;
+  font-size: clamp(18px, 1.5vw, 22px);
   font-weight: 700;
   line-height: 1.15;
+  letter-spacing: -0.02em;
   color: var(--o-ink);
   font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 .cifra-tile-meta {
   font-size: 11.5px;
@@ -289,6 +293,7 @@ table.tabla-canales {
   text-align: left;
   padding: 8px 10px;
   border-bottom: 1px solid var(--o-borde);
+  white-space: nowrap;
 }
 .tabla-canales td {
   padding: 12px 10px;
@@ -297,8 +302,13 @@ table.tabla-canales {
   color: var(--o-ink);
 }
 .tabla-canales tr:last-child td { border-bottom: 0; }
-.tabla-canales .num { text-align: right; font-variant-numeric: tabular-nums; }
-.tabla-canales td.num .v-delta { display: block; margin-top: 3px; }
+.tabla-canales .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tabla-canales .v-delta { white-space: nowrap; }
+.tabla-canales td.num .v-delta { display: block; margin-top: 3px; text-align: right; }
 .canales-canal strong { font-weight: 700; }
 .canales-frase {
   color: var(--o-ink2);
@@ -323,6 +333,7 @@ table.tabla-canales {
   font-weight: 600;
   padding: 3px 9px;
   border-radius: 999px;
+  white-space: nowrap;
 }
 .status-pill .dot {
   width: 6px;
@@ -479,23 +490,6 @@ details.detail-box[open] > summary {
   padding: 12px 16px;
 }
 
-@media (max-width: 60rem) {
-  .cifras-tiles {
-    display: flex;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    border: 0;
-    gap: 8px;
-  }
-  .cifra-tile {
-    flex: 0 0 150px;
-    scroll-snap-align: start;
-    border: 1px solid var(--o-borde);
-    border-radius: 12px;
-  }
-  .cifra-tile:last-child { border-right: 1px solid var(--o-borde); }
-}
-
 @media (max-width: 40rem) {
   .resumen-alto .resumen-tendencia { order: 1; }
   .resumen-alto .resumen-pendientes { order: 2; }
@@ -551,15 +545,16 @@ details.detail-box[open] > summary {
   }
   .cifras-tiles::-webkit-scrollbar { display: none; }
   .cifra-tile {
-    flex: 0 0 138px;
+    flex: 0 0 150px;
+    min-width: 0;
     scroll-snap-align: start;
     border: 1px solid var(--o-borde);
     border-radius: 12px;
-    padding: 12px;
+    padding: 12px 10px;
   }
   .cifra-tile:last-child { border-right: 1px solid var(--o-borde); }
   .cifra-tile.sel { box-shadow: inset 0 0 0 2px var(--o-ac); }
-  .cifra-tile-val { font-size: 20px; }
+  .cifra-tile-val { font-size: 18px; }
   .chart-panel .lienzo { height: 300px; }
 
   .tabla-canales { display: none; }

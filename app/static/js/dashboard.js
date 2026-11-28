@@ -168,6 +168,8 @@ function dibujarCanal(nombre, clave) {
   var tinta = pintura();
   var formato = formatoDeClave(clave);
   var etiqueta = ETIQUETAS[clave] || ETIQUETAS.ad_revenue;
+  var colorBarra = colorCss("--resumen-ventas-dia", "#b9b5ff");
+  var colorLinea = colorCss("--resumen-ventas-ma7", "#3d35d6");
 
   return reemplazar(canvas, {
     type: "bar",
@@ -178,7 +180,8 @@ function dibujarCanal(nombre, clave) {
           type: "bar",
           label: etiqueta + " del día " + bloque.moneda,
           data: serieCifra(bloque, clave, false),
-          backgroundColor: tinta.series[0],
+          backgroundColor: colorBarra,
+          borderColor: colorBarra,
           borderWidth: 0,
           borderRadius: 2,
           barPercentage: 0.62,
@@ -192,6 +195,8 @@ function dibujarCanal(nombre, clave) {
           type: "line",
           label: "Media 7 días " + bloque.moneda,
           data: serieCifra(bloque, clave, true),
+          borderColor: colorLinea,
+          backgroundColor: colorLinea,
           borderWidth: 2.4,
           pointRadius: 0,
           spanGaps: false,
@@ -237,6 +242,9 @@ function dibujarCanal(nombre, clave) {
           ticks: {
             color: tinta.mutado,
             maxTicksLimit: 8,
+            maxRotation: 0,
+            minRotation: 0,
+            autoSkip: true,
             callback: function (valor, indice) {
               var fecha = fechas[indice];
               return fecha ? Orbit.fechaCorta(fecha) : valor;

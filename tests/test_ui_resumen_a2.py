@@ -204,3 +204,45 @@ def test_ventana_se_lee_con_fechas_cortas_y_acentos():
     assert "días" in html
     assert "Maduración" in html
     assert "Órdenes atribuidas" in html
+
+
+def test_cifras_grandes_no_se_parten_y_caben_en_su_recuadro():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "resumen.css").read_text(encoding="utf-8")
+    valor = re.search(r"\.cifra-tile-val\s*\{([^}]+)\}", css)
+    assert valor is not None
+    assert "white-space: nowrap" in valor.group(1)
+    assert "font-size: clamp(18px, 1.5vw, 22px)" in valor.group(1)
+    assert ".cifra-tile-val { font-size: 18px; }" in css
+    assert "flex: 0 0 150px" in css
+
+
+def test_tabla_canales_no_parte_cifras_ni_variaciones():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "resumen.css").read_text(encoding="utf-8")
+    th = re.search(r"\.tabla-canales th\s*\{([^}]+)\}", css)
+    num = re.search(r"\.tabla-canales \.num\s*\{([^}]+)\}", css)
+    assert th is not None and "white-space: nowrap" in th.group(1)
+    assert num is not None and "white-space: nowrap" in num.group(1)
+    assert ".tabla-canales .v-delta { white-space: nowrap; }" in css
+
+
+def test_eje_de_la_grafica_no_rota_y_salta_etiquetas():
+    js = (ui._TEMPLATES_DIR.parent / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+    assert "maxRotation: 0" in js
+    assert "minRotation: 0" in js
+    assert "autoSkip: true" in js
+
+
+def test_barras_usan_el_lila_claro_en_cualquier_tamano():
+    js = (ui._TEMPLATES_DIR.parent / "static" / "js" / "dashboard.js").read_text(encoding="utf-8")
+    assert 'colorCss("--resumen-ventas-dia", "#b9b5ff")' in js
+    assert "backgroundColor: colorBarra" in js
+    assert "borderColor: colorLinea" in js
+
+
+def test_pendientes_compactos_en_celular_con_objetivos_de_32():
+    css = (ui._TEMPLATES_DIR.parent / "static" / "css" / "dashboard.css").read_text(
+        encoding="utf-8"
+    )
+    assert ".resumen-pendientes .action-desc summary { min-height: 32px; padding: 0; }" in css
+    assert ".resumen-pendientes .action-link" in css
+    assert "min-height: 32px" in css

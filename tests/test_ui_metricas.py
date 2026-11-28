@@ -32,3 +32,59 @@ def test_inertes_separa_monedas_y_no_confunde_espera_desconocida():
     assert resultado["hojas"] == 3
     assert resultado["en_espera"] == 1
     assert resultado["sin_antiguedad"] == 1
+
+
+def test_pendientes_leen_las_fechas_en_corto_como_el_resto_de_la_pantalla():
+    contrato = {
+        "canales": {
+            "amazon_mx": {
+                "moneda": "MXN",
+                "dias": 8,
+                "totals": {
+                    "cost": "10.0000",
+                    "ad_revenue": "0.0000",
+                    "clicks": 5,
+                    "orders": 0,
+                    "acos": None,
+                    "roas": None,
+                    "sin_ventas": True,
+                },
+                "comparison": {},
+                "series": [
+                    {
+                        "fecha": "2026-11-19",
+                        "cost": "10.0000",
+                        "ad_revenue": "0.0000",
+                        "clicks": 5,
+                        "orders": 0,
+                        "inmaduro": True,
+                        "ma7": {
+                            "cost": "10.0000",
+                            "ad_revenue": "0.0000",
+                            "clicks": 5,
+                            "orders": 0,
+                        },
+                    }
+                ],
+                "coverage": {
+                    "dias": 8,
+                    "dias_con_dato": 1,
+                    "completo": False,
+                    "por_metrica": {"orders": True},
+                },
+                "maduracion": {
+                    "aplica": True,
+                    "ventana_inmaduros": {"desde": "2026-11-19", "hasta": "2026-11-26"},
+                    "motivo": None,
+                },
+            }
+        },
+        "metas_acos": {},
+    }
+    pendientes = ui_metricas.vista_resumen(contrato)["que_revisar"]
+    assert len(pendientes) == 1
+    assert pendientes[0]["caveat"] == (
+        "Ojo: 1 de esos 1 días caen en la ventana inmadura (19 nov a 26 nov); "
+        "Amazon puede atribuir ventas hasta 7 días después del clic."
+    )
+    assert "2026-11-19" not in pendientes[0]["caveat"]

@@ -12,6 +12,7 @@ from decimal import Decimal, InvalidOperation
 
 from app.dashboard_resumen import acos_texto, agrega_filas, roas_texto, variacion
 from app.etiquetas import etiqueta as etiqueta_de
+from app.formato import fecha_corta as _fecha_corta
 
 
 def _dec(valor) -> Decimal | None:
@@ -422,7 +423,8 @@ def _item_gasto_sin_venta(
         if n_inm > 0 and vent.get("desde") and vent.get("hasta"):
             caveat = (
                 f"Ojo: {n_inm} de esos {len(dias_sv)} días caen en la ventana "
-                f"inmadura ({vent['desde']} a {vent['hasta']}); Amazon puede "
+                f"inmadura ({_fecha_corta(vent['desde'])} a "
+                f"{_fecha_corta(vent['hasta'])}); Amazon puede "
                 "atribuir ventas hasta 7 días después del clic."
             )
     enlaces = (
@@ -451,13 +453,13 @@ def _item_caida_ma7(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | None
     mad = bloque.get("maduracion") or {}
     evidencia = (
         f"La media de 7 días de gasto pasó de {_fmt_dinero(picos['pico_cost'])}/día "
-        f"({picos['fecha_pico_cost']}) a {_fmt_dinero(picos['ult_cost'])}/día "
-        f"({picos['fecha_ult_cost']}), {picos['caida_pct']}%."
+        f"({_fecha_corta(picos['fecha_pico_cost'])}) a {_fmt_dinero(picos['ult_cost'])}/día "
+        f"({_fecha_corta(picos['fecha_ult_cost'])}), {picos['caida_pct']}%."
     )
     if picos["pico_rev"] is not None and picos["ult_rev"] is not None:
         evidencia += (
             f" Las ventas atribuidas medias bajaron de "
-            f"{_fmt_dinero(picos['pico_rev'])}/día ({picos['fecha_pico_rev']}) "
+            f"{_fmt_dinero(picos['pico_rev'])}/día ({_fecha_corta(picos['fecha_pico_rev'])}) "
             f"a {_fmt_dinero(picos['ult_rev'])}/día."
         )
     caveat = None
@@ -466,7 +468,10 @@ def _item_caida_ma7(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | None
     elif mad.get("aplica"):
         vent = mad.get("ventana_inmaduros") or {}
         if vent.get("desde") and vent.get("hasta"):
-            caveat = f"Cifras inmaduras del {vent['desde']} al {vent['hasta']}."
+            caveat = (
+                f"Cifras inmaduras del {_fecha_corta(vent['desde'])} "
+                f"al {_fecha_corta(vent['hasta'])}."
+            )
     return abs(picos["caida_pct"]), {
         "canal": nombre,
         "titulo": f"Caída de gasto en {etiqueta}",
@@ -508,8 +513,10 @@ def _item_ultima_semana(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | 
         verbo = "subiendo" if (a_pp or Decimal(0)) >= 0 else "bajando"
         acos_txt = f", {verbo} el ACoS de {prev7['acos']}% a {ult7['acos']}%{pp_txt}"
     evidencia = (
-        f"En los últimos 7 días ({series[-7]['fecha']} a {series[-1]['fecha']}) vs "
-        f"los 7 previos ({series[-14]['fecha']} a {series[-8]['fecha']}), las "
+        f"En los últimos 7 días ({_fecha_corta(series[-7]['fecha'])} a "
+        f"{_fecha_corta(series[-1]['fecha'])}) vs "
+        f"los 7 previos ({_fecha_corta(series[-14]['fecha'])} a "
+        f"{_fecha_corta(series[-8]['fecha'])}), las "
         f"ventas fueron {_fmt_dinero(r_ult)} vs {_fmt_dinero(r_prev)} {moneda}"
         f"{r_txt} y el gasto {_fmt_dinero(c_ult)} vs {_fmt_dinero(c_prev)} "
         f"{moneda}{c_txt}{acos_txt}."
@@ -520,8 +527,8 @@ def _item_ultima_semana(nombre: str, bloque: Mapping) -> tuple[Decimal, dict] | 
         if vent.get("desde") and vent.get("hasta"):
             caveat = (
                 f"La última semana coincide con la ventana inmadura "
-                f"({vent['desde']} a {vent['hasta']}); conviene esperar cierre "
-                "antes de tocar pujas grandes."
+                f"({_fecha_corta(vent['desde'])} a {_fecha_corta(vent['hasta'])}); "
+                "conviene esperar cierre antes de tocar pujas grandes."
             )
     return c_ult, {
         "canal": nombre,
