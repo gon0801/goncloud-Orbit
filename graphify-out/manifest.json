@@ -5817,15 +5817,15 @@
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/SKILL.md": {
-    "mtime": 1795836076.1449108,
-    "seen": 1795836213.755786,
-    "ast_hash": "99d2f2f7f96eda0d32a18919218ba47b",
+    "mtime": 1795837415.7910979,
+    "seen": 1795837501.872154,
+    "ast_hash": "1eed5bae35af0ae9a3d3d6452c6b7b0a",
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/README.md": {
-    "mtime": 1795836076.1449015,
-    "seen": 1795836213.755787,
-    "ast_hash": "eea14a7b6bfd50a3279d5af00131b670",
+    "mtime": 1795837415.790886,
+    "seen": 1795837501.872156,
+    "ast_hash": "099a7d19464e018fa41284866ef06664",
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/campanas.md": {
@@ -5877,9 +5877,9 @@
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/resumen.md": {
-    "mtime": 1795836076.1538804,
-    "seen": 1795836213.755795,
-    "ast_hash": "7ed5ea0b95363cc8b839e5120e42c083",
+    "mtime": 1795837415.790895,
+    "seen": 1795837501.872385,
+    "ast_hash": "053afafcd78ef60eb6524afb742492bd",
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/salud.md": {
@@ -13605,15 +13605,15 @@
     "semantic_hash": ""
   },
   "docs/manual-usuario/paginas/01-inicio.html": {
-    "mtime": 1795835823.1716363,
-    "seen": 1795836213.756713,
-    "ast_hash": "081a5bb8759acc93e7f22077413ea1ab",
+    "mtime": 1795837415.7975974,
+    "seen": 1795837501.901354,
+    "ast_hash": "81243ef2e665e59164af9490ed499c88",
     "semantic_hash": ""
   },
   "docs/manual-usuario/paginas/10-panel.html": {
-    "mtime": 1795835823.171696,
-    "seen": 1795836213.7567139,
-    "ast_hash": "7ecf98d93f9d3b0369b03873f696d87c",
+    "mtime": 1795837415.7909222,
+    "seen": 1795837501.901355,
+    "ast_hash": "1cbf35758f3238725c3f7ce06345eaa7",
     "semantic_hash": ""
   },
   "docs/manual-usuario/paginas/20-decidir-a.html": {
@@ -13635,9 +13635,9 @@
     "semantic_hash": ""
   },
   "docs/manual-usuario/paginas/90-cierre.html": {
-    "mtime": 1795835823.172645,
-    "seen": 1795836213.756716,
-    "ast_hash": "0a0b544c2f5a95dcfe0d650da36acdb7",
+    "mtime": 1795837415.7975807,
+    "seen": 1795837501.901401,
+    "ast_hash": "8bdece0ba60dacd23a4f04dd7e6649e9",
     "semantic_hash": ""
   },
   "docs/orbit-bench.md": {
