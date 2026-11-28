@@ -5877,9 +5877,9 @@
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/resumen.md": {
-    "mtime": 1795848045.7319613,
-    "seen": 1795848176.601865,
-    "ast_hash": "3bad5217808808680e55fdbb7c00dfc3",
+    "mtime": 1795848419.1520753,
+    "seen": 1795848545.2008698,
+    "ast_hash": "fc41e5c6b28542da6dfb34c744459c97",
     "semantic_hash": ""
   },
   ".cursor/skills/verify-orbit/features/salud.md": {
@@ -6045,9 +6045,9 @@
     "semantic_hash": ""
   },
   "app/templates/resumen.html": {
-    "mtime": 1795848034.400769,
-    "seen": 1795848176.6022232,
-    "ast_hash": "387343962e618a17b4c9d6a5e9628b89",
+    "mtime": 1795848403.5109177,
+    "seen": 1795848545.201205,
+    "ast_hash": "6ecfbdd291c43cbe341026fb390ad16c",
     "semantic_hash": ""
   },
   "app/templates/ruido.html": {
@@ -18639,9 +18639,9 @@
     "semantic_hash": ""
   },
   "tests/test_ui_resumen_a2.py": {
-    "mtime": 1795848041.6391451,
-    "seen": 1795848176.601173,
-    "ast_hash": "8cf0bb1aae6321bd3d92396b37e59951",
+    "mtime": 1795848409.274399,
+    "seen": 1795848545.200172,
+    "ast_hash": "10b31245d8bf338ae3c6f735787d39b4",
     "semantic_hash": ""
   },
   "tests/test_ui_texto_movil.py": {
