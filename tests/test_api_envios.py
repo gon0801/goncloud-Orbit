@@ -547,9 +547,12 @@ def test_pantalla_envios_html_y_etiquetas(monkeypatch):
         assert 'id="nav-mas-toggle" class="tab tab-activo"' in html
         assert 'data-rol="envios"' in html
         assert 'class="tab tab-activo" href="/reputacion"' not in html
-        assert "Amazon MX · Amazon US · Mercado Libre" in _texto_visible(
-            re.search(r'<span class="alcance">.*?</span>', html, re.S)[0]
-        )
+        assert "Amazon MX · Amazon US · Mercado Libre" not in _texto_visible(html)
+        assert 'class="leyenda-zona"' not in html
+        assert 'id="watermark-resumen"' not in html
+        assert 'class="alcance"' not in html
+        assert 'id="propuestas-contador"' in html
+        assert 'id="ciclo-resumen"' in html
         assert not re.findall(r"\sstyle=|\son\w+=|<style", html)
         scripts = re.findall(r"<script[^>]*>", html)
         assert all("src=" in s or 'type="application/json"' in s for s in scripts)
@@ -764,7 +767,7 @@ async function corre(respuesta) {
   const nodos = {};
   const nodo = () => ({ hidden: true, textContent: "", attrs: {},
     setAttribute(k, v) { this.attrs[k] = v; }, replaceChildren() {}, append() {} });
-  ["propuestas-contador", "envios-contador", "ciclo-resumen", "watermark-resumen"]
+  ["propuestas-contador", "envios-contador", "ciclo-resumen"]
     .forEach(id => { nodos[id] = nodo(); });
   const movil = nodo();
   let listo;
@@ -773,12 +776,13 @@ async function corre(respuesta) {
     querySelectorAll(sel) { return sel === '[data-rol="envios"]' ? [movil] : []; } };
   global.Orbit = { async getJson(url) {
     if (url === "/api/envios/contador") return respuesta;
+    if (url === "/api/dashboard/chrome" && !respuesta.ok) return respuesta;
     return { ok: true, jsonOk: true, data: {} };
   } };
   vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
   listo();
   await new Promise(r => setImmediate(r));
-  return { sidebar: nodos["envios-contador"], movil };
+  return { sidebar: nodos["envios-contador"], movil, propuestas: nodos["propuestas-contador"] };
 }
 (async () => {
   const tres = await corre({ ok: true, jsonOk: true, data: { atencion: 3 } });
@@ -787,12 +791,17 @@ async function corre(respuesta) {
     assert.equal(n.textContent, "3");
     assert.equal(n.attrs["aria-label"], "Envíos que requieren atención: 3");
   }
+  // El contador de Oportunidades se pinta sin el watermark que quito del header.
+  assert.equal(tres.propuestas.hidden, false);
+  assert.equal(tres.propuestas.textContent, "0");
   const cero = await corre({ ok: true, jsonOk: true, data: { atencion: 0 } });
   assert.equal(cero.sidebar.hidden, true);
   assert.equal(cero.movil.hidden, true);
   const error = await corre({ ok: false, jsonOk: false });
   assert.equal(error.sidebar.hidden, true);
   assert.equal(error.movil.hidden, true);
+  assert.equal(error.propuestas.hidden, false);
+  assert.equal(error.propuestas.textContent, "—");
 })().catch(e => { console.error(e); process.exit(1); });
 """
     r = subprocess.run(

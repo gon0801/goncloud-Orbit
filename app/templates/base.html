@@ -102,9 +102,6 @@
         {% block cabecera_accion %}
         {% if pantalla == 'campanas' %}<a class="btn-crear" href="/campanas/nuevas">Crear campañas</a>{% endif %}
         {% endblock %}
-        <span class="leyenda-zona">{{ leyenda_zona }}</span>
-        <span id="watermark-resumen" class="chip-watermark">Cifras hasta: sin consultar</span>
-        <span class="alcance">{% if pantalla in ('resumen', 'envios') %}Amazon MX · Amazon US · Mercado Libre{% else %}Amazon MX · Amazon US{% endif %}</span>
         <button type="button" id="btn-tema" aria-pressed="false">Tema: dia</button>
       </div>
     </header>

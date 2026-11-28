@@ -32,8 +32,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const repContador = document.getElementById("reputacion-contador");
   const enviosContador = document.getElementById("envios-contador");
   const ciclo = document.getElementById("ciclo-resumen");
-  const watermark = document.getElementById("watermark-resumen");
-  if (!contador || !ciclo || !watermark) return;
+  if (!contador || !ciclo) return;
 
   function pintarBadge(nodo, texto, etiqueta) {
     if (!nodo) return;
@@ -61,10 +60,8 @@ document.addEventListener("DOMContentLoaded", function () {
     badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, n, etiqueta); });
 
     ciclo.replaceChildren();
-    const marcas = [];
     Object.entries(datos.plataformas || {}).forEach(([plataforma, salud]) => {
       const nombre = plataforma === "amazon_mx" ? "MX" : "US";
-      marcas.push(nombre + ": " + (salud.watermark || "sin datos"));
       const linea = document.createElement("div");
       const ultimo = salud.ultimo_ciclo;
       if (!ultimo) linea.textContent = nombre + " · sin ciclo";
@@ -80,13 +77,11 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       ciclo.append(linea);
     });
-    watermark.textContent = "Cifras hasta · " + marcas.join(" · ");
   }).catch(() => {
     const etiqueta = "Propuestas: no se pudo consultar";
     pintarBadge(contador, "—", etiqueta);
     badges("propuestas").forEach(function (nodo) { pintarBadge(nodo, "—", etiqueta); });
     ciclo.textContent = "No se pudo consultar";
-    watermark.textContent = "Cifras hasta: no disponible";
   });
 
   // Contador de alertas de reputacion: el badge es aviso de accion, solo
