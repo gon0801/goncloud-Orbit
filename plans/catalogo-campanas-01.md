@@ -1,6 +1,6 @@
 # ORBIT 19 — Plan formal de catalogo abierto y evaluacion
 
-> **Revisión 4-nov-2026:** núcleo cerrado; conciliación de 0.3, cobertura y Featured Offer en este consumidor siguen en ROADMAP P09. La sonda de creación diferida en el cierre original se realizó después en FABRICA 01 (9-sep). El estado del registro y la secuencia de planes al pie son históricos.
+> **Cierre completo 28-nov-2026 UTC (P09):** núcleo cerrado el 8-sep y residuales P09 cerrados el 28-nov-2026 UTC — conciliación `0.3` demostrada por desfase de `observed_at` y cuadro maduro actual `30/30` exacto en MX y US, cobertura solo-actividad registrada (`252/342` MX y `96/176` US en 30d), y Oferta destacada (`spapi_pricing`) + stock FBA vendible fresco (`spapi_inventario` con `details=true`, solo `fulfillable_quantity`) conectados en Fábrica (PR `#804`, `41958d1e`) y verificados en vivo en `goncloud`. Acta: `docs/evidencia/orbit-19/cierre-p09-2026-11-27.md`. La sonda de creación diferida en el cierre original se realizó después en FABRICA 01 (9-sep). El estado del registro y la secuencia de planes al pie son históricos.
 
 Version: 1.5, 2026-09-08 UTC. Sincronizacion de cierre tras merge y deploy.
 Estado: **CERRADO (nucleo 0/A/B)**. PR #195 integrado y desplegado en
